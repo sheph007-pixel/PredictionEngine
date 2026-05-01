@@ -45,6 +45,13 @@ export const BUYERS = [
     offices: "570+",
     ownership: "PE-backed",
     sponsor: "H&F",
+    sources: {
+      ownership: {
+        kind: 'manual',
+        label: 'Sponsor name from Reagan list 4/30/26',
+        note: 'Source URL pending — verify against sponsor press release or Pitchbook profile',
+      },
+    },
     type: "National consolidator",
     stage: "nda",
     nda_signed: "2026-05-04",
@@ -65,6 +72,13 @@ export const BUYERS = [
     offices: "100+",
     ownership: "PE-backed",
     sponsor: "Stone Point",
+    sources: {
+      ownership: {
+        kind: 'manual',
+        label: 'Sponsor name from Reagan list 4/30/26',
+        note: 'Source URL pending — verify against sponsor press release or Pitchbook profile',
+      },
+    },
     type: "Diversified broker",
     stage: "nda",
     nda_signed: "2026-05-06",
@@ -124,6 +138,13 @@ export const BUYERS = [
     offices: "125",
     ownership: "PE-backed",
     sponsor: "Onex / New Mountain",
+    sources: {
+      ownership: {
+        kind: 'manual',
+        label: 'Sponsor name from Reagan list 4/30/26',
+        note: 'Source URL pending — verify against sponsor press release or Pitchbook profile',
+      },
+    },
     type: "Pure benefits",
     stage: "chemistry",
     nda_signed: "2026-05-02",
@@ -145,6 +166,13 @@ export const BUYERS = [
     offices: "Multiple",
     ownership: "PE-backed",
     sponsor: "New Mountain",
+    sources: {
+      ownership: {
+        kind: 'manual',
+        label: 'Sponsor name from Reagan list 4/30/26',
+        note: 'Source URL pending — verify against sponsor press release or Pitchbook profile',
+      },
+    },
     type: "Diversified broker",
     stage: "nda",
     nda_signed: "2026-05-07",
@@ -165,6 +193,13 @@ export const BUYERS = [
     offices: "140+",
     ownership: "PE-backed",
     sponsor: "Stone Point",
+    sources: {
+      ownership: {
+        kind: 'manual',
+        label: 'Sponsor name from Reagan list 4/30/26',
+        note: 'Source URL pending — verify against sponsor press release or Pitchbook profile',
+      },
+    },
     type: "Mostly P&C",
     stage: "outreach",
     notes: "Hunter add. Mostly P&C. Declined twice informally — retry through formal Reagan process.",
@@ -223,6 +258,13 @@ export const BUYERS = [
     offices: "10",
     ownership: "PE-backed",
     sponsor: "Truelink",
+    sources: {
+      ownership: {
+        kind: 'manual',
+        label: 'Sponsor name from Reagan list 4/30/26',
+        note: 'Source URL pending — verify against sponsor press release or Pitchbook profile',
+      },
+    },
     type: "Captive distributor",
     stage: "nda",
     nda_signed: "2026-05-08",
@@ -243,6 +285,13 @@ export const BUYERS = [
     offices: "30",
     ownership: "PE-backed",
     sponsor: "—",
+    sources: {
+      ownership: {
+        kind: 'manual',
+        label: 'PE-backed per Reagan list 4/30/26',
+        note: 'Sponsor not yet identified — confirm with Reagan',
+      },
+    },
     type: "Southeast regional",
     stage: "outreach",
     notes: "PE-backed Southeast regional. Limited national distribution. Local proximity to Atlanta.",

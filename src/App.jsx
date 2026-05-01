@@ -57,6 +57,7 @@ export default function App() {
   const [marketMeta, setMarketMeta] = usePersistedState('marketMeta', 'AI · sector deal flow + public comp drift · 2 min ago');
 
   const [openId, setOpenId] = useState(null);
+  const [openIntent, setOpenIntent] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
@@ -159,6 +160,12 @@ export default function App() {
     setBuyers(bs => bs.filter(b => b.id !== id));
     setOpenId(null);
   };
+  const openBuyer = (id, intent = null) => { setOpenId(id); setOpenIntent(intent); };
+  const setBuyerSource = (id, field, record) => {
+    setBuyers(bs => bs.map(b => b.id === id
+      ? { ...b, sources: { ...(b.sources || {}), [field]: { ...record, verified_at: new Date().toISOString(), verified_by: 'user' } } }
+      : b));
+  };
 
   const winnerData = winnerProbabilities(buyers, ebitda, caseMode);
   const ordered = [...buyers].sort((a, b) => {
@@ -215,7 +222,8 @@ export default function App() {
               buyer={b}
               displayRank={i + 1}
               selected={b.id === openId}
-              onSelect={() => setOpenId(b.id)}
+              onSelect={() => openBuyer(b.id)}
+              onOpenSources={() => openBuyer(b.id, 'sources')}
               onAdvance={advance}
               onDrop={drop}
               ebitda={ebitda}
@@ -253,16 +261,19 @@ export default function App() {
       {open && (
         <BuyerModal
           buyer={open}
-          onClose={() => setOpenId(null)}
+          onClose={() => { setOpenId(null); setOpenIntent(null); }}
           onAdvance={advance}
           onDrop={drop}
           onDelete={deleteBuyer}
           onUpdateNotes={updateNotes}
           onAdjustMultiple={adjustMultiple}
           onRescanBuyer={rescanOne}
+          onSetBuyerSource={setBuyerSource}
           ebitda={ebitda}
           caseMode={caseMode}
           market={market}
+          docs={docs}
+          openIntent={openIntent}
         />
       )}
 

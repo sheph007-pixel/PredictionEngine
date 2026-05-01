@@ -657,17 +657,32 @@ Be realistic. Match the format of existing peers in the pipeline.`;
 }
 
 // ---------- buyer row ----------
-export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, displayRank, ebitda, caseMode, winnerPct, winnerDeltaPct, market }) {
+export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, onOpenSources, displayRank, ebitda, caseMode, winnerPct, winnerDeltaPct, market }) {
   const stageIdx = STAGE_INDEX[buyer.stage];
   const isDropped = buyer.stage === "dropped";
   const v = valuationFor(buyer, ebitda, caseMode, market);
   const showProb = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
 
+  const ownershipSrc = buyer.sources?.ownership;
+  const peUnverified = !ownershipSrc || (ownershipSrc.kind === 'manual' && !ownershipSrc.url && !ownershipSrc.file_id);
+
   return (
     <div className={"row" + (selected ? " row-selected" : "") + (isDropped ? " row-passed" : "")} onClick={onSelect}>
       <div className="row-rank">{isDropped ? "—" : String(displayRank).padStart(2, "0")}</div>
       <div className="row-name">
-        <div className="row-name-main">{buyer.name}</div>
+        <div className="row-name-main">
+          {buyer.name}
+          {buyer.ownership === 'PE-backed' && (
+            <button
+              type="button"
+              className={"pe-tag" + (peUnverified ? " pe-tag-unverified" : "")}
+              onClick={(e) => { e.stopPropagation(); onOpenSources && onOpenSources(); }}
+              title={peUnverified ? 'PE-backed · source unverified — click to view/add' : 'PE-backed · click to view source'}
+            >
+              PE{buyer.sponsor && buyer.sponsor !== '—' ? ` · ${buyer.sponsor}` : ''}
+            </button>
+          )}
+        </div>
         <div className="row-name-sub">{buyer.hq}</div>
         {!isDropped && buyer.thesis && (
           <div className="row-name-thesis">{quickThesis(buyer.thesis)}</div>
@@ -710,8 +725,75 @@ export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, display
   );
 }
 
+// ---------- source verification ----------
+function SourceChip({ source, docs }) {
+  if (!source) return <span className="src-chip src-chip-unverified">Unverified — no source on file</span>;
+  if (source.kind === 'url') return (
+    <a className="src-chip src-chip-url" href={source.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+      {source.label || source.url} ↗
+    </a>
+  );
+  if (source.kind === 'file') {
+    const doc = docs?.find(d => d.id === source.file_id);
+    return <span className="src-chip src-chip-file" title={doc?.classification?.title || ''}>{doc?.filename || source.label}</span>;
+  }
+  if (source.kind === 'manual') return <span className="src-chip src-chip-manual" title={source.note || ''}>{source.label}</span>;
+  if (source.kind === 'ai_inferred') return <span className="src-chip src-chip-unverified">AI inferred — verify</span>;
+  return null;
+}
+
+function SourceRow({ field, value, source, docs, onAddSource }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const isPlaceholder = !source || (source.kind === 'manual' && !source.url && !source.file_id);
+
+  const save = () => {
+    const trimmed = draft.trim();
+    if (!trimmed) return;
+    let host;
+    try { host = new URL(trimmed).hostname; } catch { return; }
+    onAddSource({ kind: 'url', label: host, url: trimmed });
+    setEditing(false);
+    setDraft('');
+  };
+
+  return (
+    <div className="source-row">
+      <div className="source-row-head">
+        <span className="source-row-field">{field}</span>
+        <span className="source-row-value">{value}</span>
+      </div>
+      <div className="source-row-body">
+        <SourceChip source={source} docs={docs} />
+        {source?.verified_at && (
+          <span className="source-row-meta">
+            Verified {new Date(source.verified_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{source.verified_by ? ` · ${source.verified_by}` : ''}
+          </span>
+        )}
+        {isPlaceholder && !editing && (
+          <button className="source-row-add" onClick={() => setEditing(true)}>+ add URL</button>
+        )}
+        {editing && (
+          <div className="source-row-edit">
+            <input
+              autoFocus
+              type="url"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="https://…"
+              onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setEditing(false); setDraft(''); } }}
+            />
+            <button className="btn-mini" onClick={save}>Save</button>
+            <button className="btn-mini" onClick={() => { setEditing(false); setDraft(''); }}>Cancel</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------- buyer modal ----------
-export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpdateNotes, onAdjustMultiple, onRescanBuyer, ebitda, caseMode, market }) {
+export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpdateNotes, onAdjustMultiple, onRescanBuyer, ebitda, caseMode, market, docs, openIntent, onSetBuyerSource }) {
   if (!buyer) return null;
   const isDropped = buyer.stage === "dropped";
   const prob = isDropped ? 0 : probabilityFor(buyer);
@@ -721,6 +803,7 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
   const [pending, setPending] = useState(false);
   const [aiInsight, setAiInsight] = useState(null);
   const [aiError, setAiError] = useState(null);
+  const sourcesRef = useRef(null);
   useEffect(() => { setDraft(buyer.notes); setAiInsight(null); setAiError(null); }, [buyer.id]);
 
   useEffect(() => {
@@ -728,6 +811,12 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  useEffect(() => {
+    if (openIntent === 'sources' && sourcesRef.current) {
+      sourcesRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [openIntent, buyer.id]);
 
   // Submit field intel and trigger a real per-buyer rescan. The note is
   // persisted first so the rescan reads the freshest version. The AI's
@@ -862,6 +951,17 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
                 ))}
               </div>
               {isDropped && <div className="dropped-banner">Dropped from process</div>}
+            </div>
+
+            <div className="modal-card modal-card-sources" ref={sourcesRef}>
+              <div className="modal-card-label">Sources & Verification</div>
+              <SourceRow
+                field="Ownership"
+                value={`${buyer.ownership}${buyer.sponsor && buyer.sponsor !== '—' ? ' · ' + buyer.sponsor : ''}`}
+                source={buyer.sources?.ownership}
+                docs={docs}
+                onAddSource={(record) => onSetBuyerSource && onSetBuyerSource(buyer.id, 'ownership', record)}
+              />
             </div>
 
             <div className="modal-card modal-card-notes">
