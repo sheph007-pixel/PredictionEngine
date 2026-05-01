@@ -6,6 +6,7 @@ import {
 } from './components.jsx';
 import { TweaksPanel, TweakSection, TweakToggle, useTweaks } from './TweaksPanel.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
+import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
 
 const TWEAK_DEFAULTS = { darkMode: false };
 const STATE_KEY = 'kennion.state.v1';
@@ -51,16 +52,69 @@ export default function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [docs, setDocs] = useLibrary();
+  const [rescanError, setRescanError] = useState(null);
 
-  const refreshMarket = () => {
-    const jitter = () => (Math.random() - 0.5) * 0.6;
-    setMarket(m => ({
-      conservative: { ...m.conservative, low: +(Math.max(7,  m.conservative.low  + jitter())).toFixed(1), high: +(Math.max(8,  m.conservative.high + jitter())).toFixed(1) },
-      mid:          { ...m.mid,          low: +(Math.max(9,  m.mid.low           + jitter())).toFixed(1), high: +(Math.max(10, m.mid.high          + jitter())).toFixed(1) },
-      aggressive:   { ...m.aggressive,   low: +(Math.max(12, m.aggressive.low    + jitter())).toFixed(1), high: +(Math.max(13, m.aggressive.high   + jitter())).toFixed(1) },
-    }));
-    const newCount = 12 + Math.floor(Math.random() * 3);
-    setMarketMeta(`AI · scanned ${newCount} fresh signals · just now`);
+  const fileIds = docs.filter(d => !d.classifying).map(d => d.id);
+
+  // Real pipeline-wide re-evaluation. Sends every non-dropped buyer + every
+  // attached document + prior market bands to the AI, validates the response,
+  // then merges new multiples / probabilities / fit / thesis into state.
+  const rescanAll = async () => {
+    setRescanError(null);
+    try {
+      const result = await rescanPipeline({
+        buyers,
+        ebitda,
+        fileIds,
+        priorMarket: market,
+      });
+      setBuyers(bs => applyRescanToBuyers(bs, result));
+      setMarket(result.market);
+      setMarketMeta(fmtMetaFromRescan(result, result.buyers.length));
+      return result;
+    } catch (e) {
+      setRescanError(e.message);
+      throw e;
+    }
+  };
+
+  // Per-buyer rescan — used by note submission and doc-tagged updates.
+  const rescanOne = async (buyerId) => {
+    setRescanError(null);
+    try {
+      const result = await rescanBuyer({
+        buyers,
+        ebitda,
+        fileIds,
+        priorMarket: market,
+        buyerId,
+      });
+      setBuyers(bs => applyRescanToBuyers(bs, result));
+      return result;
+    } catch (e) {
+      setRescanError(e.message);
+      throw e;
+    }
+  };
+
+  const rescanMany = async (buyerIds) => {
+    if (!buyerIds || buyerIds.length === 0) return;
+    setRescanError(null);
+    try {
+      const result = await rescanBuyers({
+        buyers,
+        ebitda,
+        fileIds,
+        priorMarket: market,
+        buyerIds,
+      });
+      setBuyers(result.buyers);
+      setMarketMeta(fmtMetaFromRescan(result, buyerIds.length));
+      return result;
+    } catch (e) {
+      setRescanError(e.message);
+      throw e;
+    }
   };
 
   useEffect(() => {
@@ -116,7 +170,8 @@ export default function App() {
           <SystemBar
             ebitda={ebitda} onEbitda={setEbitda}
             caseMode={caseMode} onCase={setCaseMode}
-            market={market} marketMeta={marketMeta} onRescan={refreshMarket}
+            market={market} marketMeta={marketMeta} onRescan={rescanAll}
+            rescanError={rescanError}
           />
         </div>
       </div>
@@ -195,6 +250,7 @@ export default function App() {
           onDelete={deleteBuyer}
           onUpdateNotes={updateNotes}
           onAdjustMultiple={adjustMultiple}
+          onRescanBuyer={rescanOne}
           ebitda={ebitda}
           caseMode={caseMode}
         />
@@ -214,6 +270,7 @@ export default function App() {
           setDocs={setDocs}
           buyers={buyers}
           onClose={() => setShowLibrary(false)}
+          onRescanBuyers={rescanMany}
         />
       )}
 

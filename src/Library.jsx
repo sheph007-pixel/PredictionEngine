@@ -30,10 +30,11 @@ const DOC_TYPE_LABELS = {
   other: 'Doc',
 };
 
-export function LibraryModal({ docs, setDocs, buyers, onClose }) {
+export function LibraryModal({ docs, setDocs, buyers, onClose, onRescanBuyers }) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState(null);
+  const [rescanStatus, setRescanStatus] = useState(null);
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -57,14 +58,31 @@ export function LibraryModal({ docs, setDocs, buyers, onClose }) {
       }));
       setDocs(d => [...pending, ...d]);
 
-      await Promise.all(uploaded.map(async (u) => {
+      const classifications = await Promise.all(uploaded.map(async (u) => {
         try {
           const cls = await classifyFile({ fileId: u.id, filename: u.filename, buyers });
           setDocs(d => d.map(doc => doc.id === u.id ? { ...doc, classification: cls, classifying: false } : doc));
+          return cls;
         } catch (e) {
           setDocs(d => d.map(doc => doc.id === u.id ? { ...doc, classifying: false, classification: { doc_type: 'other', title: u.filename, summary: 'Classification failed.', associated_buyers: [], key_points: [] } } : doc));
+          return null;
         }
       }));
+
+      // Any buyers tagged in any uploaded doc → trigger AI rescore so the
+      // new evidence flows into multiples / probability / fit / thesis.
+      const tagged = new Set();
+      classifications.forEach(c => (c?.associated_buyers || []).forEach(id => tagged.add(id)));
+      const buyerIds = [...tagged].filter(id => buyers.some(b => b.id === id));
+      if (buyerIds.length > 0 && onRescanBuyers) {
+        setRescanStatus(`AI re-scoring ${buyerIds.length} buyer${buyerIds.length === 1 ? '' : 's'} from new evidence…`);
+        try {
+          await onRescanBuyers(buyerIds);
+          setRescanStatus(`Re-scored ${buyerIds.length} buyer${buyerIds.length === 1 ? '' : 's'} from new docs.`);
+        } catch (e) {
+          setRescanStatus(`Re-score failed: ${e.message}`);
+        }
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -129,6 +147,22 @@ export function LibraryModal({ docs, setDocs, buyers, onClose }) {
 
         {error && (
           <div className="add-error" style={{ marginBottom: 12 }}>{error}</div>
+        )}
+
+        {rescanStatus && (
+          <div style={{
+            marginBottom: 12,
+            padding: '10px 14px',
+            background: 'var(--accent-soft)',
+            border: '1px solid var(--accent)',
+            borderRadius: 4,
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            letterSpacing: '0.04em',
+            color: 'var(--ink)',
+          }}>
+            {rescanStatus}
+          </div>
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

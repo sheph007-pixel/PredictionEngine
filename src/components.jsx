@@ -286,10 +286,11 @@ const MARKET_MULTIPLES_SEED = {
 };
 
 // ---------- system bar ----------
-export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMeta, onRescan }) {
+export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMeta, onRescan, rescanError }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(ebitda));
   const [refreshing, setRefreshing] = useState(false);
+  const [localErr, setLocalErr] = useState(null);
   useEffect(() => setDraft(String(ebitda)), [ebitda]);
 
   const mult = market || MARKET_MULTIPLES_SEED;
@@ -303,12 +304,19 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
   };
 
   const rescan = async () => {
-    if (refreshing) return;
+    if (refreshing || !onRescan) return;
     setRefreshing(true);
-    await new Promise(r => setTimeout(r, 1400));
-    onRescan && onRescan();
-    setRefreshing(false);
+    setLocalErr(null);
+    try {
+      await onRescan();
+    } catch (e) {
+      setLocalErr(e.message || 'Re-scan failed');
+    } finally {
+      setRefreshing(false);
+    }
   };
+
+  const errorMsg = localErr || rescanError;
 
   return (
     <div className="sysbar">
@@ -349,16 +357,21 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
         )}
       </div>
       <div className="sysbar-divider"></div>
-      <button className={"sysbar-rescan" + (refreshing ? " refreshing" : "")} onClick={rescan} disabled={refreshing} title={marketMeta || "Re-scan market signals + buyer activity"}>
+      <button
+        className={"sysbar-rescan" + (refreshing ? " refreshing" : "") + (errorMsg ? " err" : "")}
+        onClick={rescan}
+        disabled={refreshing}
+        title={errorMsg ? `Re-scan failed: ${errorMsg}` : (marketMeta || "Re-score every buyer + market bands using AI on full evidence (notes, docs, prior reasoning)")}
+      >
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="23 4 23 10 17 10"/>
           <polyline points="1 20 1 14 7 14"/>
           <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
         </svg>
-        {refreshing ? "Re-scanning…" : "Re-scan"}
+        {refreshing ? "Re-scanning…" : errorMsg ? "Retry re-scan" : "Re-scan"}
       </button>
-      <div className="sysbar-live" title="AI auto-scans every 15 min in background">
-        <span className="live-dot"></span>
+      <div className="sysbar-live" title={marketMeta || "Last AI re-scan"}>
+        <span className={"live-dot" + (errorMsg ? " live-dot-err" : "")}></span>
       </div>
     </div>
   );
@@ -667,7 +680,7 @@ export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, display
 }
 
 // ---------- buyer modal ----------
-export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpdateNotes, onAdjustMultiple, ebitda, caseMode }) {
+export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpdateNotes, onAdjustMultiple, onRescanBuyer, ebitda, caseMode }) {
   if (!buyer) return null;
   const isDropped = buyer.stage === "dropped";
   const prob = isDropped ? 0 : probabilityFor(buyer);
@@ -676,7 +689,8 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
   const [draft, setDraft] = useState(buyer.notes);
   const [pending, setPending] = useState(false);
   const [aiInsight, setAiInsight] = useState(null);
-  useEffect(() => { setDraft(buyer.notes); setAiInsight(null); }, [buyer.id]);
+  const [aiError, setAiError] = useState(null);
+  useEffect(() => { setDraft(buyer.notes); setAiInsight(null); setAiError(null); }, [buyer.id]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -684,17 +698,25 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Submit field intel and trigger a real per-buyer rescan. The note is
+  // persisted first so the rescan reads the freshest version. The AI's
+  // reasoning + citations come back inline; numeric updates apply globally.
   const submitNotes = async () => {
     if (!draft.trim() || pending) return;
     setPending(true);
+    setAiError(null);
     onUpdateNotes(buyer.id, draft);
-    const sys = `You are the Kennion Prediction Engine's AI. The user just logged new field intelligence about ${buyer.name}. In 2 short bullets, summarize how this update changes your view (probability, multiple, or risk). Be concrete. Reference the note specifically. No headers, no markdown — just two lines starting with "→".`;
-    const prompt = `${sys}\n\nBuyer: ${buyer.name} (${buyer.hq}, ${buyer.ownership}, stage=${buyer.stage}, current p=${prob}%)\nThesis: ${buyer.thesis}\n\nUser note: ${draft}`;
+    if (!onRescanBuyer) {
+      setAiInsight("→ Re-scan unavailable — note saved.");
+      setPending(false);
+      return;
+    }
     try {
-      const reply = await claudeComplete(prompt);
-      setAiInsight(reply);
-    } catch {
-      setAiInsight("→ AI unavailable — note saved.");
+      const result = await onRescanBuyer(buyer.id);
+      const updated = result?.buyers?.[0];
+      setAiInsight(updated?.reasoning || result?.summary || "→ Re-scored.");
+    } catch (e) {
+      setAiError(e.message || "Re-scan failed");
     } finally {
       setPending(false);
     }
@@ -798,8 +820,21 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
               </div>
               {aiInsight && (
                 <div className="notes-insight">
-                  <div className="notes-insight-tag">AI · updated</div>
+                  <div className="notes-insight-tag">AI · re-scored</div>
                   <div className="notes-insight-text">{aiInsight}</div>
+                  {Array.isArray(buyer.aiCitations) && buyer.aiCitations.length > 0 && (
+                    <div className="notes-insight-cites">
+                      {buyer.aiCitations.slice(0, 4).map((c, i) => (
+                        <span key={i} className="notes-insight-cite">{c}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {aiError && (
+                <div className="notes-insight notes-insight-err">
+                  <div className="notes-insight-tag">Re-scan failed</div>
+                  <div className="notes-insight-text">{aiError}</div>
                 </div>
               )}
             </div>
@@ -814,6 +849,11 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
           {buyer.flags?.length > 0 && (
             <div className="modal-foot-flags">
               {buyer.flags.map((f, i) => <div key={i} className="flag">{f}</div>)}
+            </div>
+          )}
+          {buyer.lastAnalyzed && (
+            <div className="modal-foot-meta">
+              AI re-scored {new Date(buyer.lastAnalyzed).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
             </div>
           )}
         </div>
