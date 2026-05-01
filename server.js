@@ -1,4 +1,6 @@
 import express from 'express';
+import { File as BufferFile } from 'node:buffer';
+if (typeof globalThis.File === 'undefined') globalThis.File = BufferFile;
 import Anthropic, { toFile } from '@anthropic-ai/sdk';
 import multer from 'multer';
 import { fileURLToPath } from 'url';
