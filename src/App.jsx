@@ -5,24 +5,52 @@ import {
   AddBuyerForm, AIChat, winnerProbabilities,
 } from './components.jsx';
 import { TweaksPanel, TweakSection, TweakToggle, useTweaks } from './TweaksPanel.jsx';
+import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 
 const TWEAK_DEFAULTS = { darkMode: false };
+const STATE_KEY = 'kennion.state.v1';
+
+const DEFAULT_MARKET = {
+  conservative: { low: 8.5,  high: 10.5, label: 'Conservative', note: 'Bear case · soft market' },
+  mid:          { low: 11.0, high: 13.0, label: 'Realistic',     note: 'Base case · current signals' },
+  aggressive:   { low: 13.5, high: 15.5, label: 'Aggressive',    note: 'Bull case · strategic premium' },
+};
+
+function loadState() {
+  try {
+    const saved = localStorage.getItem(STATE_KEY);
+    if (!saved) return null;
+    return JSON.parse(saved);
+  } catch { return null; }
+}
+
+function usePersistedState(key, initial) {
+  const saved = loadState();
+  const [value, setValue] = useState(saved?.[key] !== undefined ? saved[key] : initial);
+  useEffect(() => {
+    try {
+      const current = loadState() || {};
+      current[key] = value;
+      localStorage.setItem(STATE_KEY, JSON.stringify(current));
+    } catch {}
+  }, [key, value]);
+  return [value, setValue];
+}
 
 export default function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [buyers, setBuyers] = useState(BUYERS);
-  const [process, setProcess] = useState(PROCESS_DEFAULT);
+  const [buyers, setBuyers] = usePersistedState('buyers', BUYERS);
+  const [process, setProcess] = usePersistedState('process', PROCESS_DEFAULT);
+  const [ebitda, setEbitda] = usePersistedState('ebitda', 18);
+  const [caseMode, setCaseMode] = usePersistedState('caseMode', 'mid');
+  const [market, setMarket] = usePersistedState('market', DEFAULT_MARKET);
+  const [marketMeta, setMarketMeta] = usePersistedState('marketMeta', 'AI · sector deal flow + public comp drift · 2 min ago');
+
   const [openId, setOpenId] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [ebitda, setEbitda] = useState(18);
-  const [caseMode, setCaseMode] = useState("mid");
-  const [market, setMarket] = useState({
-    conservative: { low: 8.5,  high: 10.5, label: "Conservative", note: "Bear case · soft market" },
-    mid:          { low: 11.0, high: 13.0, label: "Realistic",     note: "Base case · current signals" },
-    aggressive:   { low: 13.5, high: 15.5, label: "Aggressive",    note: "Bull case · strategic premium" },
-  });
-  const [marketMeta, setMarketMeta] = useState("AI · sector deal flow + public comp drift · 2 min ago");
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [docs, setDocs] = useLibrary();
 
   const refreshMarket = () => {
     const jitter = () => (Math.random() - 0.5) * 0.6;
@@ -36,7 +64,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    document.body.classList.toggle("dark", !!tweaks.darkMode);
+    document.body.classList.toggle('dark', !!tweaks.darkMode);
   }, [tweaks.darkMode]);
 
   const open = buyers.find(b => b.id === openId);
@@ -50,7 +78,7 @@ export default function App() {
     }));
   };
   const drop = (id) => {
-    setBuyers(bs => bs.map(b => b.id === id ? { ...b, stage: "dropped" } : b));
+    setBuyers(bs => bs.map(b => b.id === id ? { ...b, stage: 'dropped' } : b));
   };
   const adjustMultiple = (id, delta) => {
     setBuyers(bs => bs.map(b => b.id === id ? { ...b, multipleAdj: (b.multipleAdj || 0) + delta } : b));
@@ -64,15 +92,15 @@ export default function App() {
     setOpenId(newBuyer.id);
   };
   const deleteBuyer = (id) => {
-    if (!window.confirm("Permanently delete this buyer from the pipeline? This cannot be undone.")) return;
+    if (!window.confirm('Permanently delete this buyer from the pipeline? This cannot be undone.')) return;
     setBuyers(bs => bs.filter(b => b.id !== id));
     setOpenId(null);
   };
 
   const winnerData = winnerProbabilities(buyers, ebitda, caseMode);
   const ordered = [...buyers].sort((a, b) => {
-    if (a.stage === "dropped" && b.stage !== "dropped") return 1;
-    if (b.stage === "dropped" && a.stage !== "dropped") return -1;
+    if (a.stage === 'dropped' && b.stage !== 'dropped') return 1;
+    if (b.stage === 'dropped' && a.stage !== 'dropped') return -1;
     return (winnerData.winnerByBuyer[b.id] || 0) - (winnerData.winnerByBuyer[a.id] || 0);
   });
 
@@ -83,11 +111,14 @@ export default function App() {
           <div className="brand-mark">Prediction <span className="accent">Engine</span></div>
           <div className="brand-tag">Kennion · Project Beacon · Confidential</div>
         </div>
-        <SystemBar
-          ebitda={ebitda} onEbitda={setEbitda}
-          caseMode={caseMode} onCase={setCaseMode}
-          market={market} marketMeta={marketMeta} onRescan={refreshMarket}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <LibraryButton count={docs.length} onClick={() => setShowLibrary(true)} />
+          <SystemBar
+            ebitda={ebitda} onEbitda={setEbitda}
+            caseMode={caseMode} onCase={setCaseMode}
+            market={market} marketMeta={marketMeta} onRescan={refreshMarket}
+          />
+        </div>
       </div>
 
       <HeroKPIs buyers={buyers} process={process} ebitda={ebitda} caseMode={caseMode} market={market} />
@@ -140,7 +171,7 @@ export default function App() {
             <div className="row-deal"><div className="row-deal-out">— —</div></div>
             <div className="row-prob">
               <div className="prob-bar">
-                <div className="prob-bar-fill prob-bar-nodeal" style={{ width: winnerData.noDealPct + "%" }}></div>
+                <div className="prob-bar-fill prob-bar-nodeal" style={{ width: winnerData.noDealPct + '%' }}></div>
               </div>
               <div className="prob-num row-nodeal-num">{winnerData.noDealPct}<span>%</span></div>
             </div>
@@ -177,11 +208,26 @@ export default function App() {
         />
       )}
 
-      <AIChat buyers={buyers} setBuyers={setBuyers} open={aiOpen} onToggle={() => setAiOpen(!aiOpen)} />
+      {showLibrary && (
+        <LibraryModal
+          docs={docs}
+          setDocs={setDocs}
+          buyers={buyers}
+          onClose={() => setShowLibrary(false)}
+        />
+      )}
+
+      <AIChat
+        buyers={buyers}
+        setBuyers={setBuyers}
+        fileIds={docs.map(d => d.id)}
+        open={aiOpen}
+        onToggle={() => setAiOpen(!aiOpen)}
+      />
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="Display">
-          <TweakToggle label="Dark mode" value={tweaks.darkMode} onChange={(v) => setTweak("darkMode", v)} />
+          <TweakToggle label="Dark mode" value={tweaks.darkMode} onChange={(v) => setTweak('darkMode', v)} />
         </TweakSection>
       </TweaksPanel>
     </div>

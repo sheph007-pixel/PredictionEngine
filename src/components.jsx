@@ -866,7 +866,7 @@ const AI_TOOLS = [
   },
 ];
 
-export function AIChat({ buyers, setBuyers, open, onToggle, alwaysOpen }) {
+export function AIChat({ buyers, setBuyers, fileIds, open, onToggle, alwaysOpen }) {
   const [messages, setMessages] = useState(() => {
     try {
       const saved = localStorage.getItem(CHAT_STORAGE_KEY);
@@ -932,6 +932,9 @@ export function AIChat({ buyers, setBuyers, open, onToggle, alwaysOpen }) {
   const buildSystem = () => {
     const ranked = [...buyersRef.current].sort((a, b) => probabilityFor(b) - probabilityFor(a));
     const ctx = ranked.map(b => `- id="${b.id}" · ${b.name} (${b.hq}, ${b.revenue}, ${b.ownership}${b.sponsor !== "—" ? "/" + b.sponsor : ""}, stage=${b.stage}, p=${probabilityFor(b)}%) — ${b.thesis}`).join("\n");
+    const docNote = fileIds && fileIds.length > 0
+      ? `\n\nThe user has uploaded ${fileIds.length} document${fileIds.length === 1 ? '' : 's'} to the library (CIM, LOIs, buyer emails, analysis, etc.) which are attached to this conversation. Reference them when relevant — quote specifics, cite which doc.`
+      : '';
     return `You are the AI analyst inside the Kennion Prediction Engine — a private deal-tracking workspace for Kennion's sale of its Benefits Program, advised by Reagan Consulting. Be concise, opinionated, and specific. Reference buyers by name. Keep text responses under 90 words. No headers, no markdown.
 
 You have tools to mutate the pipeline state. When the user asks you to update, advance, drop, set stages, log notes, or change probabilities — actually call the tools instead of just describing what you would do. After tool calls succeed, briefly confirm what changed.
@@ -939,7 +942,7 @@ You have tools to mutate the pipeline state. When the user asks you to update, a
 Stages, in order: outreach → nda → chemistry → loi → closed. "dropped" is the kill state.
 
 Current pipeline (use these exact buyer ids when calling tools):
-${ctx}`;
+${ctx}${docNote}`;
   };
 
   const send = async (presetQ) => {
@@ -961,7 +964,7 @@ ${ctx}`;
       // Tool-use loop: keep calling until model returns a non-tool stop_reason.
       for (let i = 0; i < 6; i++) {
         const apiMessages = history.map(m => ({ role: m.role, content: m.content }));
-        const resp = await claudeChat({ messages: apiMessages, system, tools: AI_TOOLS });
+        const resp = await claudeChat({ messages: apiMessages, system, tools: AI_TOOLS, fileIds });
 
         const assistantMsg = { role: "assistant", content: resp.content };
         history = [...history, assistantMsg];
