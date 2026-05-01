@@ -165,5 +165,6 @@ export async function rescanBuyers({ buyers, ebitda, fileIds, priorMarket, buyer
 
 export function fmtMetaFromRescan(rescan, n) {
   const t = new Date(rescan.ts || Date.now()).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  return `AI · re-scored ${n} buyer${n === 1 ? '' : 's'} · ${t}`;
+  const intel = rescan.live_intel_used ? ' · live web intel' : '';
+  return `AI · re-scored ${n} buyer${n === 1 ? '' : 's'}${intel} · ${t}`;
 }

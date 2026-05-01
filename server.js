@@ -3,6 +3,7 @@ if (typeof globalThis.File === 'undefined') globalThis.File = BufferFile;
 
 import express from 'express';
 import Anthropic, { toFile } from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import multer from 'multer';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -16,6 +17,12 @@ app.use(express.json({ limit: '8mb' }));
 const client = new Anthropic();
 const MODEL = 'claude-opus-4-7';
 const FILES_BETA = 'files-api-2025-04-14';
+
+// OpenAI is used ONLY for live web search before each rescan, feeding fresh
+// market intel into Claude's context. Optional — if OPENAI_API_KEY is missing
+// or the call fails, rescan still runs without live intel (graceful fallback).
+const openai = process.env.OPENAI_API_KEY ? new OpenAI() : null;
+const LIVE_INTEL_MODEL = 'gpt-4o';
 
 const RESCAN_SYSTEM_PROMPT = `You are the Kennion Prediction Engine — a senior M&A advisor's AI co-pilot for the sell-side process of Kennion's Benefits Program (a captive-style benefits brokerage at ~$18M EBITDA, advised by Reagan Consulting, currently in the Spring 2026 sale process).
 
@@ -34,6 +41,13 @@ ${precedentSummary()}
 
 # Citation requirement
 Every buyer's reasoning MUST cite at least one precedent id from the table above (or a public comp ticker like "BRO"). The cited_precedents array lists which ids you anchored on. Do NOT invent deals not in the table — if a deal is missing, say so and the user will add it.
+
+# Live web intel (when present)
+If the user message includes a "Live web intel" section, that's fresh data fetched via OpenAI web search at the time of this rescan. It may contain summarization errors — treat it as a HINT to investigate further, not as ground truth.
+- When you cite a fact from live intel, quote the source URL verbatim ("per <url>"). Do not paraphrase URLs.
+- If live intel reports a NEW precedent transaction not in the table above, mention it in the rationales section but do NOT add it to cited_precedents (only the user-curated table is authoritative there). Suggest adding it in your summary.
+- If live intel contradicts a precedent in the table, flag the discrepancy in your summary so the user can update the table.
+- If live intel is absent or empty, fall back to the curated precedent table only.
 
 # Global market band setting
 Set conservative / realistic / aggressive {low, high} bands based on:
@@ -245,6 +259,44 @@ app.post('/api/ai/chat', async (req, res) => {
   }
 });
 
+// Fetch fresh market intel using OpenAI's web_search tool. Returns a text blob
+// with cited URLs for Claude to reference. Returns null on failure / when not
+// configured — caller proceeds without live intel.
+async function fetchLiveMarketIntel({ buyers, scopedBuyerId }) {
+  if (!openai) return null;
+
+  const live = (buyers || []).filter(b => b.stage !== 'dropped');
+  const buyerNames = scopedBuyerId
+    ? [live.find(b => b.id === scopedBuyerId)?.name].filter(Boolean)
+    : live.slice(0, 4).map(b => b.name);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const buyerSection = buyerNames.length
+    ? `\n2. M&A activity, sponsor changes, or material news in the last 6 months for these specific firms: ${buyerNames.join(', ')}.`
+    : '';
+
+  const query = `Today is ${today}. Search the web and report concrete, recent facts only:
+
+1. U.S. insurance / benefits brokerage M&A transactions closed or announced in the last 6 months. For each, give target, acquirer, EV, and EBITDA multiple if disclosed.${buyerSection}
+3. Current forward-EBITDA multiples for public broker comps (BRO, AON, MMC, AJG, WTW) — most recent sell-side or earnings-call print.
+
+Cite every fact with a source URL inline. If a topic has no material updates, say "no material updates" — do not pad. Be terse. Skip generic background.`;
+
+  try {
+    const response = await openai.responses.create({
+      model: LIVE_INTEL_MODEL,
+      tools: [{ type: 'web_search' }],
+      input: query,
+      max_output_tokens: 1500,
+    });
+    const text = response.output_text || '';
+    return text.trim() || null;
+  } catch (err) {
+    console.warn('Live market intel fetch failed:', err.message);
+    return null;
+  }
+}
+
 // Re-evaluate the buyer pipeline with full context (buyers + docs + notes + prior reasoning).
 // Used by the top-bar Re-scan, per-buyer note submission, and post-classify doc upload.
 app.post('/api/ai/rescan', async (req, res) => {
@@ -293,6 +345,10 @@ app.post('/api/ai/rescan', async (req, res) => {
     ? `SCOPE: Re-score ONLY buyer "${only_buyer_id}" based on their latest notes and any new documents. Return apply_rescan with that one buyer in the buyers array. Echo the prior market values unchanged in the market field. The other buyers are shown as compact summaries solely to give you context for the dashboard-level rationales — do NOT include them in your response.`
     : `SCOPE: Re-evaluate every non-dropped buyer in the pipeline. Update market multiple bands if evidence has shifted; otherwise echo prior values.`;
 
+  // Fetch fresh web intel BEFORE Claude's rescan. Runs in parallel-style with
+  // Anthropic call setup; non-fatal on failure.
+  const liveIntel = await fetchLiveMarketIntel({ buyers: livePipeline, scopedBuyerId: only_buyer_id });
+
   const userText = `# Pipeline state
 EBITDA: $${ebitda}M (locked, set by Reagan — do not adjust)
 
@@ -303,6 +359,10 @@ ${JSON.stringify(prior_market || {}, null, 2)}
 ${JSON.stringify(groundedBuyers, null, 2)}
 
 ${docBlocks.length > 0 ? `# Documents attached: ${docBlocks.length} (CIM, LOIs, emails, etc. — read them as evidence)` : '# No documents attached yet.'}
+
+${liveIntel ? `# Live web intel (fetched ${new Date().toISOString().slice(0,10)} via OpenAI web search — may contain summarization errors, treat as a hint not ground truth; cite source URLs verbatim when used)
+${liveIntel}
+` : '# Live web intel: unavailable for this rescan.'}
 
 ${focusInstruction}`;
 
@@ -332,6 +392,7 @@ ${focusInstruction}`;
       ...toolUse.input,
       usage: message.usage,
       ts: new Date().toISOString(),
+      live_intel_used: !!liveIntel,
     });
   } catch (err) {
     console.error('Rescan error:', err.message);
