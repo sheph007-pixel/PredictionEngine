@@ -177,7 +177,7 @@ export default function App() {
         />
       )}
 
-      <AIChat buyers={buyers} open={aiOpen} onToggle={() => setAiOpen(!aiOpen)} />
+      <AIChat buyers={buyers} setBuyers={setBuyers} open={aiOpen} onToggle={() => setAiOpen(!aiOpen)} />
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="Display">

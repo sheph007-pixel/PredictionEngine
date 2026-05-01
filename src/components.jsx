@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { STAGES, STAGE_INDEX, PROCESS_TASKS, PHASES } from './data.js';
-import { claudeComplete } from './utils/ai.js';
+import { claudeComplete, claudeChat } from './utils/ai.js';
 
 // ---------- helpers ----------
 function addWeeks(dateStr, weeks) {
@@ -813,9 +813,60 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
 }
 
 // ---------- AI Engine ----------
-const CHAT_STORAGE_KEY = "kennion.chat.v1";
+const CHAT_STORAGE_KEY = "kennion.chat.v2";
+const VALID_STAGES = ["outreach", "nda", "chemistry", "loi", "closed", "dropped"];
 
-export function AIChat({ buyers, open, onToggle, alwaysOpen }) {
+const AI_TOOLS = [
+  {
+    name: "set_buyer_stage",
+    description: "Move a single buyer to a specific stage in the deal pipeline. Use this when the user asks to advance, drop, or otherwise change a buyer's stage.",
+    input_schema: {
+      type: "object",
+      properties: {
+        buyer_id: { type: "string", description: "The buyer's id (lowercase short id like 'hub', 'onedigital')." },
+        stage: { type: "string", enum: VALID_STAGES, description: "Target stage." },
+      },
+      required: ["buyer_id", "stage"],
+    },
+  },
+  {
+    name: "set_all_buyers_stage",
+    description: "Bulk operation: set every live (non-dropped) buyer's stage. Use only for explicit bulk updates like 'set all buyers to outreach' or 'reset all to NDA'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        stage: { type: "string", enum: VALID_STAGES, description: "Stage to apply to all live buyers." },
+      },
+      required: ["stage"],
+    },
+  },
+  {
+    name: "add_buyer_note",
+    description: "Append a note to a buyer's notes field. Use when the user is logging field intelligence or feedback about a specific buyer.",
+    input_schema: {
+      type: "object",
+      properties: {
+        buyer_id: { type: "string" },
+        note: { type: "string", description: "The note text to append." },
+      },
+      required: ["buyer_id", "note"],
+    },
+  },
+  {
+    name: "update_probability",
+    description: "Override a buyer's base probability percentage (1-95). Use when the user provides intel that materially changes likelihood of close.",
+    input_schema: {
+      type: "object",
+      properties: {
+        buyer_id: { type: "string" },
+        probability: { type: "number", description: "New base probability, 1-95." },
+      },
+      required: ["buyer_id", "probability"],
+    },
+  },
+];
+
+export function AIChat({ buyers, setBuyers, open, onToggle, alwaysOpen }) {
   const [messages, setMessages] = useState(() => {
     try {
       const saved = localStorage.getItem(CHAT_STORAGE_KEY);
@@ -827,6 +878,8 @@ export function AIChat({ buyers, open, onToggle, alwaysOpen }) {
   const [attachments, setAttachments] = useState([]);
   const scrollRef = useRef(null);
   const fileRef = useRef(null);
+  const buyersRef = useRef(buyers);
+  buyersRef.current = buyers;
 
   useEffect(() => {
     try { localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages)); } catch {}
@@ -842,28 +895,92 @@ export function AIChat({ buyers, open, onToggle, alwaysOpen }) {
     setMessages([]);
   };
 
+  // Execute a tool call on local state. Returns a string describing the result.
+  const executeTool = (name, input) => {
+    const current = buyersRef.current;
+    if (name === "set_buyer_stage") {
+      const target = current.find(b => b.id === input.buyer_id);
+      if (!target) return `error: no buyer with id "${input.buyer_id}". valid ids: ${current.map(b => b.id).join(", ")}`;
+      if (!VALID_STAGES.includes(input.stage)) return `error: invalid stage "${input.stage}"`;
+      setBuyers(bs => bs.map(b => b.id === input.buyer_id ? { ...b, stage: input.stage } : b));
+      return `ok: ${target.name} → ${input.stage}`;
+    }
+    if (name === "set_all_buyers_stage") {
+      if (!VALID_STAGES.includes(input.stage)) return `error: invalid stage "${input.stage}"`;
+      const count = current.filter(b => b.stage !== "dropped").length;
+      setBuyers(bs => bs.map(b => b.stage === "dropped" ? b : { ...b, stage: input.stage }));
+      return `ok: ${count} live buyers set to ${input.stage}`;
+    }
+    if (name === "add_buyer_note") {
+      const target = current.find(b => b.id === input.buyer_id);
+      if (!target) return `error: no buyer with id "${input.buyer_id}"`;
+      const stamped = `[${new Date().toISOString().slice(0,10)}] ${input.note}`;
+      const next = target.notes ? `${target.notes}\n${stamped}` : stamped;
+      setBuyers(bs => bs.map(b => b.id === input.buyer_id ? { ...b, notes: next } : b));
+      return `ok: note added to ${target.name}`;
+    }
+    if (name === "update_probability") {
+      const target = current.find(b => b.id === input.buyer_id);
+      if (!target) return `error: no buyer with id "${input.buyer_id}"`;
+      const p = Math.max(1, Math.min(95, Math.round(input.probability)));
+      setBuyers(bs => bs.map(b => b.id === input.buyer_id ? { ...b, probability: p } : b));
+      return `ok: ${target.name} probability ${target.probability}% → ${p}%`;
+    }
+    return `error: unknown tool "${name}"`;
+  };
+
+  const buildSystem = () => {
+    const ranked = [...buyersRef.current].sort((a, b) => probabilityFor(b) - probabilityFor(a));
+    const ctx = ranked.map(b => `- id="${b.id}" · ${b.name} (${b.hq}, ${b.revenue}, ${b.ownership}${b.sponsor !== "—" ? "/" + b.sponsor : ""}, stage=${b.stage}, p=${probabilityFor(b)}%) — ${b.thesis}`).join("\n");
+    return `You are the AI analyst inside the Kennion Prediction Engine — a private deal-tracking workspace for Kennion's sale of its Benefits Program, advised by Reagan Consulting. Be concise, opinionated, and specific. Reference buyers by name. Keep text responses under 90 words. No headers, no markdown.
+
+You have tools to mutate the pipeline state. When the user asks you to update, advance, drop, set stages, log notes, or change probabilities — actually call the tools instead of just describing what you would do. After tool calls succeed, briefly confirm what changed.
+
+Stages, in order: outreach → nda → chemistry → loi → closed. "dropped" is the kill state.
+
+Current pipeline (use these exact buyer ids when calling tools):
+${ctx}`;
+  };
+
   const send = async (presetQ) => {
     const q = (presetQ ?? input).trim();
     if ((!q && attachments.length === 0) || pending) return;
     const sentAttachments = attachments;
     setInput("");
     setAttachments([]);
-    setMessages(m => [...m, { role: "user", text: q, attachments: sentAttachments }]);
+
+    const userText = q + (sentAttachments.length ? `\n\n[attached: ${sentAttachments.map(a => a.name).join(", ")}]` : "");
+    const userMsg = { role: "user", content: [{ type: "text", text: userText || "(uploaded files for the engine to ingest)" }] };
+
+    let history = [...messages, userMsg];
+    setMessages(history);
     setPending(true);
 
-    const ranked = [...buyers].sort((a, b) => probabilityFor(b) - probabilityFor(a));
-    const ctx = ranked.map(b => `${b.name} (${b.hq}, ${b.revenue}, ${b.ownership}${b.sponsor !== "—" ? "/" + b.sponsor : ""}, stage=${b.stage}, p=${probabilityFor(b)}%) — ${b.thesis}`).join("\n");
-
-    const sys = `You are the AI analyst inside the Kennion Prediction Engine — a private deal-tracking workspace for Kennion's sale of its Benefits Program, advised by Reagan Consulting. Be concise, opinionated, and specific. Reference buyers by name. Keep responses under 90 words. No headers, no markdown. If the user uploads or shares new info, acknowledge that you've factored it into the model.`;
-
-    const attachNote = sentAttachments.length ? `\n\nUser attached: ${sentAttachments.map(a => a.name).join(", ")}` : "";
-    const prompt = `${sys}\n\nCurrent pipeline:\n${ctx}\n\nUser asks: ${q || "(uploaded files for the engine to ingest)"}${attachNote}`;
-
+    const system = buildSystem();
     try {
-      const reply = await claudeComplete(prompt);
-      setMessages(m => [...m, { role: "assistant", text: reply }]);
+      // Tool-use loop: keep calling until model returns a non-tool stop_reason.
+      for (let i = 0; i < 6; i++) {
+        const apiMessages = history.map(m => ({ role: m.role, content: m.content }));
+        const resp = await claudeChat({ messages: apiMessages, system, tools: AI_TOOLS });
+
+        const assistantMsg = { role: "assistant", content: resp.content };
+        history = [...history, assistantMsg];
+        setMessages(history);
+
+        if (resp.stop_reason !== "tool_use") break;
+
+        const toolUses = resp.content.filter(b => b.type === "tool_use");
+        const toolResults = toolUses.map(tu => ({
+          type: "tool_result",
+          tool_use_id: tu.id,
+          content: executeTool(tu.name, tu.input),
+        }));
+        const toolResultMsg = { role: "user", content: toolResults };
+        history = [...history, toolResultMsg];
+        setMessages(history);
+      }
     } catch (e) {
-      setMessages(m => [...m, { role: "assistant", text: "(AI unavailable in this view — try again in a moment.)" }]);
+      setMessages(m => [...m, { role: "assistant", content: [{ type: "text", text: `(AI error: ${e.message})` }] }]);
     } finally {
       setPending(false);
     }
@@ -906,21 +1023,42 @@ export function AIChat({ buyers, open, onToggle, alwaysOpen }) {
             <div className="ai-empty-sub">Upload deal docs, log buyer feedback, or ask anything about the pipeline. The engine learns from every input.</div>
           </div>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className={"ai-msg ai-msg-" + m.role}>
-            {m.role === "assistant" && <div className="ai-msg-tag">AI</div>}
-            <div className="ai-msg-body">
-              {m.text && <div>{m.text}</div>}
-              {m.attachments?.length > 0 && (
-                <div className="ai-msg-attachments">
-                  {m.attachments.map((a, j) => (
-                    <div key={j} className="ai-msg-attachment">📎 {a.name}</div>
-                  ))}
+        {messages.map((m, i) => {
+          const blocks = Array.isArray(m.content) ? m.content : [{ type: "text", text: m.content }];
+          // Skip messages that are pure tool_results (internal); render the others.
+          const isAllToolResults = blocks.every(b => b.type === "tool_result");
+          if (isAllToolResults) {
+            return blocks.map((b, j) => {
+              const ok = typeof b.content === "string" && b.content.startsWith("ok:");
+              return (
+                <div key={`${i}-${j}`} className="ai-msg ai-msg-tool">
+                  <div className="ai-msg-tag" style={{color: ok ? "var(--pos)" : "var(--neg)"}}>{ok ? "✓" : "!"}</div>
+                  <div className="ai-msg-body" style={{color: "rgba(255,255,255,0.55)", fontFamily: "var(--mono)", fontSize: 11}}>
+                    {typeof b.content === "string" ? b.content.replace(/^(ok|error):\s*/, "") : "applied"}
+                  </div>
                 </div>
-              )}
+              );
+            });
+          }
+          return (
+            <div key={i} className={"ai-msg ai-msg-" + m.role}>
+              {m.role === "assistant" && <div className="ai-msg-tag">AI</div>}
+              <div className="ai-msg-body">
+                {blocks.map((b, j) => {
+                  if (b.type === "text") return <div key={j}>{b.text}</div>;
+                  if (b.type === "tool_use") {
+                    return (
+                      <div key={j} style={{fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent)", marginTop: 4}}>
+                        → {b.name}({Object.entries(b.input).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ")})
+                      </div>
+                    );
+                  }
+                  return null;
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {pending && (
           <div className="ai-msg ai-msg-assistant">
             <div className="ai-msg-tag">AI</div>
