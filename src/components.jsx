@@ -813,8 +813,15 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
 }
 
 // ---------- AI Engine ----------
+const CHAT_STORAGE_KEY = "kennion.chat.v1";
+
 export function AIChat({ buyers, open, onToggle, alwaysOpen }) {
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => {
+    try {
+      const saved = localStorage.getItem(CHAT_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [attachments, setAttachments] = useState([]);
@@ -822,8 +829,18 @@ export function AIChat({ buyers, open, onToggle, alwaysOpen }) {
   const fileRef = useRef(null);
 
   useEffect(() => {
+    try { localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages)); } catch {}
+  }, [messages]);
+
+  useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, pending, open]);
+
+  const clearChat = () => {
+    if (messages.length === 0) return;
+    if (!window.confirm("Clear chat history?")) return;
+    setMessages([]);
+  };
 
   const send = async (presetQ) => {
     const q = (presetQ ?? input).trim();
@@ -882,6 +899,9 @@ export function AIChat({ buyers, open, onToggle, alwaysOpen }) {
         <div className="ai-head-text">
           <div className="ai-head-title">AI Engine</div>
         </div>
+        {messages.length > 0 && (
+          <button className="ai-head-close" onClick={clearChat} title="Clear chat" style={{fontSize: 11, fontFamily: "var(--mono)", letterSpacing: "0.06em", padding: "4px 8px", textTransform: "uppercase"}}>Clear</button>
+        )}
         {!alwaysOpen && <button className="ai-head-close" onClick={onToggle}>×</button>}
       </div>
 
