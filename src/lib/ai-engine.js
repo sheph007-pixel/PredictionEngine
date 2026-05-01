@@ -24,15 +24,22 @@ function validateMarket(m) {
   return m && validateMarketBand(m.conservative) && validateMarketBand(m.mid) && validateMarketBand(m.aggressive);
 }
 
+function validateMultipleOverride(o) {
+  if (o == null) return true; // null is valid (most buyers)
+  if (typeof o !== 'object') return false;
+  if (!isNum(o.low) || !isNum(o.mid) || !isNum(o.high)) return false;
+  if (o.low > o.mid || o.mid > o.high || o.low <= 0 || o.high > 30) return false;
+  if (!isStr(o.source) || !isStr(o.evidence)) return false;
+  return true;
+}
+
 function validateBuyer(b) {
   if (!b || !isStr(b.id)) return false;
-  if (!Array.isArray(b.multiple) || b.multiple.length !== 3 || !b.multiple.every(isNum)) return false;
-  const [lo, mid, hi] = b.multiple;
-  if (lo > mid || mid > hi || lo <= 0 || hi > 30) return false;
   if (!isInt(b.probability, 0, 100)) return false;
   if (!b.fit || !isInt(b.fit.size, 0, 5) || !isInt(b.fit.benefits, 0, 5) || !isInt(b.fit.pe, 0, 1) || !isInt(b.fit.precedent, 0, 5)) return false;
   if (!isStr(b.thesis) || !isStr(b.reasoning)) return false;
   if (!Array.isArray(b.cited_precedents) || b.cited_precedents.length === 0) return false;
+  if (!validateMultipleOverride(b.multiple_override)) return false;
   return true;
 }
 
@@ -52,9 +59,11 @@ export function diffBuyer(prev, next) {
   if (!prev) return { kind: 'new' };
   const changes = {};
   if (prev.probability !== next.probability) changes.probability = [prev.probability, next.probability];
-  if (JSON.stringify(prev.multiple) !== JSON.stringify(next.multiple)) changes.multiple = [prev.multiple, next.multiple];
   if (prev.thesis !== next.thesis) changes.thesis = [prev.thesis, next.thesis];
   if (JSON.stringify(prev.fit) !== JSON.stringify(next.fit)) changes.fit = [prev.fit, next.fit];
+  const prevOv = prev.multipleOverride || null;
+  const nextOv = next.multiple_override || null;
+  if (JSON.stringify(prevOv) !== JSON.stringify(nextOv)) changes.multipleOverride = [prevOv, nextOv];
   return changes;
 }
 
@@ -104,10 +113,10 @@ export function applyRescanToBuyers(buyers, rescan) {
     const aiHistory = [...(b.aiHistory || []), historyEntry].slice(-8);
     return {
       ...b,
-      multiple: upd.multiple,
       probability: upd.probability,
       fit: upd.fit,
       thesis: upd.thesis,
+      multipleOverride: upd.multiple_override || null,
       aiNotes: upd.reasoning,
       aiCitations: upd.citations || [],
       aiCitedPrecedents: upd.cited_precedents || [],

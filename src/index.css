@@ -463,6 +463,10 @@ body { font-size: 14px; }
 .val-anchor-public { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
 .val-anchor-unknown { background: rgba(220, 80, 80, 0.06); color: var(--neg, #c44); border: 1px dashed var(--neg, #c44); }
 .val-anchor-mult { font-weight: 600; opacity: 0.8; }
+.val-source { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.04em; color: var(--ink-3); margin-top: 8px; font-style: italic; }
+.val-override { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 6px 10px; background: var(--accent-soft); border-left: 2px solid var(--accent); border-radius: 2px; }
+.val-override-tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); font-weight: 700; padding: 2px 5px; background: var(--bg); border-radius: 2px; }
+.val-override-evidence { font-size: 11px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .btn { background: var(--ink); color: var(--bg); border: none; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 9px 14px; border-radius: 2px; cursor: pointer; }
 .btn:hover:not(:disabled) { background: var(--accent); }

@@ -19,39 +19,47 @@ const FILES_BETA = 'files-api-2025-04-14';
 
 const RESCAN_SYSTEM_PROMPT = `You are the Kennion Prediction Engine — a senior M&A advisor's AI co-pilot for the sell-side process of Kennion's Benefits Program (a captive-style benefits brokerage at ~$18M EBITDA, advised by Reagan Consulting, currently in the Spring 2026 sale process).
 
-Your job: re-evaluate the buyer pipeline using ONLY the evidence provided — buyer profile data, attached documents (CIM, LOIs, buyer emails, redlines, models), user field intelligence in the notes field, your own prior reasoning, and the curated precedent table below. Do not invent precedents.
+# Core architecture (READ FIRST)
+There is ONE asset for sale (Kennion). The market clearing multiple for that asset is set by INDUSTRY DATA, not by individual buyers — every credible buyer pays roughly within the industry band for assets of this profile. Your output has two layers:
+
+1. GLOBAL market bands (conservative / realistic / aggressive) — these come from comps and public data. You set them ONCE per rescan based on the precedent table and public comps below. Bands apply to every buyer by default.
+
+2. PER-BUYER scoring — for each buyer your job is mostly probability of close, fit, and thesis. DO NOT generate per-buyer multiples by default — buyers inherit the global band. The ONLY exception: if you have hard evidence (an LOI document with a firm price, a written term sheet, an explicit verbal offer logged in notes), set multiple_override on that buyer with the firm number and cite the source.
+
+This means most buyers' rescores will leave multiple_override = null. That's correct — we don't pretend to know per-buyer pricing without evidence.
+
+Re-evaluate using ONLY the evidence provided: buyer profile data, attached documents (CIM, LOIs, buyer emails, redlines, models), user field intelligence in notes, your own prior reasoning, and the precedent table.
 
 ${precedentSummary()}
 
-# Citation requirement (CRITICAL)
-Every buyer's reasoning MUST cite at least one precedent id from the table above. Use the cited_precedents array to list which ids you anchored on. If you anchor on public comps instead, cite the ticker (e.g., "BRO at 16× fwd"). Do NOT cite a deal that is not in the precedent table — if it's missing, the user will add it. If genuinely no precedent fits (rare), say so explicitly in reasoning and use the closest aggregate-band id ("mid-mkt-pe-band" or "captive-niche-discount").
+# Citation requirement
+Every buyer's reasoning MUST cite at least one precedent id from the table above (or a public comp ticker like "BRO"). The cited_precedents array lists which ids you anchored on. Do NOT invent deals not in the table — if a deal is missing, say so and the user will add it.
 
-# Anchoring discipline
-- Default anchor for Kennion-style mid-market benefits/captive targets: "captive-niche-discount" (~10.5× LTM) or "mid-mkt-pe-band" (~12.5× LTM).
-- Premium of 1-2× applies only when evidence supports it: bidding tension (3+ active LOIs cited in docs), 1:1 strategic vertical overlap, aggressive deployable dry powder, scarcity in market.
-- Discount of 1-3× applies for: declining EBITDA, customer concentration, lapsed sponsor capital, public-equity headwinds, prior pass on this process.
-- The NFP/Aon and Hub recap deals are scale-broker comps — DO NOT anchor mid-market private targets on those without explaining the bridge. They serve as ceiling references only.
+# Global market band setting
+Set conservative / realistic / aggressive {low, high} bands based on:
+- Public broker comps (forward EBITDA basis), discounted 2–4× for private mid-market and another 1–2× for captive/niche profile.
+- Precedent transactions in the table that match Kennion's profile (mid-market, benefits-heavy, captive-style).
+- Default anchor: realistic band centered on captive-niche-discount or mid-mkt-pe-band placeholders unless precedents have been updated.
+- Each band ~2× wide; bands overlap (conservative.high may equal realistic.low, etc.).
+- Update bands only if new evidence shifts them; otherwise echo prior_market values.
 
-# Per-buyer scoring discipline
-- multiple [low, mid, high]: THIS buyer's willingness/capacity to pay. Mid should be the precedent-anchored central estimate. Low/high reflect uncertainty: tighter for late-stage / strong evidence, wider for outreach/early.
-- probability (0–100): independent odds THIS buyer is the winning bidder. Probabilities across buyers are independent — they may sum to >100 (multiple paths to close) or <100 (significant no-deal risk). Be honest about no-deal risk.
-- fit (each 0–5, except pe which is 0 or 1): size capacity, benefits-vertical alignment, PE capital available (binary), 2025–26 M&A precedent activity.
-- thesis: 1 crisp sentence — the bull case for THIS buyer winning specifically.
-- reasoning: WHY these numbers. Format: "Anchored on <precedent-id> at <X>× because <buyer attribute>; adjusted +/-<Y>× for <specific evidence from notes/docs>." Be quantitative. No hand-waving.
+# Per-buyer outputs
+- probability (0–100): THIS buyer's independent odds of being the winning bidder. Probabilities across buyers are independent — they may sum to >100 (multiple paths to close) or <100 (significant no-deal risk). Be honest about no-deal risk.
+- fit (size, benefits, precedent each 0–5; pe is 0 or 1): size capacity, benefits-vertical alignment, PE capital available, 2025–26 M&A precedent activity.
+- thesis: 1 crisp sentence — bull case for THIS buyer winning specifically.
+- reasoning: WHY this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving.
+- multiple_override: null OR { low, mid, high, source: "LOI"|"term-sheet"|"verbal-offer", evidence: "doc filename or note quote" }. Set ONLY when hard-evidence number exists. Most buyers should have null here.
 
-# Stage discipline (anchor probability accordingly)
-- outreach: full multiple range, prob 8–22%
-- nda: full range, prob 12–28%
-- chemistry: tighten range ~25%, prob 18–38%
-- loi: tighten range ~50%+, prob 28–58%
-- closed: collapsed range, prob 90+%
+# Stage discipline (probability anchors)
+- outreach: prob 8–22%
+- nda: prob 12–28%
+- chemistry: prob 18–38%
+- loi: prob 28–58% (and almost always has multiple_override)
+- closed: prob 90+%
 - dropped: filter out — do not include in output
 
-# Market band rules
-If new evidence (LOIs received with real prices, fresh comp prints, sector dislocation) suggests the market has moved, update market.{conservative,mid,aggressive}.{low,high}. Otherwise echo the prior values unchanged. Each band should be ~2× wide; bands should overlap or stack (conservative.high ≤ mid.high ≤ aggressive.high).
-
 # Output discipline
-Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence in the provided context. If evidence is insufficient to move a number, leave it stable and say so in reasoning.`;
+Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence. If evidence is insufficient to move a number, leave it stable and say so in reasoning.`;
 
 const RESCAN_TOOL = {
   name: 'apply_rescan',
@@ -97,17 +105,15 @@ const RESCAN_TOOL = {
         type: 'array',
         items: {
           type: 'object',
-          required: ['id', 'multiple', 'probability', 'fit', 'thesis', 'reasoning'],
+          required: ['id', 'probability', 'fit', 'thesis', 'reasoning', 'cited_precedents'],
           properties: {
             id: { type: 'string' },
-            multiple: {
-              type: 'array',
-              minItems: 3,
-              maxItems: 3,
-              items: { type: 'number' },
-              description: '[low, mid, high] EBITDA multiple this buyer would pay',
+            probability: {
+              type: 'integer',
+              minimum: 0,
+              maximum: 100,
+              description: 'Independent probability THIS buyer is the winning bidder (0-100).',
             },
-            probability: { type: 'integer', minimum: 0, maximum: 100 },
             fit: {
               type: 'object',
               required: ['size', 'benefits', 'pe', 'precedent'],
@@ -119,17 +125,29 @@ const RESCAN_TOOL = {
               },
             },
             thesis: { type: 'string', description: '1 sentence bull case for this buyer winning' },
-            reasoning: { type: 'string', description: 'Why these numbers — must reference specific precedent ids, public comp tickers, doc snippets, or user notes. Format: "Anchored on <id> at <X>×; adjusted +/-<Y>× for <evidence>."' },
+            reasoning: { type: 'string', description: 'Why this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving.' },
             cited_precedents: {
               type: 'array',
               minItems: 1,
               items: { type: 'string' },
-              description: 'Precedent ids from the precedent table this buyer was anchored on (at least one required). May also include public comp tickers (BRO, AON, etc.).',
+              description: 'Precedent ids or public comp tickers that anchor your view (at least one).',
+            },
+            multiple_override: {
+              type: ['object', 'null'],
+              description: 'OPTIONAL — set ONLY when there is hard evidence of a firm price for this buyer (LOI received, term sheet, explicit offer in notes). Otherwise null. Most buyers should be null.',
+              required: ['low', 'mid', 'high', 'source', 'evidence'],
+              properties: {
+                low: { type: 'number' },
+                mid: { type: 'number' },
+                high: { type: 'number' },
+                source: { type: 'string', enum: ['LOI', 'term-sheet', 'verbal-offer', 'written-offer'] },
+                evidence: { type: 'string', description: 'Doc filename or short note quote that establishes the firm number' },
+              },
             },
             citations: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Additional evidence: doc filenames or short note quotes that supported this scoring.',
+              description: 'Additional evidence: doc filenames or short note quotes.',
             },
           },
         },

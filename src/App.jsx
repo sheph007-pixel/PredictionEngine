@@ -21,7 +21,16 @@ function loadState() {
   try {
     const saved = localStorage.getItem(STATE_KEY);
     if (!saved) return null;
-    return JSON.parse(saved);
+    const parsed = JSON.parse(saved);
+    // Migration: drop legacy per-buyer multiple triples — pricing now lives
+    // in the global market band. Buyers without firm evidence inherit it.
+    if (Array.isArray(parsed.buyers)) {
+      parsed.buyers = parsed.buyers.map(b => {
+        const { multiple, multipleAdj, ...rest } = b;
+        return { ...rest, multipleOverride: rest.multipleOverride ?? null };
+      });
+    }
+    return parsed;
   } catch { return null; }
 }
 
@@ -253,6 +262,7 @@ export default function App() {
           onRescanBuyer={rescanOne}
           ebitda={ebitda}
           caseMode={caseMode}
+          market={market}
         />
       )}
 

@@ -70,17 +70,44 @@ function winnerDelta(buyer, currentPct) {
   return currentPct - buyer.lastWeekWinnerPct;
 }
 
-export function valuationFor(buyer, ebitda = 18, caseMode = "mid") {
+// Pricing model:
+//   - Default: every buyer inherits the GLOBAL market band for the active case
+//     (low/mid/high). The asset is the same for everyone; only probability
+//     varies per buyer.
+//   - Override: if buyer.multipleOverride is set (LOI received with a firm
+//     price, term sheet, etc.) we use that triple instead. UI surfaces it.
+//   - Stage tightening: as deals advance, the range narrows toward the mid.
+export function valuationFor(buyer, ebitda = 18, caseMode = "mid", market) {
   const stageIdx = STAGE_INDEX[buyer.stage] ?? 0;
-  const [m_low, m_mid, m_high] = buyer.multiple || [10, 12, 14];
   const tighten = [0.0, 0.25, 0.55, 0.8, 0.95][stageIdx] ?? 0;
-  const lo = m_mid - (m_mid - m_low) * (1 - tighten);
-  const hi = m_mid + (m_high - m_mid) * (1 - tighten);
+
+  const override = buyer.multipleOverride;
+  let baseLow, baseMid, baseHigh;
+
+  if (override) {
+    baseLow = override.low;
+    baseMid = override.mid;
+    baseHigh = override.high;
+  } else if (market) {
+    // Use the active case's band as base; mid is the band midpoint.
+    const band = market[caseMode] || market.mid || { low: 10, high: 13 };
+    baseLow = band.low;
+    baseHigh = band.high;
+    baseMid = (band.low + band.high) / 2;
+  } else {
+    baseLow = 10; baseMid = 12; baseHigh = 14;
+  }
+
+  // Stage tightening — only applies when no override (override is already firm).
+  const lo = override ? baseLow : baseMid - (baseMid - baseLow) * (1 - tighten);
+  const hi = override ? baseHigh : baseMid + (baseHigh - baseMid) * (1 - tighten);
+
   const adj = buyer.multipleAdj || 0;
   const multLow = +(lo + adj).toFixed(1);
-  const multMid = +(m_mid + adj).toFixed(1);
+  const multMid = +(baseMid + adj).toFixed(1);
   const multHigh = +(hi + adj).toFixed(1);
   const headlineMult = caseMode === "conservative" ? multLow : caseMode === "aggressive" ? multHigh : multMid;
+
   return {
     multLow, multMid, multHigh,
     headlineMult,
@@ -88,7 +115,9 @@ export function valuationFor(buyer, ebitda = 18, caseMode = "mid") {
     dollarLow: multLow * ebitda,
     dollarMid: multMid * ebitda,
     dollarHigh: multHigh * ebitda,
-    confidence: Math.round(35 + tighten * 60),
+    confidence: Math.round(35 + tighten * 60 + (override ? 25 : 0)),
+    source: override ? override.source : 'market-band',
+    evidence: override ? override.evidence : null,
   };
 }
 
@@ -161,12 +190,12 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market }) {
   );
 }
 
-export function ContributionChart({ buyers, ebitda, caseMode, onSelect }) {
+export function ContributionChart({ buyers, ebitda, caseMode, market, onSelect }) {
   const live = buyers.filter(b => b.stage !== "dropped");
   const { winnerByBuyer, noDealPct, dealClosesPct } = winnerProbabilities(buyers, ebitda, caseMode);
 
   const rows = live.map(b => {
-    const v = valuationFor(b, ebitda, caseMode);
+    const v = valuationFor(b, ebitda, caseMode, market);
     const winner = winnerByBuyer[b.id] || 0;
     const delta = winnerDelta(b, winner);
     return { buyer: b, winner, delta, deal: v.headlineDollar, dollarLow: v.dollarLow, dollarHigh: v.dollarHigh };
@@ -462,7 +491,7 @@ export function ValuationBar({ ebitda, onEbitda, caseMode, onCase, market, marke
 }
 
 // ---------- pipeline summary ----------
-export function PipelineStats({ buyers, ebitda, caseMode, process }) {
+export function PipelineStats({ buyers, ebitda, caseMode, market, process }) {
   const active = buyers.filter(b => b.stage !== "dropped" && b.stage !== "closed");
   const dropped = buyers.filter(b => b.stage === "dropped").length;
   const counts = STAGES.map(s => ({ ...s, count: buyers.filter(b => b.stage === s.id).length }));
@@ -470,10 +499,10 @@ export function PipelineStats({ buyers, ebitda, caseMode, process }) {
   const live = buyers.filter(b => b.stage !== "dropped");
   const top = [...live].sort((a, b) => probabilityFor(b) - probabilityFor(a))[0];
   const expectedClear = live.reduce((sum, b) => {
-    const v = valuationFor(b, ebitda, caseMode);
+    const v = valuationFor(b, ebitda, caseMode, market);
     return sum + (probabilityFor(b) / 100) * v.headlineDollar;
   }, 0);
-  const topV = top ? valuationFor(top, ebitda, caseMode) : null;
+  const topV = top ? valuationFor(top, ebitda, caseMode, market) : null;
   const advanced = buyers.filter(b => STAGE_INDEX[b.stage] >= STAGE_INDEX.nda && b.stage !== "dropped").length;
 
   return (
@@ -536,17 +565,16 @@ export function AddBuyerForm({ onAdd, onCancel, existingBuyers }) {
     setPending(true);
     setError(null);
 
-    const sys = `You are an M&A analyst building a buyer profile for the Kennion Benefits Program sale (advised by Reagan Consulting). The user is adding a new prospective acquirer to the pipeline. Return ONLY a JSON object — no markdown, no commentary — with this exact shape:
+    const sys = `You are an M&A analyst building a buyer profile for the Kennion Benefits Program sale (advised by Reagan Consulting). The user is adding a new prospective acquirer to the pipeline. Pricing comes from the global industry band — DO NOT generate a per-buyer multiple. Return ONLY a JSON object — no markdown, no commentary — with this exact shape:
 {
   "headcount": "string e.g. 5,000-7,000",
   "offices": "string e.g. 200+ or —",
   "sponsor": "string PE sponsor name OR — if not PE-backed",
   "type": "string e.g. National consolidator | Regional broker | Specialty",
   "thesis": "1-2 sentence fit thesis specific to a benefits-program acquisition",
-  "fit": { "size": 1-5, "benefits": 1-5, "pe": 1-5, "precedent": 1-5 },
-  "multiple": [low, mid, high]
+  "fit": { "size": 1-5, "benefits": 1-5, "pe": 0 or 1, "precedent": 1-5 }
 }
-Be realistic. Reference real industry context. Match the format of existing peers like: Hub International (national consolidator, H&F-backed, 13× mid), OneDigital (PE-backed at $870M revenue, 14.5× for pure benefits fit).`;
+Be realistic. Match the format of existing peers in the pipeline.`;
 
     const prompt = `${sys}\n\nNew buyer:\nName: ${name}\nHQ: ${hq || "unknown"}\nRevenue: ${revenue || "unknown"}\nOwnership: ${ownership}\n\nReturn JSON only.`;
 
@@ -570,7 +598,7 @@ Be realistic. Reference real industry context. Match the format of existing peer
         notes: "",
         flags: [],
         fit: data.fit || { size: 3, benefits: 3, pe: 3, precedent: 3 },
-        multiple: Array.isArray(data.multiple) ? data.multiple : [11, 12.5, 14],
+        multipleOverride: null,
         thesis: data.thesis || "Profile under construction.",
         probability: 12,
         aiGenerated: true,
@@ -632,7 +660,7 @@ Be realistic. Reference real industry context. Match the format of existing peer
 export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, displayRank, ebitda, caseMode, winnerPct, winnerDeltaPct, market }) {
   const stageIdx = STAGE_INDEX[buyer.stage];
   const isDropped = buyer.stage === "dropped";
-  const v = valuationFor(buyer, ebitda, caseMode);
+  const v = valuationFor(buyer, ebitda, caseMode, market);
   const showProb = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
 
   return (
@@ -683,12 +711,12 @@ export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, display
 }
 
 // ---------- buyer modal ----------
-export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpdateNotes, onAdjustMultiple, onRescanBuyer, ebitda, caseMode }) {
+export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpdateNotes, onAdjustMultiple, onRescanBuyer, ebitda, caseMode, market }) {
   if (!buyer) return null;
   const isDropped = buyer.stage === "dropped";
   const prob = isDropped ? 0 : probabilityFor(buyer);
   const reasons = reasoningFor(buyer);
-  const v = valuationFor(buyer, ebitda, caseMode);
+  const v = valuationFor(buyer, ebitda, caseMode, market);
   const [draft, setDraft] = useState(buyer.notes);
   const [pending, setPending] = useState(false);
   const [aiInsight, setAiInsight] = useState(null);
@@ -769,7 +797,9 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
           </div>
 
           <div className="modal-card">
-            <div className="modal-card-label">AI expected deal value</div>
+            <div className="modal-card-label">
+              {buyer.multipleOverride ? `Deal value · ${buyer.multipleOverride.source.toUpperCase()} firm` : 'Expected deal value · industry band'}
+            </div>
             <div className="val-headline">
               <div className="val-headline-num">{fmtMoney(v.headlineDollar)}</div>
               <div className="val-headline-mult">{v.headlineMult.toFixed(1)}× · {caseMode === "conservative" ? "Conservative" : caseMode === "aggressive" ? "Aggressive" : "Realistic"}</div>
@@ -779,6 +809,14 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
               <div className="val-range-row val-range-mid"><span className="val-range-tag">Mid</span><span>{v.multMid.toFixed(1)}×</span><span className="val-range-dollar">{fmtMoney(v.dollarMid)}</span></div>
               <div className="val-range-row"><span className="val-range-tag">High</span><span>{v.multHigh.toFixed(1)}×</span><span className="val-range-dollar">{fmtMoney(v.dollarHigh)}</span></div>
             </div>
+            {buyer.multipleOverride ? (
+              <div className="val-override">
+                <span className="val-override-tag">{buyer.multipleOverride.source}</span>
+                <span className="val-override-evidence" title={buyer.multipleOverride.evidence}>{buyer.multipleOverride.evidence}</span>
+              </div>
+            ) : (
+              <div className="val-source">Industry band · same for every buyer until firm number lands</div>
+            )}
             {Array.isArray(buyer.aiCitedPrecedents) && buyer.aiCitedPrecedents.length > 0 && (
               <div className="val-anchors">
                 <div className="val-anchors-label">Anchored on</div>
@@ -808,7 +846,7 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
             )}
             <div className="val-confidence">
               <div className="val-confidence-bar"><div className="val-confidence-fill" style={{ width: v.confidence + "%" }}></div></div>
-              <div className="val-confidence-label">{v.confidence}% confidence</div>
+              <div className="val-confidence-label">{v.confidence}% confidence{buyer.multipleOverride ? ' · firm number' : ''}</div>
             </div>
           </div>
 
