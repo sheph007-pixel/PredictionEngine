@@ -89,6 +89,13 @@ export function valuationFor(buyer, ebitda = 18, caseMode = "mid") {
   };
 }
 
+function quickThesis(thesis, maxChars = 110) {
+  if (!thesis) return "";
+  const firstSentence = thesis.split(/(?<=[.!?])\s+/)[0] || thesis;
+  if (firstSentence.length <= maxChars) return firstSentence;
+  return firstSentence.slice(0, maxChars).replace(/\s+\S*$/, "") + "…";
+}
+
 export function fmtMoney(m) {
   if (m >= 1000) return "$" + (m / 1000).toFixed(2) + "B";
   return "$" + Math.round(m) + "M";
@@ -618,6 +625,9 @@ export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, display
       <div className="row-name">
         <div className="row-name-main">{buyer.name}</div>
         <div className="row-name-sub">{buyer.hq}</div>
+        {!isDropped && buyer.thesis && (
+          <div className="row-name-thesis">{quickThesis(buyer.thesis)}</div>
+        )}
       </div>
       <div className="row-stages">
         {STAGES.map((s, i) => (
