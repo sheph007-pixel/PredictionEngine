@@ -4,6 +4,11 @@ import multer from 'multer';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
+import { File as BufferFile } from 'node:buffer';
+
+if (typeof globalThis.File === 'undefined') {
+  globalThis.File = BufferFile;
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
