@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { STAGES, STAGE_INDEX, PROCESS_TASKS, PHASES } from './data.js';
 import { claudeComplete, claudeChat } from './utils/ai.js';
+import { PRECEDENT_BY_ID, PUBLIC_COMP_BANDS } from './data/precedents.js';
+
+const PUBLIC_COMP_BY_TICKER = Object.fromEntries(PUBLIC_COMP_BANDS.comps.map(c => [c.ticker, c]));
 
 // ---------- helpers ----------
 function addWeeks(dateStr, weeks) {
@@ -776,6 +779,33 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
               <div className="val-range-row val-range-mid"><span className="val-range-tag">Mid</span><span>{v.multMid.toFixed(1)}×</span><span className="val-range-dollar">{fmtMoney(v.dollarMid)}</span></div>
               <div className="val-range-row"><span className="val-range-tag">High</span><span>{v.multHigh.toFixed(1)}×</span><span className="val-range-dollar">{fmtMoney(v.dollarHigh)}</span></div>
             </div>
+            {Array.isArray(buyer.aiCitedPrecedents) && buyer.aiCitedPrecedents.length > 0 && (
+              <div className="val-anchors">
+                <div className="val-anchors-label">Anchored on</div>
+                <div className="val-anchors-list">
+                  {buyer.aiCitedPrecedents.map(id => {
+                    const p = PRECEDENT_BY_ID[id];
+                    const c = PUBLIC_COMP_BY_TICKER[id];
+                    if (p) {
+                      const m = p.multiple_ltm_ebitda != null ? `${p.multiple_ltm_ebitda}× LTM` : '—';
+                      return (
+                        <span key={id} className="val-anchor val-anchor-precedent" title={`${p.label} · ${m}\n${p.notes}`}>
+                          {p.label} <span className="val-anchor-mult">{m}</span>
+                        </span>
+                      );
+                    }
+                    if (c) {
+                      return (
+                        <span key={id} className="val-anchor val-anchor-public" title={`${c.name} (${c.ticker}) · ${c.fwd_ebitda_mult}× fwd EBITDA`}>
+                          {c.ticker} <span className="val-anchor-mult">{c.fwd_ebitda_mult}× fwd</span>
+                        </span>
+                      );
+                    }
+                    return <span key={id} className="val-anchor val-anchor-unknown" title="Citation not in precedent table">{id}</span>;
+                  })}
+                </div>
+              </div>
+            )}
             <div className="val-confidence">
               <div className="val-confidence-bar"><div className="val-confidence-fill" style={{ width: v.confidence + "%" }}></div></div>
               <div className="val-confidence-label">{v.confidence}% confidence</div>

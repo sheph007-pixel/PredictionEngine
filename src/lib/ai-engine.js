@@ -32,6 +32,7 @@ function validateBuyer(b) {
   if (!isInt(b.probability, 0, 100)) return false;
   if (!b.fit || !isInt(b.fit.size, 0, 5) || !isInt(b.fit.benefits, 0, 5) || !isInt(b.fit.pe, 0, 1) || !isInt(b.fit.precedent, 0, 5)) return false;
   if (!isStr(b.thesis) || !isStr(b.reasoning)) return false;
+  if (!Array.isArray(b.cited_precedents) || b.cited_precedents.length === 0) return false;
   return true;
 }
 
@@ -109,6 +110,7 @@ export function applyRescanToBuyers(buyers, rescan) {
       thesis: upd.thesis,
       aiNotes: upd.reasoning,
       aiCitations: upd.citations || [],
+      aiCitedPrecedents: upd.cited_precedents || [],
       lastAnalyzed: rescan.ts || new Date().toISOString(),
       aiHistory,
     };

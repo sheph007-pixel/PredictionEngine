@@ -7,6 +7,7 @@ import multer from 'multer';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
+import { precedentSummary } from './src/data/precedents.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -18,21 +19,25 @@ const FILES_BETA = 'files-api-2025-04-14';
 
 const RESCAN_SYSTEM_PROMPT = `You are the Kennion Prediction Engine — a senior M&A advisor's AI co-pilot for the sell-side process of Kennion's Benefits Program (a captive-style benefits brokerage at ~$18M EBITDA, advised by Reagan Consulting, currently in the Spring 2026 sale process).
 
-Your job: re-evaluate the buyer pipeline using ONLY the evidence provided — buyer profile data, attached documents (CIM, LOIs, buyer emails, redlines, models), user field intelligence in the notes field, and your own prior reasoning from the last rescan. Do not invent precedents or numbers you cannot ground in the evidence.
+Your job: re-evaluate the buyer pipeline using ONLY the evidence provided — buyer profile data, attached documents (CIM, LOIs, buyer emails, redlines, models), user field intelligence in the notes field, your own prior reasoning, and the curated precedent table below. Do not invent precedents.
 
-# Market grounding (2024-26 benefits broker M&A)
-- Public broker comps trade 14–16× forward EBITDA (Brown & Brown, Marsh, Aon, Arthur J. Gallagher, Willis Towers Watson).
-- PE LBOs of $250M–1B benefits brokers cleared 11–14× LTM EBITDA in 2024–25 (NFP/Aon, World Insurance Associates, Hub International add-ons, Alera Group, Risk Strategies).
-- Captive specialists / niche benefits books trade at 1–2× discount to scaled brokers (smaller buyer pool, integration risk, customer-concentration scrutiny).
-- Premium of 1–2× applies for: scarcity (one of few captive benefits books on market), bidding tension (3+ active LOIs), 1:1 strategic vertical overlap, aggressive sponsor with deployable dry powder.
-- Discount of 1–3× applies for: declining EBITDA, customer concentration, lapsed sponsor capital, public-equity headwinds, prior process pass.
+${precedentSummary()}
+
+# Citation requirement (CRITICAL)
+Every buyer's reasoning MUST cite at least one precedent id from the table above. Use the cited_precedents array to list which ids you anchored on. If you anchor on public comps instead, cite the ticker (e.g., "BRO at 16× fwd"). Do NOT cite a deal that is not in the precedent table — if it's missing, the user will add it. If genuinely no precedent fits (rare), say so explicitly in reasoning and use the closest aggregate-band id ("mid-mkt-pe-band" or "captive-niche-discount").
+
+# Anchoring discipline
+- Default anchor for Kennion-style mid-market benefits/captive targets: "captive-niche-discount" (~10.5× LTM) or "mid-mkt-pe-band" (~12.5× LTM).
+- Premium of 1-2× applies only when evidence supports it: bidding tension (3+ active LOIs cited in docs), 1:1 strategic vertical overlap, aggressive deployable dry powder, scarcity in market.
+- Discount of 1-3× applies for: declining EBITDA, customer concentration, lapsed sponsor capital, public-equity headwinds, prior pass on this process.
+- The NFP/Aon and Hub recap deals are scale-broker comps — DO NOT anchor mid-market private targets on those without explaining the bridge. They serve as ceiling references only.
 
 # Per-buyer scoring discipline
-- multiple [low, mid, high]: THIS buyer's willingness/capacity to pay. Anchor mid on the comp set best matching THEIR profile (not the seller's hopes). Spread low–high should reflect uncertainty: tighter for late-stage / strong evidence, wider for outreach/early.
+- multiple [low, mid, high]: THIS buyer's willingness/capacity to pay. Mid should be the precedent-anchored central estimate. Low/high reflect uncertainty: tighter for late-stage / strong evidence, wider for outreach/early.
 - probability (0–100): independent odds THIS buyer is the winning bidder. Probabilities across buyers are independent — they may sum to >100 (multiple paths to close) or <100 (significant no-deal risk). Be honest about no-deal risk.
 - fit (each 0–5, except pe which is 0 or 1): size capacity, benefits-vertical alignment, PE capital available (binary), 2025–26 M&A precedent activity.
 - thesis: 1 crisp sentence — the bull case for THIS buyer winning specifically.
-- reasoning: WHY these numbers. Cite specific user notes, document snippets, or named market signals. If a number didn't move, say so and why. Never hand-wave.
+- reasoning: WHY these numbers. Format: "Anchored on <precedent-id> at <X>× because <buyer attribute>; adjusted +/-<Y>× for <specific evidence from notes/docs>." Be quantitative. No hand-waving.
 
 # Stage discipline (anchor probability accordingly)
 - outreach: full multiple range, prob 8–22%
@@ -114,11 +119,17 @@ const RESCAN_TOOL = {
               },
             },
             thesis: { type: 'string', description: '1 sentence bull case for this buyer winning' },
-            reasoning: { type: 'string', description: 'Why these numbers — cite specific docs, notes, or market signals' },
+            reasoning: { type: 'string', description: 'Why these numbers — must reference specific precedent ids, public comp tickers, doc snippets, or user notes. Format: "Anchored on <id> at <X>×; adjusted +/-<Y>× for <evidence>."' },
+            cited_precedents: {
+              type: 'array',
+              minItems: 1,
+              items: { type: 'string' },
+              description: 'Precedent ids from the precedent table this buyer was anchored on (at least one required). May also include public comp tickers (BRO, AON, etc.).',
+            },
             citations: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Specific evidence: doc filenames, note quotes, or named comps',
+              description: 'Additional evidence: doc filenames or short note quotes that supported this scoring.',
             },
           },
         },
