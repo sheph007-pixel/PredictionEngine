@@ -1,0 +1,40 @@
+import express from 'express';
+import Anthropic from '@anthropic-ai/sdk';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { existsSync } from 'fs';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const app = express();
+app.use(express.json());
+
+const client = new Anthropic();
+
+app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+app.post('/api/ai/complete', async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: 'prompt required' });
+
+  try {
+    const message = await client.messages.create({
+      model: 'claude-opus-4-7',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    res.json({ text: message.content[0].text });
+  } catch (err) {
+    console.error('Anthropic error:', err.message);
+    res.status(500).json({ error: 'AI request failed' });
+  }
+});
+
+// Serve Vite build in production
+const distPath = join(__dirname, 'dist');
+if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get('*', (_req, res) => res.sendFile(join(distPath, 'index.html')));
+}
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`Server on port ${PORT}`));
