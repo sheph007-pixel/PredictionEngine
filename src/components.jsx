@@ -148,7 +148,22 @@ function reasoningFor(buyer) {
 }
 
 // ---------- hero KPIs ----------
-export function HeroKPIs({ buyers, process, ebitda, caseMode, market }) {
+function HeroRationale({ text }) {
+  if (!text) return (
+    <div className="hero-kpi-why hero-kpi-why-empty">
+      <span className="hero-kpi-why-tag">AI</span>
+      <span className="hero-kpi-why-text">Re-scan to generate Reagan's defense of this number.</span>
+    </div>
+  );
+  return (
+    <div className="hero-kpi-why">
+      <span className="hero-kpi-why-tag">Reagan · AI</span>
+      <span className="hero-kpi-why-text">{text}</span>
+    </div>
+  );
+}
+
+export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales }) {
   const currentIdx = PROCESS_TASKS.findIndex(t => t.id === process.currentTaskId);
   const currentTask = PROCESS_TASKS[currentIdx];
   const closeTask = PROCESS_TASKS[PROCESS_TASKS.length - 1];
@@ -171,11 +186,13 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market }) {
         <div className="hero-kpi-label">Projected close</div>
         <div className="hero-kpi-value hero-kpi-close">{fmtMonthYear(projectedClose)}</div>
         <div className="hero-kpi-foot"><b>{weeksToClose}</b> weeks remaining · currently in <b>{currentTask.phase}</b></div>
+        <HeroRationale text={rationales?.close_date} />
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Deal confidence</div>
         <div className="hero-kpi-value hero-kpi-confidence">{dealClosesPct}<span>%</span></div>
         <div className="hero-kpi-foot"><b>{confLevel}</b> probability any deal closes</div>
+        <HeroRationale text={rationales?.confidence} />
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Market clearing price <span className="hero-kpi-case">· {m.label}</span></div>
@@ -185,6 +202,7 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market }) {
           <span className="hero-range-high">{fmtMoney(clearHigh)}</span>
         </div>
         <div className="hero-kpi-foot">${ebitda}M EBITDA × <b>{m.low.toFixed(1)}–{m.high.toFixed(1)}×</b> · midpoint <b>{fmtMoney(clearMid)}</b></div>
+        <HeroRationale text={rationales?.clearing_price} />
       </div>
     </div>
   );

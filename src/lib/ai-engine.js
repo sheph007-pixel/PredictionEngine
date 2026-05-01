@@ -50,6 +50,9 @@ function validateRescan(payload) {
     if (!validateBuyer(b)) return { ok: false, error: `invalid buyer: ${b?.id || '<unknown>'}` };
   }
   if (!isStr(payload.summary)) return { ok: false, error: 'missing summary' };
+  if (!isStr(payload.close_date_rationale)) return { ok: false, error: 'missing close_date_rationale' };
+  if (!isStr(payload.confidence_rationale)) return { ok: false, error: 'missing confidence_rationale' };
+  if (!isStr(payload.clearing_price_rationale)) return { ok: false, error: 'missing clearing_price_rationale' };
   return { ok: true };
 }
 

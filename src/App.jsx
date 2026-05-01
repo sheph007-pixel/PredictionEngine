@@ -55,6 +55,7 @@ export default function App() {
   const [caseMode, setCaseMode] = usePersistedState('caseMode', 'mid');
   const [market, setMarket] = usePersistedState('market', DEFAULT_MARKET);
   const [marketMeta, setMarketMeta] = usePersistedState('marketMeta', 'AI · sector deal flow + public comp drift · 2 min ago');
+  const [rationales, setRationales] = usePersistedState('rationales', { close_date: null, confidence: null, clearing_price: null });
 
   const [openId, setOpenId] = useState(null);
   const [openIntent, setOpenIntent] = useState(null);
@@ -69,6 +70,15 @@ export default function App() {
   // Real pipeline-wide re-evaluation. Sends every non-dropped buyer + every
   // attached document + prior market bands to the AI, validates the response,
   // then merges new multiples / probabilities / fit / thesis into state.
+  const captureRationales = (result) => {
+    setRationales({
+      close_date: result.close_date_rationale || null,
+      confidence: result.confidence_rationale || null,
+      clearing_price: result.clearing_price_rationale || null,
+      ts: result.ts || new Date().toISOString(),
+    });
+  };
+
   const rescanAll = async () => {
     setRescanError(null);
     try {
@@ -81,6 +91,7 @@ export default function App() {
       setBuyers(bs => applyRescanToBuyers(bs, result));
       setMarket(result.market);
       setMarketMeta(fmtMetaFromRescan(result, result.buyers.length));
+      captureRationales(result);
       return result;
     } catch (e) {
       setRescanError(e.message);
@@ -100,6 +111,7 @@ export default function App() {
         buyerId,
       });
       setBuyers(bs => applyRescanToBuyers(bs, result));
+      captureRationales(result);
       return result;
     } catch (e) {
       setRescanError(e.message);
@@ -192,7 +204,7 @@ export default function App() {
         </div>
       </div>
 
-      <HeroKPIs buyers={buyers} process={process} ebitda={ebitda} caseMode={caseMode} market={market} />
+      <HeroKPIs buyers={buyers} process={process} ebitda={ebitda} caseMode={caseMode} market={market} rationales={rationales} />
 
       <ProcessTracker process={process} onUpdate={setProcess} buyers={buyers} ebitda={ebitda} caseMode={caseMode} />
 

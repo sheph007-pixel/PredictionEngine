@@ -58,6 +58,15 @@ Set conservative / realistic / aggressive {low, high} bands based on:
 - closed: prob 90+%
 - dropped: filter out — do not include in output
 
+# Dashboard rationales (REAGAN VOICE — defend the numbers to an LP)
+After scoring the buyers, write three short defenses — close_date_rationale, confidence_rationale, clearing_price_rationale — in the voice of Reagan Consulting (the seller's banker) defending each top-line dashboard number to a Kennion LP. Use first-person plural ("we", "our process"). Be concrete, reference specific buyers / stages / precedents / docs. Each ≤ 2 sentences. Avoid generic banker-speak ("strong", "positive momentum"). Examples of the right tone:
+
+  close_date_rationale: "We're 18 weeks from a Sep 2026 close because LOIs land in week 12 (early July) and exclusivity + diligence run a typical 10 weeks from there. Hub and OneDigital are pacing on calendar; the Cason chemistry slip is the biggest risk to the timeline."
+  confidence_rationale: "68% reflects three independent paths to close — Hub at 22%, OneDigital at 27%, Cottingham & Butler at 18% — with the rest of the field thin. The 32% no-deal probability is real and concentrated in either a price-discipline pull from PE bidders or a Reagan-side process delay."
+  clearing_price_rationale: "$42-45M = $3.61M EBITDA × 11.7-12.5x, anchored on the captive-niche-discount band. NFP/Aon and Hub recap sit a tier above us — we don't get there without bidding tension, which we won't see until LOIs print in July."
+
+These rationales must reflect the CURRENT pipeline state in this rescan call. If a per-buyer rescan changed only one buyer, update the rationales only if the change is material to the dashboard number; otherwise echo prior tone with a note that the headline didn't move.
+
 # Output discipline
 Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence. If evidence is insufficient to move a number, leave it stable and say so in reasoning.`;
 
@@ -66,7 +75,7 @@ const RESCAN_TOOL = {
   description: 'Apply a re-evaluation of one or more buyers in the pipeline based on all available context (buyer profiles, attached documents, user field intelligence, prior reasoning).',
   input_schema: {
     type: 'object',
-    required: ['market', 'buyers', 'summary'],
+    required: ['market', 'buyers', 'summary', 'close_date_rationale', 'confidence_rationale', 'clearing_price_rationale'],
     properties: {
       market: {
         type: 'object',
@@ -153,6 +162,18 @@ const RESCAN_TOOL = {
         },
       },
       summary: { type: 'string', description: '1–2 sentences on how the overall pipeline view shifted vs prior state' },
+      close_date_rationale: {
+        type: 'string',
+        description: '1–2 sentences in REAGAN VOICE defending the projected close date. Reference current process phase, late-stage buyers, expected LOI timing, and any blockers from the notes/docs. As if explaining to an LP why this is the credible close window. Be concrete, not generic.',
+      },
+      confidence_rationale: {
+        type: 'string',
+        description: '1–2 sentences in REAGAN VOICE defending the deal confidence percentage. Reference the probability spread across buyers (who is anchoring the floor, who is the upside path) and the no-deal risk drivers. As if explaining to an LP why this number is honest, not optimistic.',
+      },
+      clearing_price_rationale: {
+        type: 'string',
+        description: '1–2 sentences in REAGAN VOICE defending the market clearing price band for the active case. Reference which precedents/comps anchor the band and any market shifts. As if explaining to an LP why $X-$Y is the right range for this asset right now.',
+      },
     },
   },
 };
@@ -232,34 +253,35 @@ app.post('/api/ai/rescan', async (req, res) => {
     return res.status(400).json({ error: 'buyers array required' });
   }
 
-  const targetBuyers = only_buyer_id
-    ? buyers.filter(b => b.id === only_buyer_id)
-    : buyers.filter(b => b.stage !== 'dropped');
-  if (targetBuyers.length === 0) return res.status(400).json({ error: 'no buyers in scope' });
+  // Always send the full non-dropped pipeline so the AI can produce honest
+  // dashboard-level rationales (close date, confidence, clearing price) even
+  // when re-scoring is scoped to a single buyer.
+  const livePipeline = buyers.filter(b => b.stage !== 'dropped');
+  if (livePipeline.length === 0) return res.status(400).json({ error: 'no live buyers' });
 
-  // Strip transient/UI-only fields and cap aiHistory to last 3 entries to keep tokens bounded.
-  const groundedBuyers = targetBuyers.map(b => ({
-    id: b.id,
-    name: b.name,
-    hq: b.hq,
-    revenue: b.revenue,
-    headcount: b.headcount,
-    offices: b.offices,
-    ownership: b.ownership,
-    sponsor: b.sponsor,
-    type: b.type,
-    stage: b.stage,
-    nda_signed: b.nda_signed || null,
-    chemistry_date: b.chemistry_date || null,
-    notes: b.notes || '',
-    flags: b.flags || [],
-    fit: b.fit,
-    multiple: b.multiple,
-    probability: b.probability,
-    thesis: b.thesis,
+  // For the buyer in scope (or all when no scope), include full grounded
+  // detail including notes + history. For the rest of the pipeline, send a
+  // compact summary so the AI has enough context for pipeline rationales
+  // without blowing token budget.
+  const fullDetail = (b) => ({
+    id: b.id, name: b.name, hq: b.hq, revenue: b.revenue, headcount: b.headcount,
+    offices: b.offices, ownership: b.ownership, sponsor: b.sponsor, type: b.type,
+    stage: b.stage, nda_signed: b.nda_signed || null, chemistry_date: b.chemistry_date || null,
+    notes: b.notes || '', flags: b.flags || [], fit: b.fit,
+    probability: b.probability, thesis: b.thesis,
+    multipleOverride: b.multipleOverride || null,
     aiNotes: b.aiNotes || null,
     aiHistory: (b.aiHistory || []).slice(-3),
-  }));
+  });
+  const compactSummary = (b) => ({
+    id: b.id, name: b.name, stage: b.stage, ownership: b.ownership, sponsor: b.sponsor,
+    probability: b.probability, thesis: b.thesis,
+    multipleOverride: b.multipleOverride || null,
+  });
+
+  const groundedBuyers = livePipeline.map(b =>
+    (!only_buyer_id || b.id === only_buyer_id) ? fullDetail(b) : compactSummary(b)
+  );
 
   const docBlocks = (file_ids || []).map((id, j, arr) => ({
     type: 'document',
@@ -268,7 +290,7 @@ app.post('/api/ai/rescan', async (req, res) => {
   }));
 
   const focusInstruction = only_buyer_id
-    ? `SCOPE: Re-score ONLY buyer "${only_buyer_id}" based on their latest notes and any new documents. Return apply_rescan with that one buyer in the buyers array. Echo the prior market values unchanged in the market field.`
+    ? `SCOPE: Re-score ONLY buyer "${only_buyer_id}" based on their latest notes and any new documents. Return apply_rescan with that one buyer in the buyers array. Echo the prior market values unchanged in the market field. The other buyers are shown as compact summaries solely to give you context for the dashboard-level rationales — do NOT include them in your response.`
     : `SCOPE: Re-evaluate every non-dropped buyer in the pipeline. Update market multiple bands if evidence has shifted; otherwise echo prior values.`;
 
   const userText = `# Pipeline state

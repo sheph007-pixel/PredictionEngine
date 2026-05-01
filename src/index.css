@@ -111,6 +111,11 @@ body { font-size: 14px; }
 .hero-range-sep { color: var(--ink-2); font-size: 18px; font-family: var(--mono); font-weight: 500; text-transform: uppercase; letter-spacing: 0.14em; align-self: center; padding: 0 4px; }
 .hero-kpi-foot { font-family: var(--sans); font-size: 13px; color: var(--ink-3); margin-top: 14px; line-height: 1.5; }
 .hero-kpi-foot b { color: var(--ink); font-weight: 500; }
+.hero-kpi-why { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--rule); display: flex; flex-direction: column; gap: 5px; }
+.hero-kpi-why-tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.hero-kpi-why-text { font-family: var(--sans); font-size: 12px; line-height: 1.5; color: var(--ink-2); font-style: italic; }
+.hero-kpi-why-empty .hero-kpi-why-tag { color: var(--ink-3); }
+.hero-kpi-why-empty .hero-kpi-why-text { color: var(--ink-3); }
 
 /* ---------- thin process tracker ---------- */
 .process-thin { background: var(--bg-card); border: 1px solid var(--rule); border-radius: 4px; margin-bottom: 12px; }
