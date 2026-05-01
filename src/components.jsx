@@ -158,7 +158,7 @@ function HeroRationale({ text }) {
   return (
     <div className="hero-kpi-why">
       <span className="hero-kpi-why-tag">Reagan · AI</span>
-      <span className="hero-kpi-why-text">{text}</span>
+      <span className="hero-kpi-why-text" title={text}>{text}</span>
     </div>
   );
 }
