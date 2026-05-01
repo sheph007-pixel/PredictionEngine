@@ -875,12 +875,6 @@ export function AIChat({ buyers, open, onToggle, alwaysOpen }) {
     e.target.value = "";
   };
 
-  const starters = [
-    { label: "Who should I focus on?", q: "Who should I focus on this week?" },
-    { label: "Compare top buyers", q: "Compare OneDigital vs Hub" },
-    { label: "Biggest risk?", q: "What's the biggest risk in the process right now?" },
-  ];
-
   if (!open && !alwaysOpen) {
     return (
       <button className="ai-fab" onClick={onToggle}>
@@ -910,11 +904,6 @@ export function AIChat({ buyers, open, onToggle, alwaysOpen }) {
           <div className="ai-empty">
             <div className="ai-empty-title">What's on your mind?</div>
             <div className="ai-empty-sub">Upload deal docs, log buyer feedback, or ask anything about the pipeline. The engine learns from every input.</div>
-            <div className="ai-empty-starters">
-              {starters.map((s, i) => (
-                <button key={i} className="ai-starter" onClick={() => send(s.q)}>{s.label}</button>
-              ))}
-            </div>
           </div>
         )}
         {messages.map((m, i) => (
