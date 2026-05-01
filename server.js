@@ -5,6 +5,7 @@ import express from 'express';
 import Anthropic, { toFile } from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import multer from 'multer';
+import pg from 'pg';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
@@ -23,6 +24,73 @@ const FILES_BETA = 'files-api-2025-04-14';
 // or the call fails, rescan still runs without live intel (graceful fallback).
 const openai = process.env.OPENAI_API_KEY ? new OpenAI() : null;
 const LIVE_INTEL_MODEL = 'gpt-4o';
+
+// Postgres for cross-device state sync + permanent audit log of every AI call.
+// Optional — without DATABASE_URL the app falls back to localStorage-only mode.
+const dbUrl = process.env.DATABASE_URL;
+const pool = dbUrl
+  ? new pg.Pool({
+      connectionString: dbUrl,
+      ssl: dbUrl.includes('localhost') ? false : { rejectUnauthorized: false },
+      max: 5,
+      idleTimeoutMillis: 30000,
+    })
+  : null;
+const WORKSPACE_ID = 'default';
+
+async function initDb() {
+  if (!pool) {
+    console.log('No DATABASE_URL — running without persistence layer');
+    return;
+  }
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS workspace (
+        id TEXT PRIMARY KEY,
+        ebitda NUMERIC NOT NULL DEFAULT 18,
+        case_mode TEXT NOT NULL DEFAULT 'mid',
+        market JSONB NOT NULL DEFAULT '{}',
+        market_meta TEXT,
+        rationales JSONB DEFAULT '{}',
+        process JSONB NOT NULL DEFAULT '{}',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS buyers (
+        workspace_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        data JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (workspace_id, id)
+      );
+      CREATE TABLE IF NOT EXISTS rescan_log (
+        id BIGSERIAL PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+        scope TEXT,
+        only_buyer_id TEXT,
+        input JSONB,
+        output JSONB,
+        live_intel TEXT,
+        duration_ms INT,
+        error TEXT
+      );
+      CREATE INDEX IF NOT EXISTS rescan_log_ts_idx ON rescan_log (workspace_id, ts DESC);
+    `);
+    console.log('DB schema ready');
+  } catch (err) {
+    console.error('DB init failed — continuing without persistence:', err.message);
+  }
+}
+
+// Fire-and-forget audit log writer — does not block the rescan response.
+function logRescan({ scope, only_buyer_id, input, output, live_intel, duration_ms, error }) {
+  if (!pool) return;
+  pool.query(
+    `INSERT INTO rescan_log (workspace_id, scope, only_buyer_id, input, output, live_intel, duration_ms, error)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [WORKSPACE_ID, scope, only_buyer_id || null, input, output, live_intel || null, duration_ms || null, error || null]
+  ).catch(err => console.warn('rescan_log write failed:', err.message));
+}
 
 const RESCAN_SYSTEM_PROMPT = `You are the Kennion Prediction Engine — a senior M&A advisor's AI co-pilot for the sell-side process of Kennion's Benefits Program (a captive-style benefits brokerage at ~$18M EBITDA, advised by Reagan Consulting, currently in the Spring 2026 sale process).
 
@@ -366,6 +434,14 @@ ${liveIntel}
 
 ${focusInstruction}`;
 
+  const t0 = Date.now();
+  const auditInput = {
+    ebitda,
+    file_ids: file_ids || [],
+    only_buyer_id: only_buyer_id || null,
+    buyer_ids_in_scope: groundedBuyers.map(b => b.id),
+    user_text: userText,
+  };
   try {
     const message = await client.beta.messages.create({
       model: MODEL,
@@ -385,18 +461,151 @@ ${focusInstruction}`;
     const toolUse = message.content.find(b => b.type === 'tool_use' && b.name === 'apply_rescan');
     if (!toolUse) {
       console.error('Rescan: no tool_use in response', message.content);
+      logRescan({
+        scope: only_buyer_id ? 'buyer' : 'pipeline',
+        only_buyer_id,
+        input: auditInput,
+        output: null,
+        live_intel: liveIntel,
+        duration_ms: Date.now() - t0,
+        error: 'no tool_use in response',
+      });
       return res.status(502).json({ error: 'AI did not return structured output' });
     }
 
-    res.json({
+    const responsePayload = {
       ...toolUse.input,
       usage: message.usage,
       ts: new Date().toISOString(),
       live_intel_used: !!liveIntel,
+    };
+    res.json(responsePayload);
+    logRescan({
+      scope: only_buyer_id ? 'buyer' : 'pipeline',
+      only_buyer_id,
+      input: auditInput,
+      output: responsePayload,
+      live_intel: liveIntel,
+      duration_ms: Date.now() - t0,
     });
   } catch (err) {
     console.error('Rescan error:', err.message);
+    logRescan({
+      scope: only_buyer_id ? 'buyer' : 'pipeline',
+      only_buyer_id,
+      input: auditInput,
+      output: null,
+      live_intel: liveIntel,
+      duration_ms: Date.now() - t0,
+      error: err.message,
+    });
     res.status(500).json({ error: err.message || 'rescan failed' });
+  }
+});
+
+// ───────────────────────────── Workspace state sync ─────────────────────────
+// Single-tenant workspace persistence + AI audit log query. Without DATABASE_URL
+// these endpoints return 503 and the client falls back to localStorage-only.
+
+function ensureDb(res) {
+  if (!pool) {
+    res.status(503).json({ error: 'persistence unavailable' });
+    return false;
+  }
+  return true;
+}
+
+app.get('/api/workspace', async (_req, res) => {
+  if (!ensureDb(res)) return;
+  try {
+    const wsRow = await pool.query(`SELECT * FROM workspace WHERE id = $1`, [WORKSPACE_ID]);
+    const buyersRows = await pool.query(`SELECT id, data, updated_at FROM buyers WHERE workspace_id = $1`, [WORKSPACE_ID]);
+    const ws = wsRow.rows[0] || null;
+    res.json({
+      workspace: ws ? {
+        ebitda: Number(ws.ebitda),
+        case_mode: ws.case_mode,
+        market: ws.market,
+        market_meta: ws.market_meta,
+        rationales: ws.rationales,
+        process: ws.process,
+        updated_at: ws.updated_at,
+      } : null,
+      buyers: buyersRows.rows.map(r => ({ ...r.data, updated_at: r.updated_at })),
+    });
+  } catch (err) {
+    console.error('GET /api/workspace error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/workspace', async (req, res) => {
+  if (!ensureDb(res)) return;
+  const { ebitda, case_mode, market, market_meta, rationales, process: proc } = req.body || {};
+  try {
+    await pool.query(`
+      INSERT INTO workspace (id, ebitda, case_mode, market, market_meta, rationales, process, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+      ON CONFLICT (id) DO UPDATE SET
+        ebitda = COALESCE(EXCLUDED.ebitda, workspace.ebitda),
+        case_mode = COALESCE(EXCLUDED.case_mode, workspace.case_mode),
+        market = COALESCE(EXCLUDED.market, workspace.market),
+        market_meta = COALESCE(EXCLUDED.market_meta, workspace.market_meta),
+        rationales = COALESCE(EXCLUDED.rationales, workspace.rationales),
+        process = COALESCE(EXCLUDED.process, workspace.process),
+        updated_at = now()
+    `, [WORKSPACE_ID, ebitda ?? null, case_mode ?? null, market ?? null, market_meta ?? null, rationales ?? null, proc ?? null]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('PUT /api/workspace error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bulk replace buyers (used after rescans + on initial migration from localStorage).
+app.put('/api/buyers', async (req, res) => {
+  if (!ensureDb(res)) return;
+  const buyers = Array.isArray(req.body?.buyers) ? req.body.buyers : null;
+  if (!buyers) return res.status(400).json({ error: 'buyers array required' });
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query(`DELETE FROM buyers WHERE workspace_id = $1`, [WORKSPACE_ID]);
+    for (const b of buyers) {
+      if (!b?.id) continue;
+      await c.query(
+        `INSERT INTO buyers (workspace_id, id, data) VALUES ($1, $2, $3)`,
+        [WORKSPACE_ID, b.id, b]
+      );
+    }
+    await c.query('COMMIT');
+    res.json({ ok: true, count: buyers.length });
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => {});
+    console.error('PUT /api/buyers error:', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    c.release();
+  }
+});
+
+// Paginated AI audit log — newest first. Each row is a single rescan call.
+app.get('/api/rescans', async (req, res) => {
+  if (!ensureDb(res)) return;
+  const limit = Math.min(parseInt(req.query.limit) || 25, 100);
+  try {
+    const rows = await pool.query(
+      `SELECT id, ts, scope, only_buyer_id, input, output, live_intel, duration_ms, error
+         FROM rescan_log
+         WHERE workspace_id = $1
+         ORDER BY ts DESC
+         LIMIT $2`,
+      [WORKSPACE_ID, limit]
+    );
+    res.json({ rescans: rows.rows });
+  } catch (err) {
+    console.error('GET /api/rescans error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -483,4 +692,6 @@ if (process.env.NODE_ENV === 'production' && existsSync(distPath)) {
 }
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`Server on port ${PORT}`));
+initDb().finally(() => {
+  app.listen(PORT, () => console.log(`Server on port ${PORT}`));
+});

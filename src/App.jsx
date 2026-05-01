@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { STAGES, STAGE_INDEX, PROCESS_DEFAULT, BUYERS } from './data.js';
 import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
-  AddBuyerForm, AIChat, winnerProbabilities,
+  AddBuyerForm, AIChat, winnerProbabilities, AIHistoryButton, AIHistoryModal,
 } from './components.jsx';
 import { TweaksPanel, TweakSection, TweakToggle, useTweaks } from './TweaksPanel.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
+import { fetchWorkspace, pushWorkspace, pushBuyers, debouncedPush } from './lib/sync.js';
 
 const TWEAK_DEFAULTS = { darkMode: false };
 const STATE_KEY = 'kennion.state.v1';
@@ -62,10 +63,76 @@ export default function App() {
   const [aiOpen, setAiOpen] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [docs, setDocs] = useLibrary();
   const [rescanError, setRescanError] = useState(null);
+  const [syncStatus, setSyncStatus] = useState('local'); // 'local' | 'syncing' | 'synced' | 'offline'
+  const hydrated = useRef(false);
 
   const fileIds = docs.filter(d => !d.classifying).map(d => d.id);
+
+  // Stale-while-revalidate hydration. localStorage already populated state
+  // synchronously; we now reconcile with server. If server has newer
+  // workspace state, replace local. Otherwise push local up so the device
+  // that booted wins (single-tenant — last writer wins).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const result = await fetchWorkspace();
+      if (cancelled) return;
+      if (!result.available) {
+        setSyncStatus('offline');
+        hydrated.current = true;
+        return;
+      }
+      if (result.workspace) {
+        const ws = result.workspace;
+        if (ws.ebitda != null) setEbitda(Number(ws.ebitda));
+        if (ws.case_mode) setCaseMode(ws.case_mode);
+        if (ws.market) setMarket(ws.market);
+        if (ws.market_meta) setMarketMeta(ws.market_meta);
+        if (ws.rationales) setRationales(ws.rationales);
+        if (ws.process) setProcess(ws.process);
+      }
+      if (Array.isArray(result.buyers) && result.buyers.length > 0) {
+        setBuyers(result.buyers);
+      } else {
+        // Server is empty — push our local state up as the seed.
+        await pushBuyers(buyers);
+        await pushWorkspace({
+          ebitda, case_mode: caseMode, market, market_meta: marketMeta,
+          rationales, process,
+        });
+      }
+      setSyncStatus('synced');
+      hydrated.current = true;
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Write-through: every workspace-level change → debounced PUT to server.
+  useEffect(() => {
+    if (!hydrated.current) return;
+    setSyncStatus('syncing');
+    debouncedPush('workspace', async () => {
+      const ok = await pushWorkspace({
+        ebitda, case_mode: caseMode, market, market_meta: marketMeta,
+        rationales, process,
+      });
+      setSyncStatus(ok ? 'synced' : 'offline');
+    });
+  }, [ebitda, caseMode, market, marketMeta, rationales, process]);
+
+  // Buyers sync — bulk replace (rescans typically touch many buyers at once).
+  useEffect(() => {
+    if (!hydrated.current) return;
+    setSyncStatus('syncing');
+    debouncedPush('buyers', async () => {
+      const ok = await pushBuyers(buyers);
+      setSyncStatus(ok ? 'synced' : 'offline');
+    });
+  }, [buyers]);
 
   // Real pipeline-wide re-evaluation. Sends every non-dropped buyer + every
   // attached document + prior market bands to the AI, validates the response,
@@ -194,6 +261,7 @@ export default function App() {
           <div className="brand-tag">Kennion · Project Beacon · Confidential</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <AIHistoryButton onClick={() => setShowHistory(true)} syncStatus={syncStatus} />
           <LibraryButton count={docs.length} onClick={() => setShowLibrary(true)} />
           <SystemBar
             ebitda={ebitda} onEbitda={setEbitda}
@@ -305,6 +373,10 @@ export default function App() {
           onClose={() => setShowLibrary(false)}
           onRescanBuyers={rescanMany}
         />
+      )}
+
+      {showHistory && (
+        <AIHistoryModal onClose={() => setShowHistory(false)} buyers={buyers} />
       )}
 
       <AIChat

@@ -1342,3 +1342,165 @@ ${ctx}${docNote}`;
     </div>
   );
 }
+
+// ---------- AI history (audit trail) ----------
+export function AIHistoryButton({ onClick, syncStatus }) {
+  const dot = syncStatus === 'synced' ? 'var(--pos)'
+    : syncStatus === 'syncing' ? 'var(--accent)'
+    : syncStatus === 'offline' ? 'var(--neg, #c44)'
+    : 'var(--ink-3)';
+  const tip = syncStatus === 'synced' ? 'Synced to Postgres'
+    : syncStatus === 'syncing' ? 'Saving to Postgres…'
+    : syncStatus === 'offline' ? 'Server unavailable — using local only'
+    : 'Loading';
+  return (
+    <button
+      className="ai-history-btn"
+      onClick={onClick}
+      title={`AI audit log · ${tip}`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 8,
+        background: 'transparent', border: '1px solid var(--rule-2)', borderRadius: 4,
+        padding: '6px 12px', cursor: 'pointer',
+        fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em',
+        textTransform: 'uppercase', color: 'var(--ink-2)', transition: 'all 0.12s',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--ink)'; e.currentTarget.style.color = 'var(--bg)'; e.currentTarget.style.borderColor = 'var(--ink)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ink-2)'; e.currentTarget.style.borderColor = 'var(--rule-2)'; }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: dot }}></span>
+      AI History
+    </button>
+  );
+}
+
+export function AIHistoryModal({ onClose, buyers }) {
+  const [rescans, setRescans] = useState(null);
+  const [error, setError] = useState(null);
+  const buyerById = Object.fromEntries((buyers || []).map(b => [b.id, b]));
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/rescans?limit=50');
+        if (!res.ok) {
+          if (res.status === 503) {
+            setError('Persistence unavailable — connect Postgres on Railway to enable audit history.');
+          } else {
+            setError(`Server returned ${res.status}`);
+          }
+          return;
+        }
+        const data = await res.json();
+        if (!cancelled) setRescans(data.rescans || []);
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 880 }}>
+        <button className="modal-close" onClick={onClose}>×</button>
+        <div className="modal-eyebrow">AI Audit Log</div>
+        <div className="modal-title" style={{ fontSize: 30, marginBottom: 6 }}>Every rescan, recorded</div>
+        <div className="modal-sub" style={{ marginBottom: 18 }}>
+          Server-side log of every AI rescan call — inputs sent, outputs returned, web intel fetched, duration. Newest first.
+        </div>
+
+        {error && <div className="add-error" style={{ marginBottom: 12 }}>{error}</div>}
+        {!error && rescans === null && (
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--ink-3)', fontSize: 13 }}>
+            Loading audit log…
+          </div>
+        )}
+        {rescans && rescans.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--ink-3)', fontSize: 13 }}>
+            No rescans logged yet. Hit "Re-scan" in the top bar.
+          </div>
+        )}
+        {rescans && rescans.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: '60vh', overflowY: 'auto' }}>
+            {rescans.map(r => {
+              const ts = new Date(r.ts);
+              const isPipeline = r.scope === 'pipeline';
+              const targetName = r.only_buyer_id ? (buyerById[r.only_buyer_id]?.name || r.only_buyer_id) : null;
+              const out = r.output || {};
+              return (
+                <div key={r.id} style={{
+                  border: '1px solid var(--rule)',
+                  borderRadius: 4,
+                  padding: '12px 14px',
+                  background: 'var(--bg-card)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: 10.5, letterSpacing: '0.04em', color: 'var(--ink-3)' }}>
+                      {ts.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      {' · '}
+                      <span style={{ color: 'var(--accent)', textTransform: 'uppercase' }}>
+                        {isPipeline ? 'Pipeline rescan' : `Buyer · ${targetName}`}
+                      </span>
+                      {r.duration_ms && <> · {(r.duration_ms / 1000).toFixed(1)}s</>}
+                      {r.live_intel && <> · web intel</>}
+                      {r.error && <span style={{ color: 'var(--neg, #c44)' }}> · ERROR</span>}
+                    </div>
+                  </div>
+                  {r.error && (
+                    <div style={{ fontSize: 12, color: 'var(--neg, #c44)' }}>{r.error}</div>
+                  )}
+                  {out.summary && (
+                    <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5 }}>{out.summary}</div>
+                  )}
+                  {out.confidence_rationale && (
+                    <div style={{ fontSize: 12, color: 'var(--ink-2)', fontStyle: 'italic', lineHeight: 1.5 }}>
+                      <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--accent)', marginRight: 6 }}>Confidence</span>
+                      {out.confidence_rationale}
+                    </div>
+                  )}
+                  {Array.isArray(out.buyers) && out.buyers.length > 0 && (
+                    <details style={{ marginTop: 4 }}>
+                      <summary style={{ cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-3)' }}>
+                        {out.buyers.length} buyer update{out.buyers.length === 1 ? '' : 's'}
+                      </summary>
+                      <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12, borderLeft: '2px solid var(--rule)' }}>
+                        {out.buyers.map(b => (
+                          <div key={b.id} style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+                            <b style={{ color: 'var(--ink)' }}>{buyerById[b.id]?.name || b.id}</b>
+                            {' — p='}{b.probability}{'%'}
+                            {b.reasoning && <div style={{ marginTop: 2, fontSize: 11.5, color: 'var(--ink-3)' }}>{b.reasoning}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                  {r.live_intel && (
+                    <details>
+                      <summary style={{ cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-3)' }}>
+                        Web intel ({r.live_intel.length.toLocaleString()} chars)
+                      </summary>
+                      <pre style={{ marginTop: 8, padding: 10, fontSize: 11, lineHeight: 1.5, background: 'var(--bg)', border: '1px solid var(--rule)', borderRadius: 2, whiteSpace: 'pre-wrap', maxHeight: 240, overflowY: 'auto' }}>
+                        {r.live_intel}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
