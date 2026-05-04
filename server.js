@@ -140,7 +140,7 @@ Bands ~2× wide; bands may overlap (conservative.high may equal realistic.low). 
 # Per-buyer outputs
 - probability (0–100): THIS buyer's independent odds of being the winning bidder. **The number you return IS what the UI shows — there is no post-processing, no stage multiplier applied downstream.** Bake stage, momentum, fit, evidence quality, and no-deal risk into this single number. Probabilities across buyers are independent and may sum to >100 (multiple paths to close) or <100 (significant no-deal risk). Be honest about no-deal risk.
 - fit (size, benefits, precedent each 0–5; pe is 0 or 1): size capacity, benefits-vertical alignment, PE capital available, 2025–26 M&A precedent activity.
-- thesis: ONE plain-English sentence, max 15 words. State why THIS buyer wins specifically. No jargon, no acronyms (spell out "PE", "LOI" etc. or omit), no em-dash run-ons. Examples: "Strongest strategic fit — already runs three captive programs." / "Pure-benefits PE platform with an active chemistry meeting on the calendar." / "Big consolidator with capital, but captive deals aren't their usual play."
+- thesis: ONE plain-English sentence, max 15 words. State why THIS buyer wins specifically. No jargon, no acronyms (spell out "PE", "LOI" etc. or omit), no em-dash run-ons. Format examples (illustrative only — do NOT copy their content, write fresh based on each buyer's actual profile + notes): "Strongest strategic fit given existing captive program experience." / "Active sponsor with capital deployed and a meeting already scheduled." / "Has capital, but this asset class isn't their typical playbook."
 - reasoning: WHY this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving. This text is shown verbatim in the UI as the explanation for the number — write it for a smart LP, not for yourself.
 - confidence ("low" | "medium" | "high"): how grounded this prediction is in hard evidence. "high" = LOI/term-sheet/written-offer or multiple corroborating signals from CIM/notes/live intel; "medium" = consistent pattern across notes + comps but no firm number; "low" = mostly inference from buyer profile + sponsor pattern with thin evidence.
 - multiple_override: null OR { low, mid, high, source: "LOI"|"term-sheet"|"verbal-offer", evidence: "doc filename or note quote" }. Set ONLY when hard-evidence number exists. Most buyers should have null here.
@@ -164,11 +164,13 @@ Write three one-liners — close_date_rationale, confidence_rationale, clearing_
 - **State the why directly**. Don't "defend" — just explain what's driving the number and the main risk.
 - **No first-person plural** ("we", "our process"). Just say what's happening.
 
-Examples of the right length and tone:
+Format examples (illustrative only — do NOT copy buyer names, dates, percentages, or specific facts from these examples; they are abstract format demos. Use ONLY information from the actual pipeline state, notes, docs, and precedent table provided in this rescan call):
 
-  close_date_rationale: "Targeting Q3 2026: most buyers are mid-stage and offers usually land 8–10 weeks out. OneDigital's chemistry meeting is the biggest swing factor."
-  confidence_rationale: "Three buyers are above 18% (Hub, OneDigital, C&B), which gives multiple paths to close. The 32% no-deal risk is real if the top buyers walk on price."
-  clearing_price_rationale: "Sized at 6–7× EBITDA because the book is sub-$5M and concentrated. Could push higher only if a buyer sees real synergies in their LOI."
+  close_date_rationale: "Targeting Q3 2026: most buyers are mid-stage and offers usually land 8–10 weeks out. The lead buyer's next milestone is the biggest swing factor."
+  confidence_rationale: "Multiple buyers above 15% give independent paths to close. Main no-deal risk is the top buyers walking on price."
+  clearing_price_rationale: "Sized at 6–7× EBITDA because the book is sub-$5M and concentrated. Higher only if a buyer puts real synergies in writing."
+
+**Strict rule**: do not invent specifics. If the examples reference a date, milestone, sponsor, or percentage that is NOT in the actual pipeline state below, do not include it. Reference only buyers, dates, notes, and documents that are present in this rescan's input.
 
 These rationales must reflect the CURRENT pipeline state in this rescan call. If a per-buyer rescan changed only one buyer, update the rationales only if the change is material to the dashboard number; otherwise echo prior values.
 
