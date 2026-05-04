@@ -155,14 +155,22 @@ Bands ~2× wide; bands may overlap (conservative.high may equal realistic.low). 
 
 A buyer at the high end of their stage range should reflect strong corroborating evidence (active sponsor, recent precedent, distribution fit, momentum). A buyer at the low end should reflect specific drag (declined informally, capacity constraint, weak benefits mix, sponsor bandwidth issue). State the drivers in \`reasoning\`.
 
-# Dashboard rationales (REAGAN VOICE — defend the numbers to an LP)
-After scoring the buyers, write three short defenses — close_date_rationale, confidence_rationale, clearing_price_rationale — in the voice of Reagan Consulting (the seller's banker) defending each top-line dashboard number to a Kennion LP. Use first-person plural ("we", "our process"). Be concrete, reference specific buyers / stages / precedents / docs. Each ≤ 2 sentences. Avoid generic banker-speak ("strong", "positive momentum"). Examples of the right tone:
+# Dashboard rationales (PLAIN ENGLISH — short, direct, no jargon)
+Write three one-liners — close_date_rationale, confidence_rationale, clearing_price_rationale — that explain each top-line number in plain English. Hard rules:
 
-  close_date_rationale: "We're 18 weeks from a Sep 2026 close because LOIs land in week 12 (early July) and exclusivity + diligence run a typical 10 weeks from there. Hub and OneDigital are pacing on calendar; the Cason chemistry slip is the biggest risk to the timeline."
-  confidence_rationale: "68% reflects three independent paths to close — Hub at 22%, OneDigital at 27%, Cottingham & Butler at 18% — with the rest of the field thin. The 32% no-deal probability is real and concentrated in either a price-discipline pull from PE bidders or a Reagan-side process delay."
-  clearing_price_rationale: "$22-26M = $3.61M EBITDA × 6.0-7.2×, anchored on the $3-5M captive-niche bucket — sub-$5M benefits books don't clear at mid-market PE multiples without scale, and we lack the scaled-platform comps that would justify higher. Hub and OneDigital tuck-in math (their cost-synergy take-out) is what pushes us toward the upper half if bidding tension shows up by July LOIs."
+- **Max 25 words** each. Count them. Brevity is more important than completeness.
+- **Two short sentences max** (one is fine).
+- **Plain English**. No banker jargon ("LOI cycle", "exclusivity", "bidding tension", "tuck-in math", "anchored on the bucket"). If a smart non-banker wouldn't get it, rewrite it.
+- **State the why directly**. Don't "defend" — just explain what's driving the number and the main risk.
+- **No first-person plural** ("we", "our process"). Just say what's happening.
 
-These rationales must reflect the CURRENT pipeline state in this rescan call. If a per-buyer rescan changed only one buyer, update the rationales only if the change is material to the dashboard number; otherwise echo prior tone with a note that the headline didn't move.
+Examples of the right length and tone:
+
+  close_date_rationale: "Targeting Q3 2026: most buyers are mid-stage and offers usually land 8–10 weeks out. OneDigital's chemistry meeting is the biggest swing factor."
+  confidence_rationale: "Three buyers are above 18% (Hub, OneDigital, C&B), which gives multiple paths to close. The 32% no-deal risk is real if the top buyers walk on price."
+  clearing_price_rationale: "Sized at 6–7× EBITDA because the book is sub-$5M and concentrated. Could push higher only if a buyer sees real synergies in their LOI."
+
+These rationales must reflect the CURRENT pipeline state in this rescan call. If a per-buyer rescan changed only one buyer, update the rationales only if the change is material to the dashboard number; otherwise echo prior values.
 
 # Output discipline
 Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence. If evidence is insufficient to move a number, leave it stable and say so in reasoning.`;
@@ -266,15 +274,15 @@ const RESCAN_TOOL = {
       summary: { type: 'string', description: '1–2 sentences on how the overall pipeline view shifted vs prior state' },
       close_date_rationale: {
         type: 'string',
-        description: '1–2 sentences in REAGAN VOICE defending the projected close date. Reference current process phase, late-stage buyers, expected LOI timing, and any blockers from the notes/docs. As if explaining to an LP why this is the credible close window. Be concrete, not generic.',
+        description: 'Plain-English one-liner explaining the projected close date. Max 25 words, two short sentences max. State what is driving the timing and the biggest risk. No jargon ("LOI cycle", "exclusivity", "process phase").',
       },
       confidence_rationale: {
         type: 'string',
-        description: '1–2 sentences in REAGAN VOICE defending the deal confidence percentage. Reference the probability spread across buyers (who is anchoring the floor, who is the upside path) and the no-deal risk drivers. As if explaining to an LP why this number is honest, not optimistic.',
+        description: 'Plain-English one-liner explaining the deal confidence percentage. Max 25 words, two short sentences max. State the paths to close and the main no-deal risk. No jargon.',
       },
       clearing_price_rationale: {
         type: 'string',
-        description: '1–2 sentences in REAGAN VOICE defending the market clearing price band for the active case. Reference which precedents/comps anchor the band and any market shifts. As if explaining to an LP why $X-$Y is the right range for this asset right now.',
+        description: 'Plain-English one-liner explaining the market clearing price band. Max 25 words, two short sentences max. State the multiple, why that size bucket, and what would push it higher. No jargon ("anchored on the bucket", "tuck-in math", "captive-niche-discount").',
       },
     },
   },
