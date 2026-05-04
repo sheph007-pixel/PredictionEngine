@@ -291,7 +291,6 @@ export default function App() {
           <div>RANK</div>
           <div>FIRM</div>
           <div>STAGE</div>
-          <div>AI DEAL VALUE</div>
           <div>P(WINNER)</div>
           <div></div>
         </div>
@@ -303,14 +302,9 @@ export default function App() {
               displayRank={i + 1}
               selected={b.id === openId}
               onSelect={() => openBuyer(b.id)}
-              onOpenSources={() => openBuyer(b.id, 'sources')}
               onAdvance={advance}
               onDrop={drop}
-              ebitda={ebitda}
-              caseMode={caseMode}
-              market={market}
               winnerPct={winnerData.winnerByBuyer[b.id] || 0}
-              winnerDeltaPct={b.lastWeekWinnerPct != null ? (winnerData.winnerByBuyer[b.id] || 0) - b.lastWeekWinnerPct : null}
             />
           ))}
           <div className="row row-nodeal">
@@ -320,7 +314,6 @@ export default function App() {
               <div className="row-name-meta row-nodeal-meta">Process fails to clear · we walk</div>
             </div>
             <div></div>
-            <div className="row-deal"><div className="row-deal-out">— —</div></div>
             <div className="row-prob">
               <div className="prob-bar">
                 <div className="prob-bar-fill prob-bar-nodeal" style={{ width: winnerData.noDealPct + '%' }}></div>
