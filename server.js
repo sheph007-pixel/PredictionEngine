@@ -137,6 +137,13 @@ Bands ~2× wide; bands may overlap (conservative.high may equal realistic.low). 
 
 **Conservatism bias**: when evidence is thin, lean to the lower half of the bucket. It is better to surface a credible $22–29M valuation that holds up under LP scrutiny than a wishful $40M+ that collapses at LOI. Every band note must include the size bucket you used (e.g. "$3–5M EBITDA bucket · captive-niche").
 
+# Notes timeline (treat as field intelligence over time, not as a static brief)
+Each buyer's \`notes_timeline\` field is a chronological log of field intel — one line per entry, prefixed with \`[YYYY-MM-DD]\`. Read it as a story, not a list:
+- **Recent entries weigh more than older ones.** Look for momentum (warming, cooling, stalling), not average sentiment. A single recent strong signal (LOI hint, cooling chemistry, sponsor change, capacity pull) can override a stack of older neutral notes.
+- **Reference dates** when you anchor on a specific note (e.g., "the 2026-05-22 chemistry note"). Do not invent dates — only use ones present in the timeline.
+- **Trajectory matters**: a buyer with three warming notes in two weeks is materially different from a buyer with three warming notes spread over six months. Reflect that in probability and confidence.
+- If the timeline is empty, say so in reasoning and rely on profile + comps. Do not invent notes.
+
 # Per-buyer outputs
 - probability (0–100): THIS buyer's independent odds of being the winning bidder. **The number you return IS what the UI shows — there is no post-processing, no stage multiplier applied downstream.** Bake stage, momentum, fit, evidence quality, and no-deal risk into this single number. Probabilities across buyers are independent and may sum to >100 (multiple paths to close) or <100 (significant no-deal risk). Be honest about no-deal risk.
 - fit (size, benefits, precedent each 0–5; pe is 0 or 1): size capacity, benefits-vertical alignment, PE capital available, 2025–26 M&A precedent activity.
@@ -417,7 +424,11 @@ app.post('/api/ai/rescan', async (req, res) => {
     id: b.id, name: b.name, hq: b.hq, revenue: b.revenue, headcount: b.headcount,
     offices: b.offices, ownership: b.ownership, sponsor: b.sponsor, type: b.type,
     stage: b.stage, nda_signed: b.nda_signed || null, chemistry_date: b.chemistry_date || null,
-    notes: b.notes || '', flags: b.flags || [], fit: b.fit,
+    // Chronological field-intel log. Each line: "[YYYY-MM-DD] text". Recent
+    // entries should weigh more than old ones. Falls back to legacy single-
+    // string `notes` for buyers not yet migrated.
+    notes_timeline: formatNoteTimeline(b),
+    flags: b.flags || [], fit: b.fit,
     probability: b.probability, thesis: b.thesis,
     multipleOverride: b.multipleOverride || null,
     aiNotes: b.aiNotes || null,
@@ -571,6 +582,19 @@ ${focusInstruction}`;
     });
   }
 });
+
+// Render a buyer's notes for the AI as a chronological timeline. Prefers the
+// new noteLog array; falls back to the legacy single-string `notes` field for
+// buyers that haven't been migrated yet.
+function formatNoteTimeline(buyer) {
+  if (Array.isArray(buyer.noteLog) && buyer.noteLog.length > 0) {
+    return buyer.noteLog
+      .map(e => `[${(e.ts || '').slice(0, 10)}] ${e.text || ''}`)
+      .filter(line => line.trim().length > '[2024-01-01] '.length)
+      .join('\n');
+  }
+  return buyer.notes || '';
+}
 
 // Anthropic SDK errors stringify as the full HTTP body. Pull the useful bits
 // out so the client gets a short message and we still log the full detail.

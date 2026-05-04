@@ -8,6 +8,7 @@ import { TweaksPanel, TweakSection, TweakToggle, useTweaks } from './TweaksPanel
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
 import { fetchWorkspace, pushWorkspace, pushBuyers, debouncedPush } from './lib/sync.js';
+import { migrateNoteLog, appendNote, latestNoteId } from './lib/notes.js';
 
 const TWEAK_DEFAULTS = { darkMode: false };
 const STATE_KEY = 'kennion.state.v1';
@@ -50,7 +51,22 @@ function usePersistedState(key, initial) {
 
 export default function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [buyers, setBuyers] = usePersistedState('buyers', BUYERS);
+  const [buyers, setBuyersRaw] = usePersistedState('buyers', BUYERS);
+  // Wrap setBuyers so any path that hydrates buyers (server fetch, persisted
+  // state, AI rescan, manual edits) goes through the noteLog migration shim.
+  // The shim is idempotent — buyers already with noteLog pass through.
+  const setBuyers = (next) => {
+    setBuyersRaw(prev => {
+      const resolved = typeof next === 'function' ? next(prev) : next;
+      return Array.isArray(resolved) ? resolved.map(migrateNoteLog) : resolved;
+    });
+  };
+  // One-shot migration of the initial state (covers BUYERS seed and persisted
+  // localStorage values that were saved before noteLog existed).
+  useEffect(() => {
+    setBuyersRaw(prev => Array.isArray(prev) ? prev.map(migrateNoteLog) : prev);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [process, setProcess] = usePersistedState('process', PROCESS_DEFAULT);
   const [ebitda, setEbitda] = usePersistedState('ebitda', 18);
   const [caseMode, setCaseMode] = usePersistedState('caseMode', 'mid');
@@ -167,7 +183,10 @@ export default function App() {
   };
 
   // Per-buyer rescan — used by note submission and doc-tagged updates.
-  const rescanOne = async (buyerId) => {
+  // opts.triggerNoteId — when a rescan is triggered by a fresh note append,
+  // pass the new note's id so applyRescanToBuyers tags the resulting
+  // aiHistory entry. Lets the timeline UI show "AI re-scored after this note".
+  const rescanOne = async (buyerId, opts = {}) => {
     setRescanError(null);
     try {
       const result = await rescanBuyer({
@@ -177,7 +196,10 @@ export default function App() {
         priorMarket: market,
         buyerId,
       });
-      setBuyers(bs => applyRescanToBuyers(bs, result));
+      const trigger = opts.triggerNoteId
+        ? { buyerId, noteId: opts.triggerNoteId }
+        : null;
+      setBuyers(bs => applyRescanToBuyers(bs, result, { trigger }));
       captureRationales(result);
       return result;
     } catch (e) {
@@ -243,8 +265,17 @@ export default function App() {
     setBuyers(bs => bs.map(b => b.id === id ? { ...b, stage: 'dropped' } : b));
     triggerRescanForStageChange(id);
   };
-  const updateNotes = (id, notes) => {
-    setBuyers(bs => bs.map(b => b.id === id ? { ...b, notes } : b));
+  // Append a new note entry to a buyer's noteLog. Returns the new note id so
+  // the caller can pass it through to a rescan as `triggerNoteId`.
+  const appendBuyerNote = (id, text) => {
+    let newNoteId = null;
+    setBuyers(bs => bs.map(b => {
+      if (b.id !== id) return b;
+      const next = appendNote(migrateNoteLog(b), text);
+      newNoteId = latestNoteId(next.noteLog);
+      return next;
+    }));
+    return newNoteId;
   };
   const addBuyer = (newBuyer) => {
     setBuyers(bs => [...bs, newBuyer]);
@@ -352,7 +383,7 @@ export default function App() {
           onAdvance={advance}
           onDrop={drop}
           onDelete={deleteBuyer}
-          onUpdateNotes={updateNotes}
+          onAppendNote={appendBuyerNote}
           onRescanBuyer={rescanOne}
           winnerPct={winnerData.winnerByBuyer[open.id] || 0}
         />

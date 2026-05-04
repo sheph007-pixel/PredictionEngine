@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { STAGES, STAGE_INDEX, PROCESS_TASKS, PHASES } from './data.js';
 import { claudeComplete, claudeChat } from './utils/ai.js';
 import { PRECEDENT_BY_ID, PUBLIC_COMP_BANDS } from './data/precedents.js';
+import { relativeTime } from './lib/notes.js';
 
 const PUBLIC_COMP_BY_TICKER = Object.fromEntries(PUBLIC_COMP_BANDS.comps.map(c => [c.ticker, c]));
 
@@ -834,27 +835,30 @@ function SourceRow({ field, value, source, docs, onAddSource }) {
 }
 
 // ---------- buyer modal ----------
-export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpdateNotes, onRescanBuyer, winnerPct }) {
+export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppendNote, onRescanBuyer, winnerPct }) {
   if (!buyer) return null;
   const isDropped = buyer.stage === "dropped";
-  // Headline = winner-allocated share (matches the row + sums to dealClosesPct
-  // across all live buyers). The AI's raw stage-aware probability is shown
-  // separately in the Research card so the user can audit it against the
-  // stage discipline range.
+  // Single displayed probability — winner-allocated share (P this buyer wins
+  // the deal). Across all live buyers + no-deal pct = 100%. We no longer surface
+  // the AI's standalone stage-aware probability separately; stage discipline
+  // still constrains the AI in the prompt but doesn't appear as a competing UI
+  // number.
   const prob = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
-  const aiProb = probabilityFor(buyer);
-  const stageRange = STAGE_PROB_RANGE[buyer.stage] || null;
   const hasAiRescan = !!buyer.lastAnalyzed;
   const aiReasoning = buyer.aiNotes;
   const aiCitedPrecedents = Array.isArray(buyer.aiCitedPrecedents) ? buyer.aiCitedPrecedents : [];
   const fallbackReasons = !hasAiRescan ? heuristicReasonsFor(buyer) : [];
-  const [draft, setDraft] = useState(buyer.notes);
+  const noteLog = Array.isArray(buyer.noteLog) ? buyer.noteLog : [];
+  const aiHistoryByNoteId = {};
+  for (const h of (buyer.aiHistory || [])) {
+    if (h.triggered_by_note_id) aiHistoryByNoteId[h.triggered_by_note_id] = h;
+  }
+  const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
-  const [aiInsight, setAiInsight] = useState(null);
   const [aiError, setAiError] = useState(null);
   const [logEntry, setLogEntry] = useState(null);
   const [logLoading, setLogLoading] = useState(false);
-  useEffect(() => { setDraft(buyer.notes); setAiInsight(null); setAiError(null); }, [buyer.id]);
+  useEffect(() => { setDraft(''); setAiError(null); }, [buyer.id]);
 
   // Lazy-load the most recent rescan log row for this buyer (live web intel
   // text + cited URLs) so the Research card can show the actual evidence.
@@ -877,23 +881,24 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Submit field intel and trigger a real per-buyer rescan. The note is
-  // persisted first so the rescan reads the freshest version. The AI's
-  // reasoning + citations come back inline; numeric updates apply globally.
-  const submitNotes = async () => {
-    if (!draft.trim() || pending) return;
+  // Append a new note entry, persist it, then trigger a per-buyer rescan that
+  // is tagged with the new note's id. The note survives even if the rescan
+  // fails — persistence happens before the AI call. The aiHistory entry that
+  // comes back is matched to this note via triggered_by_note_id so the
+  // timeline can show "AI re-scored after this note" inline.
+  const submitNote = async () => {
+    const text = draft.trim();
+    if (!text || pending) return;
     setPending(true);
     setAiError(null);
-    onUpdateNotes(buyer.id, draft);
+    const newNoteId = onAppendNote ? onAppendNote(buyer.id, text) : null;
+    setDraft('');
     if (!onRescanBuyer) {
-      setAiInsight("→ Re-scan unavailable — note saved.");
       setPending(false);
       return;
     }
     try {
-      const result = await onRescanBuyer(buyer.id);
-      const updated = result?.buyers?.[0];
-      setAiInsight(updated?.reasoning || result?.summary || "→ Re-scored.");
+      await onRescanBuyer(buyer.id, { triggerNoteId: newNoteId });
     } catch (e) {
       setAiError(e.message || "Re-scan failed");
     } finally {
@@ -939,12 +944,7 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
         <div className="modal-grid">
           <div className="modal-card modal-card-prob">
             <div className="modal-card-label">
-              <span>AI probability of close</span>
-              {buyer.aiConfidence && (
-                <span className={"conf-chip conf-chip-" + buyer.aiConfidence} title="How grounded this prediction is in hard evidence">
-                  {buyer.aiConfidence} confidence
-                </span>
-              )}
+              <span>Chance of winning the deal</span>
             </div>
             <div className="modal-prob-row">
               <div className="modal-prob-num">{prob}<span>%</span></div>
@@ -952,21 +952,7 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
                 <div className="modal-prob-bar-fill" style={{ width: prob + "%" }}></div>
               </div>
             </div>
-            {aiReasoning ? (
-              <div className="ai-reasoning">{aiReasoning}</div>
-            ) : (
-              <div className="reason-list">
-                {fallbackReasons.slice(0, 3).map((r, i) => (
-                  <div key={i} className={"reason " + (r.kind === "+" ? "reason-pos" : "reason-neg")}>
-                    <span className="reason-mark">{r.kind}</span>
-                    <span>{r.text}</span>
-                  </div>
-                ))}
-                {fallbackReasons.length === 0 && (
-                  <div className="ai-reasoning ai-reasoning-empty">No AI rescan yet — re-scan from the top bar to generate a grounded prediction.</div>
-                )}
-              </div>
-            )}
+            <div className="modal-prob-caption">Across all buyers + no-deal = 100%</div>
             {buyer.lastAnalyzed && (
               <div className="modal-prob-foot">
                 AI re-scored {new Date(buyer.lastAnalyzed).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
@@ -976,18 +962,40 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
 
           <div className="modal-col">
             <div className="modal-card modal-card-research">
-              <div className="modal-card-label">Research · how the engine got here</div>
-              {!isDropped && stageRange && (
-                <div className="research-row">
-                  <div className="research-row-label">Stage discipline</div>
-                  <div className="research-row-value">
-                    <span className="research-stage-band">{buyer.stage}: {stageRange.low}–{stageRange.high}%</span>
-                    <span className="research-stage-pin">AI raw: <b>{aiProb}%</b></span>
-                  </div>
-                </div>
-              )}
+              <div className="modal-card-label">Why this number</div>
               <div className="research-row">
-                <div className="research-row-label">Anchored on</div>
+                <div className="research-row-label">AI confidence</div>
+                <div className="research-row-value">
+                  {buyer.aiConfidence ? (
+                    <span className={"conf-chip conf-chip-" + buyer.aiConfidence} title="How grounded this prediction is in hard evidence">
+                      {buyer.aiConfidence}
+                    </span>
+                  ) : (
+                    <span className="research-empty">Re-scan to grade evidence quality.</span>
+                  )}
+                </div>
+              </div>
+              <div className="research-row">
+                <div className="research-row-label">Reasoning</div>
+                <div className="research-row-value">
+                  {aiReasoning ? (
+                    <div className="research-reasoning">{aiReasoning}</div>
+                  ) : fallbackReasons.length > 0 ? (
+                    <div className="reason-list">
+                      {fallbackReasons.slice(0, 3).map((r, i) => (
+                        <div key={i} className={"reason " + (r.kind === "+" ? "reason-pos" : "reason-neg")}>
+                          <span className="reason-mark">{r.kind}</span>
+                          <span>{r.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="research-empty">No AI rescan yet — re-scan from the top bar to generate a grounded prediction.</span>
+                  )}
+                </div>
+              </div>
+              <div className="research-row">
+                <div className="research-row-label">Valuation comps</div>
                 <div className="research-row-value">
                   {aiCitedPrecedents.length === 0 ? (
                     <span className="research-empty">No precedents cited yet — needs an AI rescan.</span>
@@ -1048,8 +1056,8 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
 
             <div className="modal-card modal-card-notes">
               <div className="modal-card-label">
-                Notes & field intelligence
-                <span className="modal-card-hint">AI re-analyzes on submit</span>
+                Field notes
+                <span className="modal-card-hint">Each note re-analyzes the buyer</span>
               </div>
               <textarea
                 className="notes-area"
@@ -1062,30 +1070,40 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
               <div className="notes-actions">
                 <button
                   className="btn btn-submit"
-                  onClick={submitNotes}
-                  disabled={pending || !draft.trim() || draft === buyer.notes}
+                  onClick={submitNote}
+                  disabled={pending || !draft.trim()}
                 >
-                  {pending ? "Analyzing…" : "Submit & re-analyze"}
+                  {pending ? "Analyzing…" : "Add note & re-analyze"}
                 </button>
               </div>
-              {aiInsight && (
-                <div className="notes-insight">
-                  <div className="notes-insight-tag">AI · re-scored</div>
-                  <div className="notes-insight-text">{aiInsight}</div>
-                  {Array.isArray(buyer.aiCitations) && buyer.aiCitations.length > 0 && (
-                    <div className="notes-insight-cites">
-                      {buyer.aiCitations.slice(0, 4).map((c, i) => (
-                        <span key={i} className="notes-insight-cite">{c}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
               {aiError && (
                 <div className="notes-insight notes-insight-err">
                   <div className="notes-insight-tag">Re-scan failed</div>
                   <div className="notes-insight-text">{aiError}</div>
                 </div>
+              )}
+              {noteLog.length === 0 ? (
+                <div className="notes-empty">No field notes yet. Add the first one to start the timeline.</div>
+              ) : (
+                <ul className="notes-timeline">
+                  {noteLog.slice().reverse().map(entry => {
+                    const linkedAi = aiHistoryByNoteId[entry.id];
+                    return (
+                      <li key={entry.id} className="notes-entry">
+                        <div className="notes-entry-head">
+                          <span className="notes-entry-time" title={new Date(entry.ts).toLocaleString()}>{relativeTime(entry.ts)}</span>
+                        </div>
+                        <div className="notes-entry-text">{entry.text}</div>
+                        {linkedAi && linkedAi.reasoning && (
+                          <div className="notes-entry-ai" title={linkedAi.reasoning}>
+                            <span className="notes-entry-ai-tag">AI</span>
+                            <span className="notes-entry-ai-text">{linkedAi.reasoning}</span>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </div>
           </div>

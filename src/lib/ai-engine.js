@@ -110,7 +110,10 @@ async function callRescan({ buyers, ebitda, fileIds, onlyBuyerId, priorMarket })
 //   - aiCitations (evidence list)
 //   - lastAnalyzed (timestamp)
 //   - aiHistory entry appended (capped at 8 entries, oldest dropped)
-export function applyRescanToBuyers(buyers, rescan) {
+// opts.trigger: { buyerId, noteId } — when present, the aiHistory entry for
+// that buyer is tagged so the timeline UI can show "AI re-scored after this note".
+export function applyRescanToBuyers(buyers, rescan, opts = {}) {
+  const trigger = opts.trigger || null;
   const byId = Object.fromEntries(rescan.buyers.map(b => [b.id, b]));
   return buyers.map(b => {
     const upd = byId[b.id];
@@ -120,6 +123,9 @@ export function applyRescanToBuyers(buyers, rescan) {
       ts: rescan.ts || new Date().toISOString(),
       reasoning: upd.reasoning,
       changes,
+      ...(trigger && trigger.buyerId === b.id && trigger.noteId
+        ? { triggered_by_note_id: trigger.noteId }
+        : {}),
     };
     const aiHistory = [...(b.aiHistory || []), historyEntry].slice(-8);
     return {
