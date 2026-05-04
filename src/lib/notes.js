@@ -118,3 +118,37 @@ export function relativeTime(ts, now = Date.now()) {
   if (d < 7) return `${d}d ago`;
   return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+
+// Quick-stamp event registry. Each entry encodes the canonical note text,
+// the chip label shown in the UI, and the structural mutation: which buyer
+// field to set (with `$today` resolving to today's ISO date) and which stage
+// to advance to. `force: true` bypasses the don't-regress-stage guard for
+// terminal events (declined → dropped). Centralized here so both UI chips
+// and any future AI tool emit identical strings.
+export const EVENT_SPECS = {
+  nda_signed: {
+    label: 'NDA signed',
+    text: 'NDA signed.',
+    field: 'nda_signed',
+    value: '$today',
+    stage: 'nda',
+  },
+  chemistry_scheduled: {
+    label: 'Chemistry scheduled',
+    text: 'Chemistry meeting scheduled.',
+    field: 'chemistry_date',
+    value: '$today',
+    stage: 'chemistry',
+  },
+  loi_received: {
+    label: 'LOI received',
+    text: 'LOI received.',
+    stage: 'loi',
+  },
+  declined: {
+    label: 'Declined',
+    text: 'Declined the process.',
+    stage: 'dropped',
+    force: true,
+  },
+};

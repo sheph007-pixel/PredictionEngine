@@ -8,7 +8,7 @@ import { TweaksPanel, TweakSection, TweakToggle, TweakAction, useTweaks } from '
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
 import { fetchWorkspace, pushWorkspace, pushBuyers, debouncedPush } from './lib/sync.js';
-import { migrateNoteLog, appendNote, removeNote, latestNoteId } from './lib/notes.js';
+import { migrateNoteLog, appendNote, removeNote, latestNoteId, EVENT_SPECS } from './lib/notes.js';
 
 const TWEAK_DEFAULTS = { darkMode: false };
 const STATE_KEY = 'kennion.state.v1';
@@ -283,6 +283,33 @@ export default function App() {
   const removeBuyerNote = (id, noteId) => {
     setBuyers(bs => bs.map(b => b.id === id ? removeNote(migrateNoteLog(b), noteId) : b));
   };
+
+  // Stamp a structured stage event on a buyer in one atomic state update:
+  // append the canonical note, set the structural field (nda_signed,
+  // chemistry_date), and advance the stage if the target is later than
+  // current (`force` overrides for terminal events like declined → dropped).
+  // Returns the new note id so the caller can tag the rescan that follows.
+  const logBuyerEvent = (id, eventKey) => {
+    const spec = EVENT_SPECS[eventKey];
+    if (!spec) return null;
+    const today = new Date().toISOString().slice(0, 10);
+    let newNoteId = null;
+    setBuyers(bs => bs.map(b => {
+      if (b.id !== id) return b;
+      let next = appendNote(migrateNoteLog(b), spec.text);
+      newNoteId = latestNoteId(next.noteLog);
+      if (spec.field) {
+        next = { ...next, [spec.field]: spec.value === '$today' ? today : spec.value };
+      }
+      if (spec.stage) {
+        const cur = STAGE_INDEX[next.stage] ?? -1;
+        const tgt = STAGE_INDEX[spec.stage] ?? -1;
+        if (spec.force || tgt > cur) next = { ...next, stage: spec.stage };
+      }
+      return next;
+    }));
+    return newNoteId;
+  };
   const addBuyer = (newBuyer) => {
     setBuyers(bs => [...bs, newBuyer]);
     setShowAdd(false);
@@ -434,6 +461,10 @@ export default function App() {
           onDelete={deleteBuyer}
           onAppendNote={appendBuyerNote}
           onRemoveNote={removeBuyerNote}
+          onLogEvent={(id, key) => {
+            const nid = logBuyerEvent(id, key);
+            return rescanOne(id, { triggerNoteId: nid });
+          }}
           onRescanBuyer={rescanOne}
           winnerPct={winnerData.winnerByBuyer[open.id] || 0}
         />

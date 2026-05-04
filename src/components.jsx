@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { STAGES, STAGE_INDEX, PROCESS_TASKS, PHASES } from './data.js';
 import { claudeComplete, claudeChat } from './utils/ai.js';
 import { PRECEDENT_BY_ID, PUBLIC_COMP_BANDS } from './data/precedents.js';
-import { relativeTime } from './lib/notes.js';
+import { relativeTime, EVENT_SPECS } from './lib/notes.js';
 
 const PUBLIC_COMP_BY_TICKER = Object.fromEntries(PUBLIC_COMP_BANDS.comps.map(c => [c.ticker, c]));
 
@@ -851,7 +851,7 @@ function SourceRow({ field, value, source, docs, onAddSource }) {
 }
 
 // ---------- buyer modal ----------
-export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppendNote, onRemoveNote, onRescanBuyer, winnerPct }) {
+export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppendNote, onRemoveNote, onLogEvent, onRescanBuyer, winnerPct }) {
   if (!buyer) return null;
   const isDropped = buyer.stage === "dropped";
   // Single displayed probability — winner-allocated share (P this buyer wins
@@ -915,6 +915,24 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
     }
     try {
       await onRescanBuyer(buyer.id, { triggerNoteId: newNoteId });
+    } catch (e) {
+      setAiError(e.message || "Re-scan failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  // One-click stage event from a chip (NDA signed, Chemistry scheduled,
+  // LOI received, Declined). The parent's onLogEvent atomically appends a
+  // canonical note + sets structural fields + advances stage, then triggers
+  // a single rescan tagged with the new note's id. Chip clicks intentionally
+  // ignore the textarea draft so any in-progress freetext stays put.
+  const handleChip = async (eventKey) => {
+    if (pending || !onLogEvent) return;
+    setPending(true);
+    setAiError(null);
+    try {
+      await onLogEvent(buyer.id, eventKey);
     } catch (e) {
       setAiError(e.message || "Re-scan failed");
     } finally {
@@ -1097,6 +1115,20 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
                 Field notes
                 <span className="modal-card-hint">Each note re-analyzes the buyer</span>
               </div>
+              {!isDropped && onLogEvent && (
+                <div className="chip-row">
+                  {Object.entries(EVENT_SPECS).map(([key, spec]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className="chip"
+                      disabled={pending || buyer.stage === 'closed'}
+                      onClick={() => handleChip(key)}
+                      title={`Stamp "${spec.text}"${spec.field ? ` · sets ${spec.field} to today` : ''}${spec.stage ? ` · advances stage to ${spec.stage}` : ''}`}
+                    >{spec.label}</button>
+                  ))}
+                </div>
+              )}
               <textarea
                 className="notes-area"
                 value={draft}
