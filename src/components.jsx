@@ -124,7 +124,7 @@ export function valuationFor(buyer, ebitda = 0, caseMode = "mid", market) {
   };
 }
 
-function quickThesis(thesis, maxChars = 110) {
+function quickThesis(thesis, maxChars = 140) {
   if (!thesis) return "";
   const firstSentence = thesis.split(/(?<=[.!?])\s+/)[0] || thesis;
   if (firstSentence.length <= maxChars) return firstSentence;

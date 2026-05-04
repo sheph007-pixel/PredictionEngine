@@ -302,11 +302,11 @@ body { font-size: 14px; }
 .prob-bar-nodeal { background: repeating-linear-gradient(45deg, var(--ink-3), var(--ink-3) 4px, transparent 4px, transparent 8px) !important; opacity: 0.6; }
 
 .row-rank { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
-.row-name-main { font-family: var(--serif); font-weight: 500; font-size: 17px; letter-spacing: -0.01em; color: var(--ink); }
+.row-name-main { font-family: var(--serif); font-weight: 600; font-size: 22px; letter-spacing: -0.015em; color: var(--ink); line-height: 1.15; }
 .row-name-link { color: inherit; text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.12s, color 0.12s; }
 .row-name-link:hover { color: var(--accent); border-bottom-color: var(--accent); }
 .row-name-sub { font-size: 12px; color: var(--ink-3); margin-top: 4px; font-family: var(--mono); letter-spacing: 0.04em; }
-.row-name-thesis { font-size: 12.5px; color: var(--ink-2); margin-top: 6px; line-height: 1.4; max-width: 380px; }
+.row-name-thesis { font-size: 12.5px; color: var(--ink-2); margin-top: 8px; line-height: 1.45; max-width: 460px; }
 
 .row-stages { display: flex; gap: 4px; }
 .stage-pip { width: 36px; height: 22px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--rule-2); border-radius: 2px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; color: var(--ink-3); background: transparent; }

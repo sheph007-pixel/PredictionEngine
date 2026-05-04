@@ -140,7 +140,7 @@ Bands ~2× wide; bands may overlap (conservative.high may equal realistic.low). 
 # Per-buyer outputs
 - probability (0–100): THIS buyer's independent odds of being the winning bidder. **The number you return IS what the UI shows — there is no post-processing, no stage multiplier applied downstream.** Bake stage, momentum, fit, evidence quality, and no-deal risk into this single number. Probabilities across buyers are independent and may sum to >100 (multiple paths to close) or <100 (significant no-deal risk). Be honest about no-deal risk.
 - fit (size, benefits, precedent each 0–5; pe is 0 or 1): size capacity, benefits-vertical alignment, PE capital available, 2025–26 M&A precedent activity.
-- thesis: 1 crisp sentence — bull case for THIS buyer winning specifically.
+- thesis: ONE plain-English sentence, max 15 words. State why THIS buyer wins specifically. No jargon, no acronyms (spell out "PE", "LOI" etc. or omit), no em-dash run-ons. Examples: "Strongest strategic fit — already runs three captive programs." / "Pure-benefits PE platform with an active chemistry meeting on the calendar." / "Big consolidator with capital, but captive deals aren't their usual play."
 - reasoning: WHY this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving. This text is shown verbatim in the UI as the explanation for the number — write it for a smart LP, not for yourself.
 - confidence ("low" | "medium" | "high"): how grounded this prediction is in hard evidence. "high" = LOI/term-sheet/written-offer or multiple corroborating signals from CIM/notes/live intel; "medium" = consistent pattern across notes + comps but no firm number; "low" = mostly inference from buyer profile + sponsor pattern with thin evidence.
 - multiple_override: null OR { low, mid, high, source: "LOI"|"term-sheet"|"verbal-offer", evidence: "doc filename or note quote" }. Set ONLY when hard-evidence number exists. Most buyers should have null here.
@@ -238,7 +238,7 @@ const RESCAN_TOOL = {
                 precedent: { type: 'integer', minimum: 0, maximum: 5 },
               },
             },
-            thesis: { type: 'string', description: '1 sentence bull case for this buyer winning' },
+            thesis: { type: 'string', description: 'ONE plain-English sentence, max 15 words. Why this buyer wins. No jargon, no acronyms, no em-dash run-ons.' },
             reasoning: { type: 'string', description: 'Why this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving. Shown verbatim in the UI.' },
             confidence: {
               type: 'string',
