@@ -675,33 +675,28 @@ Be realistic. Match the format of existing peers in the pipeline.`;
 }
 
 // ---------- buyer row ----------
-export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, onOpenSources, displayRank, ebitda, caseMode, winnerPct, winnerDeltaPct, market }) {
+export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, displayRank, winnerPct }) {
   const stageIdx = STAGE_INDEX[buyer.stage];
   const isDropped = buyer.stage === "dropped";
-  const v = valuationFor(buyer, ebitda, caseMode, market);
   const showProb = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
-
-  const ownershipSrc = buyer.sources?.ownership;
-  const peUnverified = !ownershipSrc || (ownershipSrc.kind === 'manual' && !ownershipSrc.url && !ownershipSrc.file_id);
 
   return (
     <div className={"row" + (selected ? " row-selected" : "") + (isDropped ? " row-passed" : "")} onClick={onSelect}>
       <div className="row-rank">{isDropped ? "—" : String(displayRank).padStart(2, "0")}</div>
       <div className="row-name">
         <div className="row-name-main">
-          {buyer.name}
-          {buyer.ownership === 'PE-backed' && (
-            <button
-              type="button"
-              className={"pe-tag" + (peUnverified ? " pe-tag-unverified" : "")}
-              onClick={(e) => { e.stopPropagation(); onOpenSources && onOpenSources(); }}
-              title={peUnverified ? 'PE-backed · source unverified — click to view/add' : 'PE-backed · click to view source'}
+          {buyer.website ? (
+            <a
+              className="row-name-link"
+              href={buyer.website}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
             >
-              PE{buyer.sponsor && buyer.sponsor !== '—' ? ` · ${buyer.sponsor}` : ''}
-            </button>
-          )}
+              {buyer.name}
+            </a>
+          ) : buyer.name}
         </div>
-        <div className="row-name-sub">{buyer.hq}</div>
         {!isDropped && buyer.thesis && (
           <div className="row-name-thesis">{quickThesis(buyer.thesis)}</div>
         )}
@@ -712,14 +707,6 @@ export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, onOpenS
             <span className="stage-pip-label">{s.short}</span>
           </div>
         ))}
-      </div>
-      <div className="row-deal">
-        {isDropped ? <div className="row-deal-out">— out —</div> : (
-          <>
-            <div className="row-deal-dollar">{fmtMoney(v.dollarMid)}</div>
-            <div className="row-deal-mult">{v.multMid.toFixed(1)}×</div>
-          </>
-        )}
       </div>
       <div className="row-prob">
         <div className="prob-bar">
