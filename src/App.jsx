@@ -332,6 +332,7 @@ export default function App() {
           onDelete={deleteBuyer}
           onUpdateNotes={updateNotes}
           onRescanBuyer={rescanOne}
+          winnerPct={winnerData.winnerByBuyer[open.id] || 0}
         />
       )}
 

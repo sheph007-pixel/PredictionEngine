@@ -798,10 +798,10 @@ function SourceRow({ field, value, source, docs, onAddSource }) {
 }
 
 // ---------- buyer modal ----------
-export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpdateNotes, onRescanBuyer }) {
+export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpdateNotes, onRescanBuyer, winnerPct }) {
   if (!buyer) return null;
   const isDropped = buyer.stage === "dropped";
-  const prob = isDropped ? 0 : probabilityFor(buyer);
+  const prob = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
   const reasons = reasoningFor(buyer);
   const [draft, setDraft] = useState(buyer.notes);
   const [pending, setPending] = useState(false);
