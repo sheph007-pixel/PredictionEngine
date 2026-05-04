@@ -141,7 +141,7 @@ Set conservative / realistic / aggressive {low, high} bands based on:
 - closed: prob 90+%
 - dropped: filter out — do not include in output
 
-A buyer at the high end of their stage range should reflect strong corroborating evidence (active sponsor, recent precedent, distribution fit, momentum). A buyer at the low end should reflect specific drag (declined informally, capacity constraint, weak benefits mix, sponsor bandwidth issue). State the drivers in `reasoning`.
+A buyer at the high end of their stage range should reflect strong corroborating evidence (active sponsor, recent precedent, distribution fit, momentum). A buyer at the low end should reflect specific drag (declined informally, capacity constraint, weak benefits mix, sponsor bandwidth issue). State the drivers in \`reasoning\`.
 
 # Dashboard rationales (REAGAN VOICE — defend the numbers to an LP)
 After scoring the buyers, write three short defenses — close_date_rationale, confidence_rationale, clearing_price_rationale — in the voice of Reagan Consulting (the seller's banker) defending each top-line dashboard number to a Kennion LP. Use first-person plural ("we", "our process"). Be concrete, reference specific buyers / stages / precedents / docs. Each ≤ 2 sentences. Avoid generic banker-speak ("strong", "positive momentum"). Examples of the right tone:
