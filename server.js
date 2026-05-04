@@ -474,7 +474,7 @@ ${focusInstruction}`;
   try {
     const message = await client.beta.messages.create({
       model: MODEL,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: [
         { type: 'text', text: RESCAN_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
       ],
@@ -508,6 +508,31 @@ ${focusInstruction}`;
       ts: new Date().toISOString(),
       live_intel_used: !!liveIntel,
     };
+
+    const validation = validateRescanShape(responsePayload, only_buyer_id);
+    if (!validation.ok) {
+      const stopReason = message.stop_reason || 'unknown';
+      const truncated = stopReason === 'max_tokens';
+      console.error(
+        `Rescan: malformed AI output — ${validation.error} (stop_reason=${stopReason}${truncated ? ', LIKELY TRUNCATED — bump max_tokens' : ''})`,
+        JSON.stringify(toolUse.input).slice(0, 800)
+      );
+      logRescan({
+        scope: only_buyer_id ? 'buyer' : 'pipeline',
+        only_buyer_id,
+        input: auditInput,
+        output: responsePayload,
+        live_intel: liveIntel,
+        duration_ms: Date.now() - t0,
+        error: `malformed: ${validation.error} (stop_reason=${stopReason})`,
+      });
+      return res.status(502).json({
+        error: `AI returned incomplete output: ${validation.error}${truncated ? ' (response truncated — try again)' : ''}`,
+        type: 'malformed_output',
+        stop_reason: stopReason,
+      });
+    }
+
     res.json(responsePayload);
     logRescan({
       scope: only_buyer_id ? 'buyer' : 'pipeline',
@@ -560,6 +585,40 @@ function describeAnthropicError(err) {
     request_id,
     full: `[${status} ${type}] ${message}${request_id ? ` (req ${request_id})` : ''}`,
   };
+}
+
+// Server-side shape check that mirrors validateRescan in src/lib/ai-engine.js
+// but runs against the live tool_use payload so we can name the missing field
+// and log the offending output. Per-buyer rescans skip the market check (the
+// AI is told to echo prior_market in that flow but sometimes omits it; the
+// client merges by id so missing market is non-fatal there).
+function validateRescanShape(p, onlyBuyerId) {
+  if (!p) return { ok: false, error: 'empty payload' };
+  if (!onlyBuyerId) {
+    if (!p.market || typeof p.market !== 'object') return { ok: false, error: 'missing market' };
+    for (const c of ['conservative', 'mid', 'aggressive']) {
+      const b = p.market[c];
+      if (!b || typeof b.low !== 'number' || typeof b.high !== 'number') {
+        return { ok: false, error: `market.${c} missing low/high` };
+      }
+    }
+  }
+  if (!Array.isArray(p.buyers) || p.buyers.length === 0) return { ok: false, error: 'missing buyers' };
+  for (const b of p.buyers) {
+    if (!b?.id) return { ok: false, error: 'buyer missing id' };
+    if (typeof b.probability !== 'number') return { ok: false, error: `buyer ${b.id} missing probability` };
+    if (typeof b.thesis !== 'string') return { ok: false, error: `buyer ${b.id} missing thesis` };
+    if (typeof b.reasoning !== 'string') return { ok: false, error: `buyer ${b.id} missing reasoning` };
+    if (!b.fit) return { ok: false, error: `buyer ${b.id} missing fit` };
+    if (!Array.isArray(b.cited_precedents) || b.cited_precedents.length === 0) {
+      return { ok: false, error: `buyer ${b.id} missing cited_precedents` };
+    }
+  }
+  if (typeof p.summary !== 'string') return { ok: false, error: 'missing summary' };
+  if (typeof p.close_date_rationale !== 'string') return { ok: false, error: 'missing close_date_rationale' };
+  if (typeof p.confidence_rationale !== 'string') return { ok: false, error: 'missing confidence_rationale' };
+  if (typeof p.clearing_price_rationale !== 'string') return { ok: false, error: 'missing clearing_price_rationale' };
+  return { ok: true };
 }
 
 // ───────────────────────────── Workspace state sync ─────────────────────────

@@ -55,7 +55,7 @@ body { font-size: 14px; }
 .sysbar-rescan.refreshing svg { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .sysbar-live { display: inline-flex; padding: 0 6px; align-self: stretch; align-items: center; border-left: 1px solid var(--rule); }
-.sysbar-err { display: inline-flex; align-items: center; padding: 0 8px; max-width: 360px; font-family: var(--mono); font-size: 10.5px; color: #c0392b; letter-spacing: 0.02em; border-left: 1px solid var(--rule); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sysbar-err { display: inline-flex; align-items: center; padding: 4px 10px; max-width: 520px; font-family: var(--mono); font-size: 10.5px; line-height: 1.35; color: #c0392b; letter-spacing: 0.02em; border-left: 1px solid var(--rule); white-space: normal; overflow: hidden; word-break: break-word; }
 
 /* ---------- process tracker ---------- */
 .process { background: var(--bg-card); border: 1px solid var(--rule); border-radius: 4px; padding: 16px 22px 18px; margin: 18px 0 14px; }
