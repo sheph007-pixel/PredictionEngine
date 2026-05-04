@@ -27,15 +27,21 @@ function projectTaskDates(process) {
   }));
 }
 
+// The AI's stage-aware probability is the ground truth. The system prompt
+// (see server.js) enforces stage discipline ranges (outreach 8–22%, nda
+// 12–28%, chemistry 18–38%, loi 28–58%, closed 90+%), so we display what
+// the AI returned without post-processing — no hand-rolled stage lift.
 export function probabilityFor(buyer) {
-  const base = buyer.probability;
-  const stageIdx = STAGE_INDEX[buyer.stage];
-  const lift = [0.85, 1.0, 1.18, 1.5, 3.0][stageIdx] || 1;
-  const raw = Math.min(95, base * lift);
-  return Math.round(raw);
+  const p = buyer.probability;
+  if (typeof p !== 'number' || !Number.isFinite(p)) return 0;
+  return Math.max(0, Math.min(95, Math.round(p)));
 }
 
-export function winnerProbabilities(buyers, ebitda = 18, caseMode = "mid") {
+// Winner allocation: deal-closes probability is the union over independent
+// buyers (1 − ∏(1 − pᵢ)). The slice each buyer wins is proportional to
+// their AI probability — no extra stage re-weighting (the AI already bakes
+// stage into the number).
+export function winnerProbabilities(buyers /*, ebitda, caseMode */) {
   const live = buyers.filter(b => b.stage !== "dropped");
   if (live.length === 0) return { winnerByBuyer: {}, noDealPct: 100, dealClosesPct: 0 };
 
@@ -43,22 +49,16 @@ export function winnerProbabilities(buyers, ebitda = 18, caseMode = "mid") {
   const dealClosesPct = Math.round(dealClosesProb * 100);
   const noDealPct = 100 - dealClosesPct;
 
-  const STAGE_WEIGHT = [0.4, 0.7, 1.0, 1.6, 2.5];
-  const scores = live.map(b => {
-    const p = probabilityFor(b) / 100;
-    const stageW = STAGE_WEIGHT[STAGE_INDEX[b.stage]] || 1;
-    return { buyer: b, score: p * stageW };
-  });
-  const totalScore = scores.reduce((s, x) => s + x.score, 0) || 1;
+  const totalProb = live.reduce((s, b) => s + probabilityFor(b), 0) || 1;
 
   const winnerByBuyer = {};
   let assigned = 0;
-  scores.forEach((x, i) => {
-    if (i === scores.length - 1) {
-      winnerByBuyer[x.buyer.id] = Math.max(0, dealClosesPct - assigned);
+  live.forEach((b, i) => {
+    if (i === live.length - 1) {
+      winnerByBuyer[b.id] = Math.max(0, dealClosesPct - assigned);
     } else {
-      const pct = Math.round((x.score / totalScore) * dealClosesPct);
-      winnerByBuyer[x.buyer.id] = pct;
+      const pct = Math.round((probabilityFor(b) / totalProb) * dealClosesPct);
+      winnerByBuyer[b.id] = pct;
       assigned += pct;
     }
   });
@@ -133,7 +133,10 @@ export function fmtMoney(m) {
   return "$" + Math.round(m) + "M";
 }
 
-function reasoningFor(buyer) {
+// Pre-rescan fallback: deterministic bullets derived from seed fit scores +
+// flags. Only used when no AI rescan has run yet (buyer.lastAnalyzed == null).
+// Once the engine has scored the buyer, the AI's `aiNotes` is shown instead.
+function heuristicReasonsFor(buyer) {
   const reasons = [];
   if (buyer.fit.benefits >= 4) reasons.push({ kind: "+", text: "High benefits-vertical alignment" });
   if (buyer.fit.size >= 4) reasons.push({ kind: "+", text: "Capital base supports bid at market clear" });
@@ -146,6 +149,17 @@ function reasoningFor(buyer) {
   if (buyer.stage === "loi") reasons.push({ kind: "+", text: "LOI received" });
   return reasons.slice(0, 4);
 }
+
+// Stage discipline ranges enforced by the rescan system prompt. Used in the
+// Research card to show the user where the AI's raw probability sits within
+// its allowed range for the current stage.
+export const STAGE_PROB_RANGE = {
+  outreach:  { low: 8,  high: 22 },
+  nda:       { low: 12, high: 28 },
+  chemistry: { low: 18, high: 38 },
+  loi:       { low: 28, high: 58 },
+  closed:    { low: 90, high: 100 },
+};
 
 // ---------- hero KPIs ----------
 function HeroRationale({ text }) {
@@ -675,13 +689,13 @@ Be realistic. Match the format of existing peers in the pipeline.`;
 }
 
 // ---------- buyer row ----------
-export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, displayRank, winnerPct }) {
+export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, displayRank, winnerPct, rescanning }) {
   const stageIdx = STAGE_INDEX[buyer.stage];
   const isDropped = buyer.stage === "dropped";
   const showProb = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
 
   return (
-    <div className={"row" + (selected ? " row-selected" : "") + (isDropped ? " row-passed" : "")} onClick={onSelect}>
+    <div className={"row" + (selected ? " row-selected" : "") + (isDropped ? " row-passed" : "") + (rescanning ? " row-rescanning" : "")} onClick={onSelect}>
       <div className="row-rank">{isDropped ? "—" : String(displayRank).padStart(2, "0")}</div>
       <div className="row-name">
         <div className="row-name-main">
@@ -696,6 +710,7 @@ export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, display
               {buyer.name}
             </a>
           ) : buyer.name}
+          {rescanning && <span className="row-rescanning-tag">AI re-scoring…</span>}
         </div>
         {!isDropped && buyer.thesis && (
           <div className="row-name-thesis">{quickThesis(buyer.thesis)}</div>
@@ -801,13 +816,39 @@ function SourceRow({ field, value, source, docs, onAddSource }) {
 export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpdateNotes, onRescanBuyer, winnerPct }) {
   if (!buyer) return null;
   const isDropped = buyer.stage === "dropped";
+  // Headline = winner-allocated share (matches the row + sums to dealClosesPct
+  // across all live buyers). The AI's raw stage-aware probability is shown
+  // separately in the Research card so the user can audit it against the
+  // stage discipline range.
   const prob = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
-  const reasons = reasoningFor(buyer);
+  const aiProb = probabilityFor(buyer);
+  const stageRange = STAGE_PROB_RANGE[buyer.stage] || null;
+  const hasAiRescan = !!buyer.lastAnalyzed;
+  const aiReasoning = buyer.aiNotes;
+  const aiCitedPrecedents = Array.isArray(buyer.aiCitedPrecedents) ? buyer.aiCitedPrecedents : [];
+  const fallbackReasons = !hasAiRescan ? heuristicReasonsFor(buyer) : [];
   const [draft, setDraft] = useState(buyer.notes);
   const [pending, setPending] = useState(false);
   const [aiInsight, setAiInsight] = useState(null);
   const [aiError, setAiError] = useState(null);
+  const [logEntry, setLogEntry] = useState(null);
+  const [logLoading, setLogLoading] = useState(false);
   useEffect(() => { setDraft(buyer.notes); setAiInsight(null); setAiError(null); }, [buyer.id]);
+
+  // Lazy-load the most recent rescan log row for this buyer (live web intel
+  // text + cited URLs) so the Research card can show the actual evidence.
+  useEffect(() => {
+    let cancelled = false;
+    setLogEntry(null);
+    if (!hasAiRescan) return;
+    setLogLoading(true);
+    fetch(`/api/rescan-log/latest?buyer_id=${encodeURIComponent(buyer.id)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (!cancelled) setLogEntry(data?.entry || null); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLogLoading(false); });
+    return () => { cancelled = true; };
+  }, [buyer.id, hasAiRescan]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -876,24 +917,101 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
 
         <div className="modal-grid">
           <div className="modal-card modal-card-prob">
-            <div className="modal-card-label">AI probability of close</div>
+            <div className="modal-card-label">
+              <span>AI probability of close</span>
+              {buyer.aiConfidence && (
+                <span className={"conf-chip conf-chip-" + buyer.aiConfidence} title="How grounded this prediction is in hard evidence">
+                  {buyer.aiConfidence} confidence
+                </span>
+              )}
+            </div>
             <div className="modal-prob-row">
               <div className="modal-prob-num">{prob}<span>%</span></div>
               <div className="modal-prob-bar">
                 <div className="modal-prob-bar-fill" style={{ width: prob + "%" }}></div>
               </div>
             </div>
-            <div className="reason-list">
-              {reasons.slice(0, 3).map((r, i) => (
-                <div key={i} className={"reason " + (r.kind === "+" ? "reason-pos" : "reason-neg")}>
-                  <span className="reason-mark">{r.kind}</span>
-                  <span>{r.text}</span>
-                </div>
-              ))}
-            </div>
+            {aiReasoning ? (
+              <div className="ai-reasoning">{aiReasoning}</div>
+            ) : (
+              <div className="reason-list">
+                {fallbackReasons.slice(0, 3).map((r, i) => (
+                  <div key={i} className={"reason " + (r.kind === "+" ? "reason-pos" : "reason-neg")}>
+                    <span className="reason-mark">{r.kind}</span>
+                    <span>{r.text}</span>
+                  </div>
+                ))}
+                {fallbackReasons.length === 0 && (
+                  <div className="ai-reasoning ai-reasoning-empty">No AI rescan yet — re-scan from the top bar to generate a grounded prediction.</div>
+                )}
+              </div>
+            )}
+            {buyer.lastAnalyzed && (
+              <div className="modal-prob-foot">
+                AI re-scored {new Date(buyer.lastAnalyzed).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              </div>
+            )}
           </div>
 
           <div className="modal-col">
+            <div className="modal-card modal-card-research">
+              <div className="modal-card-label">Research · how the engine got here</div>
+              {!isDropped && stageRange && (
+                <div className="research-row">
+                  <div className="research-row-label">Stage discipline</div>
+                  <div className="research-row-value">
+                    <span className="research-stage-band">{buyer.stage}: {stageRange.low}–{stageRange.high}%</span>
+                    <span className="research-stage-pin">AI raw: <b>{aiProb}%</b></span>
+                  </div>
+                </div>
+              )}
+              <div className="research-row">
+                <div className="research-row-label">Anchored on</div>
+                <div className="research-row-value">
+                  {aiCitedPrecedents.length === 0 ? (
+                    <span className="research-empty">No precedents cited yet — needs an AI rescan.</span>
+                  ) : (
+                    <div className="research-anchors">
+                      {aiCitedPrecedents.map(id => {
+                        const p = PRECEDENT_BY_ID[id];
+                        const c = PUBLIC_COMP_BY_TICKER[id];
+                        if (p) {
+                          const m = p.multiple_ltm_ebitda != null ? `${p.multiple_ltm_ebitda}× LTM` : '—';
+                          return (
+                            <span key={id} className="val-anchor val-anchor-precedent" title={`${p.label} · ${m}\n${p.notes || ''}`}>
+                              {p.label} <span className="val-anchor-mult">{m}</span>
+                            </span>
+                          );
+                        }
+                        if (c) {
+                          return (
+                            <span key={id} className="val-anchor val-anchor-public" title={`${c.name} (${c.ticker}) · ${c.fwd_ebitda_mult}× fwd EBITDA`}>
+                              {c.ticker} <span className="val-anchor-mult">{c.fwd_ebitda_mult}× fwd</span>
+                            </span>
+                          );
+                        }
+                        return <span key={id} className="val-anchor val-anchor-unknown" title="Citation not in precedent table">{id}</span>;
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="research-row">
+                <div className="research-row-label">Live web intel</div>
+                <div className="research-row-value">
+                  {logLoading && <span className="research-empty">Loading…</span>}
+                  {!logLoading && !logEntry && <span className="research-empty">None on file. Re-scan from the top bar to fetch live intel.</span>}
+                  {!logLoading && logEntry && !logEntry.live_intel && <span className="research-empty">Last rescan ran without live intel (web search unavailable).</span>}
+                  {!logLoading && logEntry?.live_intel && (
+                    <details className="research-intel">
+                      <summary>Snippet from {new Date(logEntry.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</summary>
+                      <div className="research-intel-body">{logEntry.live_intel}</div>
+                    </details>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div className="modal-card modal-card-stage">
               <div className="modal-card-label">Stage</div>
               <div className="stage-track">
@@ -960,11 +1078,6 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
           {buyer.flags?.length > 0 && (
             <div className="modal-foot-flags">
               {buyer.flags.map((f, i) => <div key={i} className="flag">{f}</div>)}
-            </div>
-          )}
-          {buyer.lastAnalyzed && (
-            <div className="modal-foot-meta">
-              AI re-scored {new Date(buyer.lastAnalyzed).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
             </div>
           )}
         </div>

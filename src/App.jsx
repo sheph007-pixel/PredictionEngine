@@ -212,6 +212,24 @@ export default function App() {
 
   const open = buyers.find(b => b.id === openId);
 
+  // Per-buyer "AI is re-scoring" flag, surfaced in the row + modal so users
+  // see that the number reflects the new state, not the old one.
+  const [rescanning, setRescanning] = useState({});
+
+  const triggerRescanForStageChange = async (id) => {
+    setRescanning(r => ({ ...r, [id]: true }));
+    try {
+      await rescanOne(id);
+    } catch (_e) {
+      // rescanOne already records rescanError state; nothing else to do here.
+    } finally {
+      setRescanning(r => {
+        const { [id]: _, ...rest } = r;
+        return rest;
+      });
+    }
+  };
+
   const advance = (id) => {
     setBuyers(bs => bs.map(b => {
       if (b.id !== id) return b;
@@ -219,9 +237,11 @@ export default function App() {
       const next = STAGES[Math.min(idx + 1, STAGES.length - 1)];
       return { ...b, stage: next.id };
     }));
+    triggerRescanForStageChange(id);
   };
   const drop = (id) => {
     setBuyers(bs => bs.map(b => b.id === id ? { ...b, stage: 'dropped' } : b));
+    triggerRescanForStageChange(id);
   };
   const updateNotes = (id, notes) => {
     setBuyers(bs => bs.map(b => b.id === id ? { ...b, notes } : b));
@@ -297,6 +317,7 @@ export default function App() {
               onAdvance={advance}
               onDrop={drop}
               winnerPct={winnerData.winnerByBuyer[b.id] || 0}
+              rescanning={!!rescanning[b.id]}
             />
           ))}
           <div className="row row-nodeal">

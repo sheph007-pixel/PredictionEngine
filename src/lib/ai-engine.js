@@ -40,6 +40,9 @@ function validateBuyer(b) {
   if (!isStr(b.thesis) || !isStr(b.reasoning)) return false;
   if (!Array.isArray(b.cited_precedents) || b.cited_precedents.length === 0) return false;
   if (!validateMultipleOverride(b.multiple_override)) return false;
+  // confidence is optional for backwards-compat with logs from before the
+  // schema added it; if present it must be one of the three buckets.
+  if (b.confidence != null && !['low', 'medium', 'high'].includes(b.confidence)) return false;
   return true;
 }
 
@@ -121,6 +124,7 @@ export function applyRescanToBuyers(buyers, rescan) {
       thesis: upd.thesis,
       multipleOverride: upd.multiple_override || null,
       aiNotes: upd.reasoning,
+      aiConfidence: upd.confidence || null,
       aiCitations: upd.citations || [],
       aiCitedPrecedents: upd.cited_precedents || [],
       lastAnalyzed: rescan.ts || new Date().toISOString(),

@@ -126,19 +126,22 @@ Set conservative / realistic / aggressive {low, high} bands based on:
 - Update bands only if new evidence shifts them; otherwise echo prior_market values.
 
 # Per-buyer outputs
-- probability (0–100): THIS buyer's independent odds of being the winning bidder. Probabilities across buyers are independent — they may sum to >100 (multiple paths to close) or <100 (significant no-deal risk). Be honest about no-deal risk.
+- probability (0–100): THIS buyer's independent odds of being the winning bidder. **The number you return IS what the UI shows — there is no post-processing, no stage multiplier applied downstream.** Bake stage, momentum, fit, evidence quality, and no-deal risk into this single number. Probabilities across buyers are independent and may sum to >100 (multiple paths to close) or <100 (significant no-deal risk). Be honest about no-deal risk.
 - fit (size, benefits, precedent each 0–5; pe is 0 or 1): size capacity, benefits-vertical alignment, PE capital available, 2025–26 M&A precedent activity.
 - thesis: 1 crisp sentence — bull case for THIS buyer winning specifically.
-- reasoning: WHY this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving.
+- reasoning: WHY this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving. This text is shown verbatim in the UI as the explanation for the number — write it for a smart LP, not for yourself.
+- confidence ("low" | "medium" | "high"): how grounded this prediction is in hard evidence. "high" = LOI/term-sheet/written-offer or multiple corroborating signals from CIM/notes/live intel; "medium" = consistent pattern across notes + comps but no firm number; "low" = mostly inference from buyer profile + sponsor pattern with thin evidence.
 - multiple_override: null OR { low, mid, high, source: "LOI"|"term-sheet"|"verbal-offer", evidence: "doc filename or note quote" }. Set ONLY when hard-evidence number exists. Most buyers should have null here.
 
-# Stage discipline (probability anchors)
+# Stage discipline (probability anchors — these are the FINAL displayed ranges, not a base to be lifted)
 - outreach: prob 8–22%
 - nda: prob 12–28%
 - chemistry: prob 18–38%
 - loi: prob 28–58% (and almost always has multiple_override)
 - closed: prob 90+%
 - dropped: filter out — do not include in output
+
+A buyer at the high end of their stage range should reflect strong corroborating evidence (active sponsor, recent precedent, distribution fit, momentum). A buyer at the low end should reflect specific drag (declined informally, capacity constraint, weak benefits mix, sponsor bandwidth issue). State the drivers in `reasoning`.
 
 # Dashboard rationales (REAGAN VOICE — defend the numbers to an LP)
 After scoring the buyers, write three short defenses — close_date_rationale, confidence_rationale, clearing_price_rationale — in the voice of Reagan Consulting (the seller's banker) defending each top-line dashboard number to a Kennion LP. Use first-person plural ("we", "our process"). Be concrete, reference specific buyers / stages / precedents / docs. Each ≤ 2 sentences. Avoid generic banker-speak ("strong", "positive momentum"). Examples of the right tone:
@@ -196,14 +199,14 @@ const RESCAN_TOOL = {
         type: 'array',
         items: {
           type: 'object',
-          required: ['id', 'probability', 'fit', 'thesis', 'reasoning', 'cited_precedents'],
+          required: ['id', 'probability', 'fit', 'thesis', 'reasoning', 'cited_precedents', 'confidence'],
           properties: {
             id: { type: 'string' },
             probability: {
               type: 'integer',
               minimum: 0,
               maximum: 100,
-              description: 'Independent probability THIS buyer is the winning bidder (0-100).',
+              description: 'Independent probability THIS buyer is the winning bidder (0-100). This is the final displayed number — no post-processing.',
             },
             fit: {
               type: 'object',
@@ -216,7 +219,12 @@ const RESCAN_TOOL = {
               },
             },
             thesis: { type: 'string', description: '1 sentence bull case for this buyer winning' },
-            reasoning: { type: 'string', description: 'Why this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving.' },
+            reasoning: { type: 'string', description: 'Why this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving. Shown verbatim in the UI.' },
+            confidence: {
+              type: 'string',
+              enum: ['low', 'medium', 'high'],
+              description: 'How grounded this prediction is in hard evidence. high=LOI/term-sheet/multi-signal; medium=pattern across notes+comps; low=mostly inference.',
+            },
             cited_precedents: {
               type: 'array',
               minItems: 1,
@@ -514,6 +522,44 @@ function ensureDb(res) {
   }
   return true;
 }
+
+// Latest rescan log row, scoped to a buyer if buyer_id provided. Used by the
+// modal Research card to show the live web intel + raw AI output backing the
+// number a user is looking at.
+app.get('/api/rescan-log/latest', async (req, res) => {
+  if (!ensureDb(res)) return;
+  const buyerId = typeof req.query.buyer_id === 'string' ? req.query.buyer_id : null;
+  try {
+    // Prefer a per-buyer rescan if one exists; otherwise fall back to the most
+    // recent pipeline-wide rescan that included this buyer (or any rescan if
+    // buyerId is null).
+    let row = null;
+    if (buyerId) {
+      const perBuyer = await pool.query(
+        `SELECT ts, scope, only_buyer_id, output, live_intel, duration_ms, error
+         FROM rescan_log
+         WHERE workspace_id = $1 AND only_buyer_id = $2 AND error IS NULL
+         ORDER BY ts DESC LIMIT 1`,
+        [WORKSPACE_ID, buyerId],
+      );
+      row = perBuyer.rows[0] || null;
+    }
+    if (!row) {
+      const fallback = await pool.query(
+        `SELECT ts, scope, only_buyer_id, output, live_intel, duration_ms, error
+         FROM rescan_log
+         WHERE workspace_id = $1 AND error IS NULL
+         ORDER BY ts DESC LIMIT 1`,
+        [WORKSPACE_ID],
+      );
+      row = fallback.rows[0] || null;
+    }
+    res.json({ entry: row });
+  } catch (err) {
+    console.error('GET /api/rescan-log/latest error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.get('/api/workspace', async (_req, res) => {
   if (!ensureDb(res)) return;
