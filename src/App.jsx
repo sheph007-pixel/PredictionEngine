@@ -223,9 +223,6 @@ export default function App() {
   const drop = (id) => {
     setBuyers(bs => bs.map(b => b.id === id ? { ...b, stage: 'dropped' } : b));
   };
-  const adjustMultiple = (id, delta) => {
-    setBuyers(bs => bs.map(b => b.id === id ? { ...b, multipleAdj: (b.multipleAdj || 0) + delta } : b));
-  };
   const updateNotes = (id, notes) => {
     setBuyers(bs => bs.map(b => b.id === id ? { ...b, notes } : b));
   };
@@ -240,11 +237,6 @@ export default function App() {
     setOpenId(null);
   };
   const openBuyer = (id, intent = null) => { setOpenId(id); setOpenIntent(intent); };
-  const setBuyerSource = (id, field, record) => {
-    setBuyers(bs => bs.map(b => b.id === id
-      ? { ...b, sources: { ...(b.sources || {}), [field]: { ...record, verified_at: new Date().toISOString(), verified_by: 'user' } } }
-      : b));
-  };
 
   const winnerData = winnerProbabilities(buyers, ebitda, caseMode);
   const ordered = [...buyers].sort((a, b) => {
@@ -339,14 +331,7 @@ export default function App() {
           onDrop={drop}
           onDelete={deleteBuyer}
           onUpdateNotes={updateNotes}
-          onAdjustMultiple={adjustMultiple}
           onRescanBuyer={rescanOne}
-          onSetBuyerSource={setBuyerSource}
-          ebitda={ebitda}
-          caseMode={caseMode}
-          market={market}
-          docs={docs}
-          openIntent={openIntent}
         />
       )}
 

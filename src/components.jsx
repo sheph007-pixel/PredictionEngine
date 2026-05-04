@@ -798,17 +798,15 @@ function SourceRow({ field, value, source, docs, onAddSource }) {
 }
 
 // ---------- buyer modal ----------
-export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpdateNotes, onAdjustMultiple, onRescanBuyer, ebitda, caseMode, market, docs, openIntent, onSetBuyerSource }) {
+export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpdateNotes, onRescanBuyer }) {
   if (!buyer) return null;
   const isDropped = buyer.stage === "dropped";
   const prob = isDropped ? 0 : probabilityFor(buyer);
   const reasons = reasoningFor(buyer);
-  const v = valuationFor(buyer, ebitda, caseMode, market);
   const [draft, setDraft] = useState(buyer.notes);
   const [pending, setPending] = useState(false);
   const [aiInsight, setAiInsight] = useState(null);
   const [aiError, setAiError] = useState(null);
-  const sourcesRef = useRef(null);
   useEffect(() => { setDraft(buyer.notes); setAiInsight(null); setAiError(null); }, [buyer.id]);
 
   useEffect(() => {
@@ -816,12 +814,6 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-
-  useEffect(() => {
-    if (openIntent === 'sources' && sourcesRef.current) {
-      sourcesRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [openIntent, buyer.id]);
 
   // Submit field intel and trigger a real per-buyer rescan. The note is
   // persisted first so the rescan reads the freshest version. The AI's
@@ -854,9 +846,20 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
 
         <div className="modal-head modal-head-compact">
           <div>
-            <div className="modal-eyebrow">Buyer · {buyer.ownership} · {buyer.type}</div>
-            <div className="modal-title">{buyer.name}</div>
-            <div className="modal-sub">{buyer.hq} · Rev {buyer.revenue} · {buyer.headcount} hc · {buyer.offices} offices · Sponsor: {buyer.sponsor}</div>
+            <div className="modal-eyebrow">Buyer · {buyer.type}</div>
+            <div className="modal-title">
+              {buyer.website ? (
+                <a
+                  className="modal-title-link"
+                  href={buyer.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {buyer.name}
+                </a>
+              ) : buyer.name}
+            </div>
+            <div className="modal-sub">Rev {buyer.revenue} · {buyer.headcount} hc · {buyer.offices} offices</div>
           </div>
           <div className="modal-head-actions">
             {buyer.stage !== "closed" && !isDropped && (
@@ -871,7 +874,7 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
           </div>
         </div>
 
-        <div className="modal-grid-3">
+        <div className="modal-grid">
           <div className="modal-card modal-card-prob">
             <div className="modal-card-label">AI probability of close</div>
             <div className="modal-prob-row">
@@ -890,60 +893,6 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
             </div>
           </div>
 
-          <div className="modal-card">
-            <div className="modal-card-label">
-              {buyer.multipleOverride ? `Deal value · ${buyer.multipleOverride.source.toUpperCase()} firm` : 'Expected deal value · industry band'}
-            </div>
-            <div className="val-headline">
-              <div className="val-headline-num">{fmtMoney(v.headlineDollar)}</div>
-              <div className="val-headline-mult">{v.headlineMult.toFixed(1)}× · {caseMode === "conservative" ? "Conservative" : caseMode === "aggressive" ? "Aggressive" : "Realistic"}</div>
-            </div>
-            <div className="val-range val-range-compact">
-              <div className="val-range-row"><span className="val-range-tag">Low</span><span>{v.multLow.toFixed(1)}×</span><span className="val-range-dollar">{fmtMoney(v.dollarLow)}</span></div>
-              <div className="val-range-row val-range-mid"><span className="val-range-tag">Mid</span><span>{v.multMid.toFixed(1)}×</span><span className="val-range-dollar">{fmtMoney(v.dollarMid)}</span></div>
-              <div className="val-range-row"><span className="val-range-tag">High</span><span>{v.multHigh.toFixed(1)}×</span><span className="val-range-dollar">{fmtMoney(v.dollarHigh)}</span></div>
-            </div>
-            {buyer.multipleOverride ? (
-              <div className="val-override">
-                <span className="val-override-tag">{buyer.multipleOverride.source}</span>
-                <span className="val-override-evidence" title={buyer.multipleOverride.evidence}>{buyer.multipleOverride.evidence}</span>
-              </div>
-            ) : (
-              <div className="val-source">Industry band · same for every buyer until firm number lands</div>
-            )}
-            {Array.isArray(buyer.aiCitedPrecedents) && buyer.aiCitedPrecedents.length > 0 && (
-              <div className="val-anchors">
-                <div className="val-anchors-label">Anchored on</div>
-                <div className="val-anchors-list">
-                  {buyer.aiCitedPrecedents.map(id => {
-                    const p = PRECEDENT_BY_ID[id];
-                    const c = PUBLIC_COMP_BY_TICKER[id];
-                    if (p) {
-                      const m = p.multiple_ltm_ebitda != null ? `${p.multiple_ltm_ebitda}× LTM` : '—';
-                      return (
-                        <span key={id} className="val-anchor val-anchor-precedent" title={`${p.label} · ${m}\n${p.notes}`}>
-                          {p.label} <span className="val-anchor-mult">{m}</span>
-                        </span>
-                      );
-                    }
-                    if (c) {
-                      return (
-                        <span key={id} className="val-anchor val-anchor-public" title={`${c.name} (${c.ticker}) · ${c.fwd_ebitda_mult}× fwd EBITDA`}>
-                          {c.ticker} <span className="val-anchor-mult">{c.fwd_ebitda_mult}× fwd</span>
-                        </span>
-                      );
-                    }
-                    return <span key={id} className="val-anchor val-anchor-unknown" title="Citation not in precedent table">{id}</span>;
-                  })}
-                </div>
-              </div>
-            )}
-            <div className="val-confidence">
-              <div className="val-confidence-bar"><div className="val-confidence-fill" style={{ width: v.confidence + "%" }}></div></div>
-              <div className="val-confidence-label">{v.confidence}% confidence{buyer.multipleOverride ? ' · firm number' : ''}</div>
-            </div>
-          </div>
-
           <div className="modal-col">
             <div className="modal-card modal-card-stage">
               <div className="modal-card-label">Stage</div>
@@ -956,17 +905,6 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onUpda
                 ))}
               </div>
               {isDropped && <div className="dropped-banner">Dropped from process</div>}
-            </div>
-
-            <div className="modal-card modal-card-sources" ref={sourcesRef}>
-              <div className="modal-card-label">Sources & Verification</div>
-              <SourceRow
-                field="Ownership"
-                value={`${buyer.ownership}${buyer.sponsor && buyer.sponsor !== '—' ? ' · ' + buyer.sponsor : ''}`}
-                source={buyer.sources?.ownership}
-                docs={docs}
-                onAddSource={(record) => onSetBuyerSource && onSetBuyerSource(buyer.id, 'ownership', record)}
-              />
             </div>
 
             <div className="modal-card modal-card-notes">
