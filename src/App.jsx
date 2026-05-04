@@ -4,7 +4,7 @@ import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
   AddBuyerForm, AIChat, winnerProbabilities, AIHistoryButton, AIHistoryModal,
 } from './components.jsx';
-import { TweaksPanel, TweakSection, TweakToggle, useTweaks } from './TweaksPanel.jsx';
+import { TweaksPanel, TweakSection, TweakToggle, TweakAction, useTweaks } from './TweaksPanel.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
 import { fetchWorkspace, pushWorkspace, pushBuyers, debouncedPush } from './lib/sync.js';
@@ -288,6 +288,49 @@ export default function App() {
     setShowAdd(false);
     setOpenId(newBuyer.id);
   };
+
+  // Wipe every opinion / AI-generated field from a buyer, leaving only the
+  // structural facts (identity, profile, stage, dates, flags). Used by the
+  // workspace reset; the AI re-derives everything from market + comps on the
+  // next rescan.
+  const cleanBuyer = (b) => ({
+    id: b.id,
+    rank: b.rank,
+    name: b.name,
+    website: b.website,
+    hq: b.hq,
+    revenue: b.revenue,
+    headcount: b.headcount,
+    offices: b.offices,
+    ownership: b.ownership,
+    sponsor: b.sponsor,
+    sources: b.sources,
+    type: b.type,
+    stage: b.stage,
+    nda_signed: b.nda_signed || null,
+    chemistry_date: b.chemistry_date || null,
+    flags: b.flags || [],
+    fit: { size: 0, benefits: 0, pe: 0, precedent: 0 },
+    thesis: '',
+    probability: 0,
+    noteLog: [],
+  });
+
+  const resetWorkspace = () => {
+    const ok = window.confirm(
+      'Reset the workspace?\n\n' +
+      'This clears every buyer\'s notes, AI scores, fit ratings, thesis, ' +
+      'and the market bands. Buyer profiles (name, sponsor, stage, dates) stay.\n\n' +
+      'Click Re-scan from the top bar afterward to regenerate AI predictions ' +
+      'from the precedents and market comps. This cannot be undone.'
+    );
+    if (!ok) return;
+    setBuyers(bs => bs.map(cleanBuyer));
+    setMarket(null);
+    setMarketMeta(null);
+    setRationales({});
+    setRescanError(null);
+  };
   const deleteBuyer = (id) => {
     if (!window.confirm('Permanently delete this buyer from the pipeline? This cannot be undone.')) return;
     setBuyers(bs => bs.filter(b => b.id !== id));
@@ -429,6 +472,14 @@ export default function App() {
       <TweaksPanel title="Tweaks">
         <TweakSection label="Display">
           <TweakToggle label="Dark mode" value={tweaks.darkMode} onChange={(v) => setTweak('darkMode', v)} />
+        </TweakSection>
+        <TweakSection label="Workspace">
+          <TweakAction
+            label="Reset to clean slate"
+            hint="Wipes notes, AI scores, and market bands on every buyer. Keeps profile facts (name, sponsor, stage, dates). Click Re-scan after to regenerate."
+            danger
+            onClick={resetWorkspace}
+          />
         </TweakSection>
       </TweaksPanel>
     </div>

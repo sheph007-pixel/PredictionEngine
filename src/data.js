@@ -34,7 +34,13 @@ export const PROCESS_DEFAULT = {
   currentTaskDate: "2026-04-30",
 };
 
-export const BUYERS = [
+// Buyer roster — structural profile facts only (name, sponsor, stage, dates,
+// flags). Opinion fields (notes, thesis, fit, probability) are intentionally
+// stripped here so the AI rescan generates them from market comps + precedents
+// on first run. The "Reset to clean slate" tweak rewinds live state to this
+// shape too. Historical opinion seed values from earlier iterations were
+// removed in this commit; refer to git history if you need them back.
+const _RAW_BUYERS = [
   {
     id: "hub",
     rank: 1,
@@ -313,3 +319,19 @@ export const BUYERS = [
     lastWeekWinnerPct: 3,
   },
 ];
+
+// Strip opinion/AI fields from each raw entry so the seed exported to the app
+// starts truly clean. The first AI rescan generates fit, probability, thesis,
+// market bands, and per-buyer reasoning from market comps + precedents.
+const _OPINION_FIELDS = ['notes', 'thesis', 'probability', 'lastWeekWinnerPct', 'fit', 'noteLog', 'aiNotes', 'aiHistory', 'aiCitations', 'aiCitedPrecedents', 'aiConfidence', 'lastAnalyzed', 'multipleOverride'];
+export const BUYERS = _RAW_BUYERS.map(b => {
+  const clean = { ...b };
+  for (const f of _OPINION_FIELDS) delete clean[f];
+  return {
+    ...clean,
+    fit: { size: 0, benefits: 0, pe: 0, precedent: 0 },
+    thesis: '',
+    probability: 0,
+    noteLog: [],
+  };
+});

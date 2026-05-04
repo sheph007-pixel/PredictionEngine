@@ -31,6 +31,14 @@ const __TWEAKS_STYLE = `
   .twk-toggle i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
     background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
   .twk-toggle[data-on="1"] i{transform:translateX(14px)}
+  .twk-row-action{align-items:stretch}
+  .twk-action-btn{appearance:none;border:1px solid rgba(0,0,0,.18);background:transparent;
+    color:#29261b;padding:7px 10px;border-radius:6px;font:inherit;font-weight:500;
+    cursor:pointer;text-align:center;transition:background .12s,border-color .12s,color .12s}
+  .twk-action-btn:hover{background:rgba(0,0,0,.06)}
+  .twk-action-danger{border-color:rgba(196,68,68,.45);color:#a83232}
+  .twk-action-danger:hover{background:rgba(196,68,68,.08);border-color:rgba(196,68,68,.7)}
+  .twk-action-hint{font-size:10.5px;line-height:1.4;color:rgba(41,38,27,.55)}
   .twk-trigger{position:fixed;bottom:28px;left:28px;z-index:2147483646;
     width:36px;height:36px;border-radius:50%;border:1px solid rgba(0,0,0,.12);
     background:rgba(250,249,247,.9);backdrop-filter:blur(8px);
@@ -138,6 +146,17 @@ export function TweakToggle({ label, value, onChange }) {
       <button type="button" className="twk-toggle" data-on={value ? '1' : '0'}
               role="switch" aria-checked={!!value}
               onClick={() => onChange(!value)}><i /></button>
+    </div>
+  );
+}
+
+export function TweakAction({ label, hint, onClick, danger = false }) {
+  return (
+    <div className="twk-row twk-row-action">
+      <button type="button" className={"twk-action-btn" + (danger ? " twk-action-danger" : "")} onClick={onClick}>
+        {label}
+      </button>
+      {hint && <div className="twk-action-hint">{hint}</div>}
     </div>
   );
 }
