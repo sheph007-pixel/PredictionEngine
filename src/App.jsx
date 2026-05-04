@@ -8,7 +8,7 @@ import { TweaksPanel, TweakSection, TweakToggle, useTweaks } from './TweaksPanel
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
 import { fetchWorkspace, pushWorkspace, pushBuyers, debouncedPush } from './lib/sync.js';
-import { migrateNoteLog, appendNote, latestNoteId } from './lib/notes.js';
+import { migrateNoteLog, appendNote, removeNote, latestNoteId } from './lib/notes.js';
 
 const TWEAK_DEFAULTS = { darkMode: false };
 const STATE_KEY = 'kennion.state.v1';
@@ -277,6 +277,12 @@ export default function App() {
     }));
     return newNoteId;
   };
+
+  // Remove a single note entry by id. The AI's prior reasoning may have
+  // anchored on this note, so the modal triggers a rescan after deletion.
+  const removeBuyerNote = (id, noteId) => {
+    setBuyers(bs => bs.map(b => b.id === id ? removeNote(migrateNoteLog(b), noteId) : b));
+  };
   const addBuyer = (newBuyer) => {
     setBuyers(bs => [...bs, newBuyer]);
     setShowAdd(false);
@@ -384,6 +390,7 @@ export default function App() {
           onDrop={drop}
           onDelete={deleteBuyer}
           onAppendNote={appendBuyerNote}
+          onRemoveNote={removeBuyerNote}
           onRescanBuyer={rescanOne}
           winnerPct={winnerData.winnerByBuyer[open.id] || 0}
         />

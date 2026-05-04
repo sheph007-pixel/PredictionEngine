@@ -77,6 +77,15 @@ export function appendNote(buyer, text) {
   return { ...buyer, noteLog: [...base, entry] };
 }
 
+// Remove a single entry by id. Idempotent — removing a missing id is a no-op.
+// We don't tombstone here; if the user wants to keep an audit trail of the
+// deletion they should add a follow-up note explaining the correction.
+export function removeNote(buyer, noteId) {
+  if (!noteId) return buyer;
+  const base = Array.isArray(buyer.noteLog) ? buyer.noteLog : migrateNoteLog(buyer).noteLog;
+  return { ...buyer, noteLog: base.filter(e => e.id !== noteId) };
+}
+
 // Chronological log the AI receives. Most recent at the bottom so a left-to-right
 // reader sees the trajectory of intel.
 export function formatTimelineForAI(noteLog) {

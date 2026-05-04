@@ -835,7 +835,7 @@ function SourceRow({ field, value, source, docs, onAddSource }) {
 }
 
 // ---------- buyer modal ----------
-export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppendNote, onRescanBuyer, winnerPct }) {
+export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppendNote, onRemoveNote, onRescanBuyer, winnerPct }) {
   if (!buyer) return null;
   const isDropped = buyer.stage === "dropped";
   // Single displayed probability — winner-allocated share (P this buyer wins
@@ -899,6 +899,28 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
     }
     try {
       await onRescanBuyer(buyer.id, { triggerNoteId: newNoteId });
+    } catch (e) {
+      setAiError(e.message || "Re-scan failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  // Delete a past note, then rescan so the AI re-grounds without it. The
+  // confirm prevents accidental clicks on the small × button.
+  const deleteNote = async (noteId, preview) => {
+    if (pending || !onRemoveNote) return;
+    const ok = window.confirm(`Delete this note?\n\n"${preview.slice(0, 120)}${preview.length > 120 ? '…' : ''}"\n\nThe buyer will be re-analyzed without it.`);
+    if (!ok) return;
+    setPending(true);
+    setAiError(null);
+    onRemoveNote(buyer.id, noteId);
+    if (!onRescanBuyer) {
+      setPending(false);
+      return;
+    }
+    try {
+      await onRescanBuyer(buyer.id);
     } catch (e) {
       setAiError(e.message || "Re-scan failed");
     } finally {
@@ -1092,6 +1114,15 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
                       <li key={entry.id} className="notes-entry">
                         <div className="notes-entry-head">
                           <span className="notes-entry-time" title={new Date(entry.ts).toLocaleString()}>{relativeTime(entry.ts)}</span>
+                          {onRemoveNote && (
+                            <button
+                              className="notes-entry-delete"
+                              onClick={() => deleteNote(entry.id, entry.text)}
+                              disabled={pending}
+                              title="Delete this note (re-analyzes the buyer)"
+                              aria-label="Delete note"
+                            >×</button>
+                          )}
                         </div>
                         <div className="notes-entry-text">{entry.text}</div>
                         {linkedAi && linkedAi.reasoning && (

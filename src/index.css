@@ -500,6 +500,9 @@ body { font-size: 14px; }
 .notes-entry { padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--rule); border-radius: 3px; }
 .notes-entry-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .notes-entry-time { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.notes-entry-delete { background: transparent; border: none; color: var(--ink-3); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 4px; border-radius: 2px; transition: color 0.12s, background 0.12s; }
+.notes-entry-delete:hover:not(:disabled) { color: var(--neg, #c44); background: rgba(196, 68, 68, 0.08); }
+.notes-entry-delete:disabled { cursor: not-allowed; opacity: 0.4; }
 .notes-entry-text { font-size: 12.5px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; }
 .notes-entry-ai { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--rule); align-items: flex-start; }
 .notes-entry-ai-tag { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; padding-top: 2px; flex-shrink: 0; }
