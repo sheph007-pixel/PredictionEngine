@@ -497,7 +497,8 @@ ${focusInstruction}`;
       duration_ms: Date.now() - t0,
     });
   } catch (err) {
-    console.error('Rescan error:', err.message);
+    const detail = describeAnthropicError(err);
+    console.error('Rescan error:', detail.full);
     logRescan({
       scope: only_buyer_id ? 'buyer' : 'pipeline',
       only_buyer_id,
@@ -505,11 +506,40 @@ ${focusInstruction}`;
       output: null,
       live_intel: liveIntel,
       duration_ms: Date.now() - t0,
-      error: err.message,
+      error: detail.full,
     });
-    res.status(500).json({ error: err.message || 'rescan failed' });
+    res.status(detail.status).json({
+      error: detail.message,
+      type: detail.type,
+      request_id: detail.request_id,
+    });
   }
 });
+
+// Anthropic SDK errors stringify as the full HTTP body. Pull the useful bits
+// out so the client gets a short message and we still log the full detail.
+function describeAnthropicError(err) {
+  const status = typeof err?.status === 'number' ? err.status : 500;
+  const body = err?.error?.error || err?.error || null;
+  const type = body?.type || err?.name || 'rescan_error';
+  const baseMsg = body?.message || err?.message || 'rescan failed';
+  const request_id =
+    err?.request_id ||
+    err?.error?.request_id ||
+    err?.headers?.['request-id'] ||
+    err?.headers?.['x-request-id'] ||
+    null;
+  // Strip the "401 {...json...}" prefix the SDK puts on err.message so users
+  // see "invalid x-api-key" rather than the raw JSON envelope.
+  const message = baseMsg.replace(/^\d{3}\s*\{[^]*"message":"([^"]+)".*$/, '$1');
+  return {
+    status,
+    type,
+    message,
+    request_id,
+    full: `[${status} ${type}] ${message}${request_id ? ` (req ${request_id})` : ''}`,
+  };
+}
 
 // ───────────────────────────── Workspace state sync ─────────────────────────
 // Single-tenant workspace persistence + AI audit log query. Without DATABASE_URL

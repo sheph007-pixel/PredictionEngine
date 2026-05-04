@@ -89,7 +89,12 @@ async function callRescan({ buyers, ebitda, fileIds, onlyBuyerId, priorMarket })
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `rescan failed (${res.status})`);
+    const msg = err.error || `rescan failed (${res.status})`;
+    const e = new Error(msg);
+    e.status = res.status;
+    e.type = err.type || null;
+    e.requestId = err.request_id || null;
+    throw e;
   }
   const data = await res.json();
   const v = validateRescan(data);

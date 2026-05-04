@@ -437,6 +437,11 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
       <div className="sysbar-live" title={marketMeta || "Last AI re-scan"}>
         <span className={"live-dot" + (errorMsg ? " live-dot-err" : "")}></span>
       </div>
+      {errorMsg && (
+        <div className="sysbar-err" role="alert" title={errorMsg}>
+          AI scan failed: {errorMsg}
+        </div>
+      )}
     </div>
   );
 }
