@@ -321,8 +321,14 @@ body { font-size: 14px; }
 .prob-delta { font-family: var(--mono); font-size: 10px; font-weight: 600; padding: 2px 5px; border-radius: 2px; letter-spacing: 0.02em; }
 .prob-bar { flex: 1; height: 4px; background: var(--rule); border-radius: 2px; overflow: hidden; min-width: 60px; }
 .prob-bar-fill { height: 100%; background: var(--accent); }
-.prob-num { font-family: var(--mono); font-size: 14px; font-weight: 500; width: 38px; text-align: right; }
+.prob-num { font-family: var(--mono); font-size: 14px; font-weight: 500; text-align: right; }
 .prob-num span { font-size: 10px; color: var(--ink-3); margin-left: 1px; }
+.prob-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 64px; }
+.prob-foot { display: flex; gap: 6px; align-items: baseline; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.04em; color: var(--ink-3); }
+.prob-foot-time { color: var(--ink-3); }
+.prob-foot-delta { font-weight: 600; }
+.prob-foot-up { color: #2f9e6e; }
+.prob-foot-down { color: #c44; }
 
 .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .row-action { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--rule-2); border-radius: 2px; cursor: pointer; color: var(--ink-2); transition: all 0.12s; padding: 0; }

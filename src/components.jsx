@@ -749,7 +749,23 @@ export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, display
         <div className="prob-bar">
           <div className="prob-bar-fill" style={{ width: showProb + "%" }}></div>
         </div>
-        <div className="prob-num">{isDropped ? "—" : showProb}<span>{isDropped ? "" : "%"}</span></div>
+        <div className="prob-stack">
+          <div className="prob-num">{isDropped ? "—" : showProb}<span>{isDropped ? "" : "%"}</span></div>
+          {!isDropped && (() => {
+            const last = (buyer.aiHistory || [])[ (buyer.aiHistory || []).length - 1 ];
+            const change = last?.changes?.probability;
+            const delta = Array.isArray(change) ? (change[1] - change[0]) : 0;
+            const stamp = buyer.lastAnalyzed ? relativeTime(buyer.lastAnalyzed) : null;
+            if (!stamp && delta === 0) return null;
+            return (
+              <div className="prob-foot" title={buyer.lastAnalyzed ? `Last AI re-score: ${new Date(buyer.lastAnalyzed).toLocaleString()}` : 'Not yet analyzed'}>
+                {stamp && <span className="prob-foot-time">{stamp}</span>}
+                {delta > 0 && <span className="prob-foot-delta prob-foot-up">↑{delta}</span>}
+                {delta < 0 && <span className="prob-foot-delta prob-foot-down">↓{Math.abs(delta)}</span>}
+              </div>
+            );
+          })()}
+        </div>
       </div>
       <div className="row-actions" onClick={(e) => e.stopPropagation()}>
         {buyer.stage !== "closed" && !isDropped && (
