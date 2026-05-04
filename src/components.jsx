@@ -77,7 +77,7 @@ function winnerDelta(buyer, currentPct) {
 //   - Override: if buyer.multipleOverride is set (LOI received with a firm
 //     price, term sheet, etc.) we use that triple instead. UI surfaces it.
 //   - Stage tightening: as deals advance, the range narrows toward the mid.
-export function valuationFor(buyer, ebitda = 18, caseMode = "mid", market) {
+export function valuationFor(buyer, ebitda = 0, caseMode = "mid", market) {
   const stageIdx = STAGE_INDEX[buyer.stage] ?? 0;
   const tighten = [0.0, 0.25, 0.55, 0.8, 0.95][stageIdx] ?? 0;
 
@@ -95,7 +95,10 @@ export function valuationFor(buyer, ebitda = 18, caseMode = "mid", market) {
     baseHigh = band.high;
     baseMid = (band.low + band.high) / 2;
   } else {
-    baseLow = 10; baseMid = 12; baseHigh = 14;
+    const seed = marketMultiplesSeed(ebitda).mid;
+    baseLow = seed.low;
+    baseHigh = seed.high;
+    baseMid = (seed.low + seed.high) / 2;
   }
 
   // Stage tightening — only applies when no override (override is already firm).
@@ -189,7 +192,7 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
   const { dealClosesPct } = winnerProbabilities(buyers, ebitda, caseMode);
   const confLevel = dealClosesPct >= 85 ? "High" : dealClosesPct >= 65 ? "Solid" : dealClosesPct >= 40 ? "Moderate" : "Low";
 
-  const m = (market && market[caseMode]) || { low: 11, high: 13, label: "Realistic" };
+  const m = (market && market[caseMode]) || marketMultiplesSeed(ebitda)[caseMode] || marketMultiplesSeed(ebitda).mid;
   const clearLow = ebitda * m.low;
   const clearHigh = ebitda * m.high;
   const clearMid = ebitda * ((m.low + m.high) / 2);
@@ -343,21 +346,34 @@ export function ProcessTracker({ process, onUpdate, buyers = [], ebitda = 18, ca
   );
 }
 
-const MARKET_MULTIPLES_SEED = {
-  conservative: { low: 8.5, high: 10.5, label: "Conservative", note: "Bear case · soft market" },
-  mid: { low: 11.0, high: 13.0, label: "Realistic", note: "Base case · current signals" },
-  aggressive: { low: 13.5, high: 15.5, label: "Aggressive", note: "Bull case · strategic premium" },
-};
+// Pre-rescan defaults. Insurance/benefits brokerage multiples scale strongly
+// with EBITDA — a sub-$5M book does not clear at mid-market multiples. Keep
+// the seed conservative; the AI rescan tightens the band with real evidence.
+export function marketMultiplesSeed(ebitda) {
+  const e = Number(ebitda) || 0;
+  const bucket =
+    e < 3  ? { c: [3.0, 4.5], m: [4.0, 6.0], a: [5.5, 7.5], tag: "<$3M sub-scale" } :
+    e < 5  ? { c: [4.0, 5.5], m: [5.0, 7.0], a: [6.5, 8.5], tag: "$3–5M captive-niche" } :
+    e < 10 ? { c: [5.0, 7.0], m: [6.5, 8.5], a: [8.0, 10.5], tag: "$5–10M lower mid-mkt" } :
+    e < 20 ? { c: [6.5, 8.5], m: [8.0, 10.5], a: [10.0, 13.0], tag: "$10–20M mid-mkt" } :
+    e < 50 ? { c: [8.5, 10.5], m: [10.0, 12.5], a: [12.0, 14.5], tag: "$20–50M mid-mkt PE" } :
+             { c: [9.5, 11.5], m: [11.0, 13.5], a: [13.0, 16.0], tag: ">$50M scaled" };
+  return {
+    conservative: { low: bucket.c[0], high: bucket.c[1], label: "Conservative", note: `Bear · ${bucket.tag} · soft market` },
+    mid:          { low: bucket.m[0], high: bucket.m[1], label: "Realistic",   note: `Base · ${bucket.tag} · pre-rescan default` },
+    aggressive:   { low: bucket.a[0], high: bucket.a[1], label: "Aggressive",  note: `Bull · ${bucket.tag} · strategic premium` },
+  };
+}
 
 // ---------- system bar ----------
-export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMeta, onRescan, rescanError }) {
+export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMeta, onRescan, rescanError, clearingRationale }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(ebitda));
   const [refreshing, setRefreshing] = useState(false);
   const [localErr, setLocalErr] = useState(null);
   useEffect(() => setDraft(String(ebitda)), [ebitda]);
 
-  const mult = market || MARKET_MULTIPLES_SEED;
+  const mult = market || marketMultiplesSeed(ebitda);
   const cases = ["conservative", "mid", "aggressive"];
 
   const commit = () => {
@@ -392,7 +408,7 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
               key={c}
               className={"sysbar-case" + (caseMode === c ? " on" : "")}
               onClick={() => onCase(c)}
-              title={`${m.note} · ${m.low.toFixed(1)}–${m.high.toFixed(1)}× · ${fmtMoney(m.low * ebitda)}–${fmtMoney(m.high * ebitda)}`}
+              title={`${m.note} · ${m.low.toFixed(1)}–${m.high.toFixed(1)}× · ${fmtMoney(m.low * ebitda)}–${fmtMoney(m.high * ebitda)}${clearingRationale ? `\n\nAI rationale: ${clearingRationale}` : market ? '' : '\n\n(Pre-rescan default — click Re-scan to ground this in evidence.)'}`}
             >
               {m.label}
             </button>
@@ -452,7 +468,7 @@ export function ValuationBar({ ebitda, onEbitda, caseMode, onCase, market, marke
   const [refreshing, setRefreshing] = useState(false);
   useEffect(() => setDraft(String(ebitda)), [ebitda]);
 
-  const mult = market || MARKET_MULTIPLES_SEED;
+  const mult = market || marketMultiplesSeed(ebitda);
   const cases = ["conservative", "mid", "aggressive"];
 
   const commit = () => {

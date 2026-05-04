@@ -280,6 +280,7 @@ export default function App() {
             caseMode={caseMode} onCase={setCaseMode}
             market={market} marketMeta={marketMeta} onRescan={rescanAll}
             rescanError={rescanError}
+            clearingRationale={rationales?.clearing_price}
           />
         </div>
       </div>
