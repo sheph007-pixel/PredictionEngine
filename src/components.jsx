@@ -1,10 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { STAGES, STAGE_INDEX, PROCESS_TASKS, PHASES } from './data.js';
 import { claudeComplete, claudeChat } from './utils/ai.js';
-import { PRECEDENT_BY_ID, PUBLIC_COMP_BANDS } from './data/precedents.js';
+import { PUBLIC_COMP_BY_TICKER, PUBLIC_COMP_BANDS } from './data/precedents.js';
 import { relativeTime, EVENT_SPECS, NOTE_SIGNALS } from './lib/notes.js';
-
-const PUBLIC_COMP_BY_TICKER = Object.fromEntries(PUBLIC_COMP_BANDS.comps.map(c => [c.ticker, c]));
 
 const SIGNAL_COLORS = {
   warming: '#2f8c4d',
@@ -891,7 +889,6 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
   const prob = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
   const hasAiRescan = !!buyer.lastAnalyzed;
   const aiReasoning = buyer.aiNotes;
-  const aiCitedPrecedents = Array.isArray(buyer.aiCitedPrecedents) ? buyer.aiCitedPrecedents : [];
   const fallbackReasons = !hasAiRescan ? heuristicReasonsFor(buyer) : [];
   const noteLog = Array.isArray(buyer.noteLog) ? buyer.noteLog : [];
   const aiHistoryByNoteId = {};
@@ -1078,37 +1075,6 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
                     </div>
                   ) : (
                     <span className="research-empty">No AI rescan yet — re-scan from the top bar to generate a grounded prediction.</span>
-                  )}
-                </div>
-              </div>
-              <div className="research-row">
-                <div className="research-row-label">Valuation comps</div>
-                <div className="research-row-value">
-                  {aiCitedPrecedents.length === 0 ? (
-                    <span className="research-empty">No precedents cited yet — needs an AI rescan.</span>
-                  ) : (
-                    <div className="research-anchors">
-                      {aiCitedPrecedents.map(id => {
-                        const p = PRECEDENT_BY_ID[id];
-                        const c = PUBLIC_COMP_BY_TICKER[id];
-                        if (p) {
-                          const m = p.multiple_ltm_ebitda != null ? `${p.multiple_ltm_ebitda}× LTM` : '—';
-                          return (
-                            <span key={id} className="val-anchor val-anchor-precedent" title={`${p.label} · ${m}\n${p.notes || ''}`}>
-                              {p.label} <span className="val-anchor-mult">{m}</span>
-                            </span>
-                          );
-                        }
-                        if (c) {
-                          return (
-                            <span key={id} className="val-anchor val-anchor-public" title={`${c.name} (${c.ticker}) · ${c.fwd_ebitda_mult}× fwd EBITDA`}>
-                              {c.ticker} <span className="val-anchor-mult">{c.fwd_ebitda_mult}× fwd</span>
-                            </span>
-                          );
-                        }
-                        return <span key={id} className="val-anchor val-anchor-unknown" title="Citation not in precedent table">{id}</span>;
-                      })}
-                    </div>
                   )}
                 </div>
               </div>
@@ -1721,183 +1687,5 @@ export function AIHistoryModal({ onClose, buyers }) {
         )}
       </div>
     </div>
-  );
-}
-
-// ---------- precedent editor ----------
-// User-editable comp table. Bound to the workspace `precedents` array. Save
-// pushes the full list to the server; the AI cites these on every rescan.
-export function PrecedentEditor({ precedents, onSave, onClose }) {
-  const [draft, setDraft] = useState(() => (precedents || []).map(p => ({ ...p })));
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose && onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  const update = (i, patch) => setDraft(d => d.map((row, j) => j === i ? { ...row, ...patch } : row));
-  const remove = (i) => setDraft(d => d.filter((_, j) => j !== i));
-  const add = () => setDraft(d => [...d, {
-    id: 'new-' + Math.random().toString(36).slice(2, 7),
-    label: '', target: '', acquirer: '',
-    closed: '', ev_b: null, multiple_ltm_ebitda: null,
-    multiple_note: '', segment: '', confidence: 'estimate', notes: '',
-    type: 'aggregate-band', benefits_mix: '',
-  }]);
-
-  const save = () => {
-    // Reject duplicate ids — the AI cites by id, so collisions are silent bugs.
-    const ids = draft.map(p => p.id);
-    if (ids.some((id, i) => !id || ids.indexOf(id) !== i)) {
-      setError('Each precedent needs a unique non-empty id.');
-      return;
-    }
-    setError(null);
-    onSave(draft.map(p => ({
-      ...p,
-      ev_b: p.ev_b === '' || p.ev_b == null ? null : Number(p.ev_b),
-      multiple_ltm_ebitda: p.multiple_ltm_ebitda === '' || p.multiple_ltm_ebitda == null ? null : Number(p.multiple_ltm_ebitda),
-    })));
-  };
-
-  const placeholderCount = draft.filter(p => p.confidence === 'estimate').length;
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 900 }}>
-        <button className="modal-close" onClick={onClose}>×</button>
-        <div className="modal-eyebrow">Precedent comp table</div>
-        <div className="modal-title" style={{ fontSize: 28, marginBottom: 6 }}>Edit precedents</div>
-        <div className="modal-sub" style={{ marginBottom: 14 }}>
-          The AI cites these on every rescan. Replace placeholders with Reagan's real comps for accurate clearing-price predictions.
-        </div>
-        {placeholderCount > 0 && (
-          <div style={{
-            marginBottom: 14, padding: '10px 14px',
-            background: '#fff7d6', border: '1px solid #d4a72c', borderRadius: 4,
-            fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.04em', color: '#5c4810',
-          }}>
-            ⚠ {placeholderCount} row{placeholderCount === 1 ? '' : 's'} marked <b>estimate</b> — AI is anchoring on placeholder data. Replace with verified Reagan comps before relying on the clearing price.
-          </div>
-        )}
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: '55vh', overflowY: 'auto' }}>
-          {draft.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--ink-3)', fontSize: 13 }}>
-              No precedents yet. Add one to start.
-            </div>
-          )}
-          {draft.map((p, i) => (
-            <div key={i} style={{
-              border: `1px solid ${p.confidence === 'estimate' ? '#d4a72c' : 'var(--rule)'}`,
-              borderRadius: 4, padding: 12, background: 'var(--bg-card)',
-              display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, alignItems: 'flex-start',
-            }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>id</label>
-                <input value={p.id || ''} onChange={(e) => update(i, { id: e.target.value })} style={precedentInputStyle} />
-                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 4 }}>Label</label>
-                <input value={p.label || ''} onChange={(e) => update(i, { label: e.target.value })} placeholder="NFP → Aon (2024)" style={precedentInputStyle} />
-                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 4 }}>Segment</label>
-                <input value={p.segment || ''} onChange={(e) => update(i, { segment: e.target.value })} placeholder="captive benefits / mid-mkt PE" style={precedentInputStyle} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Target</label>
-                <input value={p.target || ''} onChange={(e) => update(i, { target: e.target.value })} style={precedentInputStyle} />
-                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 4 }}>Acquirer</label>
-                <input value={p.acquirer || ''} onChange={(e) => update(i, { acquirer: e.target.value })} style={precedentInputStyle} />
-                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 4 }}>Closed</label>
-                <input value={p.closed || ''} onChange={(e) => update(i, { closed: e.target.value })} placeholder="2025-09" style={precedentInputStyle} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>EV ($B)</label>
-                <input type="number" step="0.1" value={p.ev_b ?? ''} onChange={(e) => update(i, { ev_b: e.target.value })} style={precedentInputStyle} />
-                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 4 }}>Multiple (× LTM EBITDA)</label>
-                <input type="number" step="0.1" value={p.multiple_ltm_ebitda ?? ''} onChange={(e) => update(i, { multiple_ltm_ebitda: e.target.value })} style={precedentInputStyle} />
-                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 4 }}>Confidence</label>
-                <select value={p.confidence || 'estimate'} onChange={(e) => update(i, { confidence: e.target.value })} style={precedentInputStyle}>
-                  <option value="verified">verified</option>
-                  <option value="estimate">estimate (placeholder)</option>
-                </select>
-              </div>
-              <button className="btn-mini btn-mini-drop" onClick={() => remove(i)} style={{ alignSelf: 'flex-start' }}>Remove</button>
-              <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Notes</label>
-                <textarea
-                  value={p.notes || ''}
-                  onChange={(e) => update(i, { notes: e.target.value })}
-                  rows={2}
-                  placeholder="Source, caveats, EBITDA basis disclosed, etc."
-                  style={{ ...precedentInputStyle, minHeight: 48, resize: 'vertical' }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {error && (
-          <div className="add-error" style={{ marginTop: 12 }}>{error}</div>
-        )}
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 14, justifyContent: 'space-between' }}>
-          <button className="btn-ghost" onClick={add}>+ Add precedent</button>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn-ghost" onClick={onClose}>Cancel</button>
-            <button className="btn btn-submit" onClick={save}>Save & rescan-ready</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const precedentInputStyle = {
-  width: '100%',
-  padding: '6px 8px',
-  border: '1px solid var(--rule-2)',
-  borderRadius: 3,
-  background: 'var(--bg)',
-  color: 'var(--ink)',
-  font: 'inherit',
-  fontSize: 12,
-};
-
-export function PrecedentButton({ precedents, onClick }) {
-  const placeholderCount = (precedents || []).filter(p => p.confidence === 'estimate').length;
-  return (
-    <button
-      onClick={onClick}
-      title={placeholderCount > 0
-        ? `${placeholderCount} precedent${placeholderCount === 1 ? '' : 's'} still using placeholder multiples — replace with Reagan's comps for accurate pricing.`
-        : 'Edit Reagan precedent comp table — AI cites these on every rescan'}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 8,
-        background: 'transparent',
-        border: '1px solid var(--rule-2)',
-        borderRadius: 4,
-        padding: '6px 12px',
-        cursor: 'pointer',
-        fontFamily: 'var(--mono)',
-        fontSize: 11,
-        letterSpacing: '0.06em',
-        textTransform: 'uppercase',
-        color: 'var(--ink-2)',
-        transition: 'all 0.12s',
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--ink)'; e.currentTarget.style.color = 'var(--bg)'; e.currentTarget.style.borderColor = 'var(--ink)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ink-2)'; e.currentTarget.style.borderColor = 'var(--rule-2)'; }}
-    >
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 3h18v4H3z"/>
-        <path d="M3 11h18v4H3z"/>
-        <path d="M3 19h18v2H3z"/>
-      </svg>
-      Precedents
-      {placeholderCount > 0 && <span style={{ color: '#d4a72c' }}>· ⚠ {placeholderCount}</span>}
-    </button>
   );
 }

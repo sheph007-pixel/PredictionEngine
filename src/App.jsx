@@ -3,12 +3,10 @@ import { STAGES, STAGE_INDEX, PROCESS_DEFAULT, BUYERS } from './data.js';
 import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
   AddBuyerForm, AIChat, winnerProbabilities, AIHistoryButton, AIHistoryModal,
-  PrecedentEditor, PrecedentButton,
 } from './components.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
-import { fetchWorkspace, pushWorkspace, pushBuyers, debouncedPush, fetchPrecedents, pushPrecedents } from './lib/sync.js';
-import { PRECEDENTS as SEED_PRECEDENTS } from './data/precedents.js';
+import { fetchWorkspace, pushWorkspace, pushBuyers, debouncedPush } from './lib/sync.js';
 import { migrateNoteLog, appendNote, removeNote, latestNoteId, EVENT_SPECS } from './lib/notes.js';
 
 const STATE_KEY = 'kennion.state.v1';
@@ -72,10 +70,6 @@ export default function App() {
   const [market, setMarket] = usePersistedState('market', DEFAULT_MARKET);
   const [marketMeta, setMarketMeta] = usePersistedState('marketMeta', 'AI · sector deal flow + public comp drift · 2 min ago');
   const [rationales, setRationales] = usePersistedState('rationales', { close_date: null, confidence: null, clearing_price: null, p_no_deal: null, p_no_deal_rationale: null });
-  // User-editable precedent comp table. Seeds from the file fallback; once the
-  // server returns real rows, hydration replaces this in place.
-  const [precedents, setPrecedents] = usePersistedState('precedents', SEED_PRECEDENTS);
-  const [showPrecedents, setShowPrecedents] = useState(false);
 
   const [openId, setOpenId] = useState(null);
   const [openIntent, setOpenIntent] = useState(null);
@@ -123,12 +117,6 @@ export default function App() {
           rationales, process,
         });
       }
-      // Pull the workspace's precedent table. Server returns the file seed
-      // when DB is empty, so we always end up with something to render.
-      const pr = await fetchPrecedents();
-      if (!cancelled && pr.available && Array.isArray(pr.precedents) && pr.precedents.length > 0) {
-        setPrecedents(pr.precedents);
-      }
       setSyncStatus('synced');
       hydrated.current = true;
     })();
@@ -148,14 +136,6 @@ export default function App() {
       setSyncStatus(ok ? 'synced' : 'offline');
     });
   }, [ebitda, caseMode, market, marketMeta, rationales, process]);
-
-  // Precedents sync — bulk replace on every edit (small array, low frequency).
-  useEffect(() => {
-    if (!hydrated.current) return;
-    debouncedPush('precedents', async () => {
-      await pushPrecedents(precedents);
-    });
-  }, [precedents]);
 
   // Buyers sync — bulk replace (rescans typically touch many buyers at once).
   useEffect(() => {
@@ -359,7 +339,6 @@ export default function App() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <AIHistoryButton onClick={() => setShowHistory(true)} syncStatus={syncStatus} />
-          <PrecedentButton precedents={precedents} onClick={() => setShowPrecedents(true)} />
           <LibraryButton count={docs.length} onClick={() => setShowLibrary(true)} />
           <SystemBar
             ebitda={ebitda} onEbitda={setEbitda}
@@ -478,14 +457,6 @@ export default function App() {
         open={aiOpen}
         onToggle={() => setAiOpen(!aiOpen)}
       />
-
-      {showPrecedents && (
-        <PrecedentEditor
-          precedents={precedents}
-          onSave={(next) => { setPrecedents(next); setShowPrecedents(false); }}
-          onClose={() => setShowPrecedents(false)}
-        />
-      )}
     </div>
   );
 }

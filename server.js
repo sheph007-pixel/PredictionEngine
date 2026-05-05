@@ -9,7 +9,7 @@ import pg from 'pg';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
-import { precedentSummary, PRECEDENTS as SEED_PRECEDENTS, PUBLIC_COMP_BANDS } from './src/data/precedents.js';
+import { PUBLIC_COMP_BANDS, publicCompsSummary } from './src/data/precedents.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -75,30 +75,10 @@ async function initDb() {
         error TEXT
       );
       CREATE INDEX IF NOT EXISTS rescan_log_ts_idx ON rescan_log (workspace_id, ts DESC);
-      CREATE TABLE IF NOT EXISTS precedents (
-        workspace_id TEXT NOT NULL,
-        id TEXT NOT NULL,
-        data JSONB NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (workspace_id, id)
-      );
     `);
     console.log('DB schema ready');
   } catch (err) {
     console.error('DB init failed — continuing without persistence:', err.message);
-  }
-}
-
-// Load precedents from DB. Falls back to file seed when DB is empty / missing.
-async function loadPrecedents() {
-  if (!pool) return SEED_PRECEDENTS;
-  try {
-    const r = await pool.query(`SELECT data FROM precedents WHERE workspace_id = $1 ORDER BY id`, [WORKSPACE_ID]);
-    if (r.rows.length === 0) return SEED_PRECEDENTS;
-    return r.rows.map(row => row.data);
-  } catch (err) {
-    console.warn('loadPrecedents failed; falling back to seed:', err.message);
-    return SEED_PRECEDENTS;
   }
 }
 
@@ -113,31 +93,26 @@ function logRescan({ scope, only_buyer_id, input, output, live_intel, duration_m
   ).catch(err => console.warn('rescan_log write failed:', err.message));
 }
 
-function buildRescanSystemPrompt({ precedents }) {
+function buildRescanSystemPrompt() {
   return `You are the Kennion Prediction Engine — a senior M&A advisor's AI co-pilot for the sell-side process of Kennion's Benefits Program (a captive-style benefits brokerage advised by Reagan Consulting, currently in the Spring 2026 sale process). The actual current LTM EBITDA for the asset is provided in every user message — read it from there, do not assume a size.
 
 # Core architecture (READ FIRST)
 There is ONE asset for sale (Kennion). The market clearing multiple for that asset is set by INDUSTRY DATA, not by individual buyers — every credible buyer pays roughly within the industry band for assets of this profile. Your output has two layers:
 
-1. GLOBAL market bands (conservative / realistic / aggressive) — these come from comps and public data. You set them ONCE per rescan based on the precedent table and public comps below. Bands apply to every buyer by default.
+1. GLOBAL market bands (conservative / realistic / aggressive) — these come from the EBITDA size bucket below + public broker comps. You set them ONCE per rescan. Bands apply to every buyer by default.
 
 2. PER-BUYER scoring — for each buyer your job is mostly probability of close, fit, and thesis. DO NOT generate per-buyer multiples by default — buyers inherit the global band. The ONLY exception: if you have hard evidence (an LOI document with a firm price, a written term sheet, an explicit verbal offer logged in notes), set multiple_override on that buyer with the firm number and cite the source.
 
 This means most buyers' rescores will leave multiple_override = null. That's correct — we don't pretend to know per-buyer pricing without evidence.
 
-Re-evaluate using ONLY the evidence provided: buyer profile data, attached documents (CIM, LOIs, buyer emails, redlines, models), user field intelligence in notes, your own prior reasoning, and the precedent table.
+Re-evaluate using ONLY the evidence provided: buyer profile data, attached documents (CIM, LOIs, buyer emails, redlines, models), user field intelligence in notes, your own prior reasoning, and the public comps below.
 
-${precedentSummary({ precedents, publicComps: PUBLIC_COMP_BANDS })}
-
-# Citation requirement
-Every buyer's reasoning MUST cite at least one precedent id from the table above (or a public comp ticker like "BRO"). The cited_precedents array lists which ids you anchored on. Do NOT invent deals not in the table — if a deal is missing, say so and the user will add it.
+${publicCompsSummary(PUBLIC_COMP_BANDS)}
 
 # Live web intel (when present)
 If the user message includes a "Live web intel" section, that's fresh data fetched via OpenAI web search at the time of this rescan. It may contain summarization errors — treat it as a HINT to investigate further, not as ground truth.
 - When you cite a fact from live intel, quote the source URL verbatim ("per <url>"). Do not paraphrase URLs.
-- If live intel reports a NEW precedent transaction not in the table above, mention it in the rationales section but do NOT add it to cited_precedents (only the user-curated table is authoritative there). Suggest adding it in your summary.
-- If live intel contradicts a precedent in the table, flag the discrepancy in your summary so the user can update the table.
-- If live intel is absent or empty, fall back to the curated precedent table only.
+- If live intel is absent or empty, rely on the size-bucket discipline + public comps + buyer profile + notes.
 
 # Global market band setting
 **Size discipline (READ FIRST — this is the single biggest driver of the multiple):**
@@ -153,7 +128,6 @@ Insurance/benefits brokerage M&A multiples scale strongly with EBITDA. A sub-$5M
 After picking the size bucket, apply these adjustments:
 - **Captive / niche profile** (concentrated benefits book, smaller buyer pool): pull realistic to the lower half of the bucket band, not the upper half.
 - **Public broker comps** (BRO 16×, AON 14×, etc.) are forward-EBITDA on scaled liquid platforms — apply a **3–5× discount** for private mid-market + another **1–2×** for captive/niche before using them as anchors. Do not anchor a sub-$10M private band on these directly.
-- **Precedent table**: cite specific deals only when their EBITDA size is within ~2× of the asset's. The placeholder \`captive-niche-discount\` and \`mid-mkt-pe-band\` entries are sized for $15M+ targets — they DO NOT apply to sub-$10M businesses without an explicit size adjustment, which you must state in the band note.
 
 Bands ~2× wide; bands may overlap (conservative.high may equal realistic.low). Update bands only if new evidence shifts them; otherwise echo prior_market values.
 
@@ -168,7 +142,7 @@ Each buyer's \`notes_timeline\` field is a chronological log of field intel — 
 
 # Per-buyer outputs
 - probability (0–100): THIS buyer's independent odds of being the winning bidder. **The number you return IS what the UI shows — there is no post-processing, no stage multiplier applied downstream.** Bake stage, momentum, fit, evidence quality, and no-deal risk into this single number. Probabilities across buyers are independent and may sum to >100 (multiple paths to close) or <100 (significant no-deal risk). Be honest about no-deal risk.
-- fit (size, benefits, precedent each 0–5; pe is 0 or 1): size capacity, benefits-vertical alignment, PE capital available, 2025–26 M&A precedent activity.
+- fit (size, benefits, precedent each 0–5; pe is 0 or 1): size capacity, benefits-vertical alignment, PE capital available, 2025–26 M&A activity in this segment.
 - thesis: ONE plain-English sentence, max 15 words. State why THIS buyer wins specifically. No jargon, no acronyms (spell out "PE", "LOI" etc. or omit), no em-dash run-ons. Format examples (illustrative only — do NOT copy their content, write fresh based on each buyer's actual profile + notes): "Strongest strategic fit given existing captive program experience." / "Active sponsor with capital deployed and a meeting already scheduled." / "Has capital, but this asset class isn't their typical playbook."
 - reasoning: WHY this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving. This text is shown verbatim in the UI as the explanation for the number — write it for a smart LP, not for yourself.
 - confidence ("low" | "medium" | "high"): how grounded this prediction is in hard evidence. "high" = LOI/term-sheet/written-offer or multiple corroborating signals from CIM/notes/live intel; "medium" = consistent pattern across notes + comps but no firm number; "low" = mostly inference from buyer profile + sponsor pattern with thin evidence.
@@ -193,7 +167,7 @@ Write three one-liners — close_date_rationale, confidence_rationale, clearing_
 - **State the why directly**. Don't "defend" — just explain what's driving the number and the main risk.
 - **No first-person plural** ("we", "our process"). Just say what's happening.
 
-Format examples (illustrative only — do NOT copy buyer names, dates, percentages, or specific facts from these examples; they are abstract format demos. Use ONLY information from the actual pipeline state, notes, docs, and precedent table provided in this rescan call):
+Format examples (illustrative only — do NOT copy buyer names, dates, percentages, or specific facts from these examples; they are abstract format demos. Use ONLY information from the actual pipeline state, notes, and docs provided in this rescan call):
 
   close_date_rationale: "Targeting Q3 2026: most buyers are mid-stage and offers usually land 8–10 weeks out. The lead buyer's next milestone is the biggest swing factor."
   confidence_rationale: "Multiple buyers above 15% give independent paths to close. Main no-deal risk is the top buyers walking on price."
@@ -260,7 +234,7 @@ const RESCAN_TOOL = {
         type: 'array',
         items: {
           type: 'object',
-          required: ['id', 'probability', 'fit', 'thesis', 'reasoning', 'cited_precedents', 'confidence'],
+          required: ['id', 'probability', 'fit', 'thesis', 'reasoning', 'confidence'],
           properties: {
             id: { type: 'string' },
             probability: {
@@ -285,12 +259,6 @@ const RESCAN_TOOL = {
               type: 'string',
               enum: ['low', 'medium', 'high'],
               description: 'How grounded this prediction is in hard evidence. high=LOI/term-sheet/multi-signal; medium=pattern across notes+comps; low=mostly inference.',
-            },
-            cited_precedents: {
-              type: 'array',
-              minItems: 1,
-              items: { type: 'string' },
-              description: 'Precedent ids or public comp tickers that anchor your view (at least one).',
             },
             multiple_override: {
               type: ['object', 'null'],
@@ -550,12 +518,8 @@ app.post('/api/ai/rescan', async (req, res) => {
     ? `SCOPE: Re-score ONLY buyer "${only_buyer_id}" based on their latest notes and any new documents. Return apply_rescan with that one buyer in the buyers array. Echo the prior market values unchanged in the market field. The other buyers are shown as compact summaries solely to give you context for the dashboard-level rationales — do NOT include them in your response.`
     : `SCOPE: Re-evaluate every non-dropped buyer in the pipeline. Update market multiple bands if evidence has shifted; otherwise echo prior values.`;
 
-  // Load DB-backed precedents in parallel with the live web intel fetch.
-  // Both feed the system / user prompt below.
-  const [precedents, liveIntel] = await Promise.all([
-    loadPrecedents(),
-    fetchLiveMarketIntel({ buyers: livePipeline, scopedBuyerId: only_buyer_id }),
-  ]);
+  // Live web intel fetch — non-blocking on the rest of the request setup.
+  const liveIntel = await fetchLiveMarketIntel({ buyers: livePipeline, scopedBuyerId: only_buyer_id });
 
   const sizeBucket =
     ebitda < 3 ? '<$3M (sub-scale, local strategics + small PE tuck-ins only)'
@@ -592,7 +556,7 @@ ${focusInstruction}`;
     user_text: userText,
   };
   try {
-    const systemPrompt = buildRescanSystemPrompt({ precedents });
+    const systemPrompt = buildRescanSystemPrompt();
     const message = await client.beta.messages.create({
       model: MODEL,
       max_tokens: 8192,
@@ -750,9 +714,6 @@ function validateRescanShape(p, onlyBuyerId) {
     if (typeof b.thesis !== 'string') return { ok: false, error: `buyer ${b.id} missing thesis` };
     if (typeof b.reasoning !== 'string') return { ok: false, error: `buyer ${b.id} missing reasoning` };
     if (!b.fit) return { ok: false, error: `buyer ${b.id} missing fit` };
-    if (!Array.isArray(b.cited_precedents) || b.cited_precedents.length === 0) {
-      return { ok: false, error: `buyer ${b.id} missing cited_precedents` };
-    }
   }
   if (typeof p.summary !== 'string') return { ok: false, error: 'missing summary' };
   if (typeof p.close_date_rationale !== 'string') return { ok: false, error: 'missing close_date_rationale' };
@@ -865,45 +826,6 @@ app.put('/api/workspace', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-// Precedents — user-editable comp table the AI cites in every rescan.
-app.get('/api/precedents', async (_req, res) => {
-  if (!ensureDb(res)) return;
-  try {
-    const r = await pool.query(`SELECT id, data FROM precedents WHERE workspace_id = $1 ORDER BY id`, [WORKSPACE_ID]);
-    res.json({ precedents: r.rows.length > 0 ? r.rows.map(row => row.data) : SEED_PRECEDENTS });
-  } catch (err) {
-    console.error('GET /api/precedents error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/precedents', async (req, res) => {
-  if (!ensureDb(res)) return;
-  const list = Array.isArray(req.body?.precedents) ? req.body.precedents : null;
-  if (!list) return res.status(400).json({ error: 'precedents array required' });
-  const c = await pool.connect();
-  try {
-    await c.query('BEGIN');
-    await c.query(`DELETE FROM precedents WHERE workspace_id = $1`, [WORKSPACE_ID]);
-    for (const p of list) {
-      if (!p?.id) continue;
-      await c.query(
-        `INSERT INTO precedents (workspace_id, id, data) VALUES ($1, $2, $3)`,
-        [WORKSPACE_ID, p.id, p]
-      );
-    }
-    await c.query('COMMIT');
-    res.json({ ok: true, count: list.length });
-  } catch (err) {
-    await c.query('ROLLBACK').catch(() => {});
-    console.error('PUT /api/precedents error:', err.message);
-    res.status(500).json({ error: err.message });
-  } finally {
-    c.release();
-  }
-});
-
 
 // Bulk replace buyers (used after rescans + on initial migration from localStorage).
 app.put('/api/buyers', async (req, res) => {
