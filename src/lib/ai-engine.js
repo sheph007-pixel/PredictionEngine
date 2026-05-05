@@ -55,10 +55,13 @@ function validateRescan(payload) {
   if (!isStr(payload.close_date_rationale)) return { ok: false, error: 'missing close_date_rationale' };
   if (!isStr(payload.confidence_rationale)) return { ok: false, error: 'missing confidence_rationale' };
   if (!isStr(payload.clearing_price_rationale)) return { ok: false, error: 'missing clearing_price_rationale' };
-  // p_no_deal is optional on per-buyer rescans (server only requires it on
-  // pipeline-wide calls); when present it must be a 0-100 integer.
+  // p_no_deal + close_estimate are optional on per-buyer rescans (server only
+  // requires them on pipeline-wide calls); when present they must be valid.
   if (payload.p_no_deal != null && !isInt(payload.p_no_deal, 0, 100)) {
     return { ok: false, error: 'p_no_deal out of range' };
+  }
+  if (payload.close_estimate != null && !/^\d{4}-\d{1,2}$/.test(String(payload.close_estimate))) {
+    return { ok: false, error: 'close_estimate not in YYYY-MM format' };
   }
   return { ok: true };
 }

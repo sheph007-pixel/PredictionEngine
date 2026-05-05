@@ -177,6 +177,13 @@ Format examples (illustrative only — do NOT copy buyer names, dates, percentag
 
 These rationales must reflect the CURRENT pipeline state in this rescan call. If a per-buyer rescan changed only one buyer, update the rationales only if the change is material to the dashboard number; otherwise echo prior values.
 
+# Close-month estimate (\`close_estimate\`, strict YYYY-MM format)
+Predict the calendar month the deal is most likely to close. Anchor on Reagan's process timeline (Marketing Phase 1 → ~17 weeks to close, Marketing Phase 2 → ~13 weeks, Exclusivity → ~7 weeks, Close → ~0 weeks), then adjust:
+- If multiple top buyers are at LOI or have firm-evidence offers, compress by 2–4 weeks.
+- If the top 3 buyers are all in outreach/NDA with cooling notes or stalls, extend by 4–8 weeks.
+- If chemistry meetings are scheduled but not yet held, anchor on the realistic post-chemistry-to-close interval (~10 weeks).
+Output strictly in "YYYY-MM" format. Example: "2026-09". Do NOT add quotes or extra prose.
+
 # No-deal probability (\`p_no_deal\`, 0–100)
 This is the probability that the asset does NOT sell within the planned process window. It reflects market/process risk, not the inverse of buyer probabilities. Consider:
 - Buyer-pool depth for the size bucket (sub-mid-market = thinner pool = higher no-deal risk)
@@ -195,7 +202,7 @@ const RESCAN_TOOL = {
   description: 'Apply a re-evaluation of one or more buyers in the pipeline based on all available context (buyer profiles, attached documents, user field intelligence, prior reasoning).',
   input_schema: {
     type: 'object',
-    required: ['market', 'buyers', 'summary', 'close_date_rationale', 'confidence_rationale', 'clearing_price_rationale', 'p_no_deal', 'p_no_deal_rationale'],
+    required: ['market', 'buyers', 'summary', 'close_date_rationale', 'confidence_rationale', 'clearing_price_rationale', 'p_no_deal', 'p_no_deal_rationale', 'close_estimate'],
     properties: {
       market: {
         type: 'object',
@@ -302,6 +309,10 @@ const RESCAN_TOOL = {
       p_no_deal_rationale: {
         type: 'string',
         description: 'Plain-English one-liner explaining the no-deal probability. Max 25 words. Name the single biggest no-deal risk. No jargon.',
+      },
+      close_estimate: {
+        type: 'string',
+        description: 'Most likely close month in strict YYYY-MM format (e.g. "2026-09"). Anchor on Reagan process step + buyer momentum: outreach/NDA stages add weeks, active LOI buyers compress, cooling top buyers extend.',
       },
     },
   },
@@ -673,7 +684,7 @@ ${focusInstruction}`;
 const OPENAI_PREDICTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['market', 'buyers', 'p_no_deal', 'p_no_deal_rationale'],
+  required: ['market', 'buyers', 'p_no_deal', 'p_no_deal_rationale', 'close_estimate'],
   properties: {
     market: {
       type: 'object', additionalProperties: false,
@@ -706,6 +717,7 @@ const OPENAI_PREDICTION_SCHEMA = {
     },
     p_no_deal: { type: 'integer', minimum: 0, maximum: 100 },
     p_no_deal_rationale: { type: 'string' },
+    close_estimate: { type: 'string', description: 'Most likely close month in YYYY-MM format.' },
   },
 };
 
@@ -730,6 +742,9 @@ Claude is producing the primary analysis. Your job is to vote on the same numeri
 - loi: 28–58%
 - closed: 90+%
 - dropped: omit
+
+# Close-month estimate (close_estimate, strict YYYY-MM)
+Predict the calendar month the deal is most likely to close. Anchor on the process step + buyer momentum. Marketing Phase 1 → ~17 weeks to close. Compress if firm offers are landing, extend if top buyers are stalling. Output strictly in "YYYY-MM" format (e.g. "2026-09").
 
 # No-deal probability
 For Kennion's profile (captive-niche, sub-mid-market) a healthy floor is 10–20% even with strong buyers. Reflect buyer-pool depth, sponsor capacity, note trajectory, captive illiquidity.
@@ -821,11 +836,14 @@ function blendPredictions(claude, openai) {
     ? avgInt(claude.p_no_deal, openai.p_no_deal)
     : (claude.p_no_deal ?? openai.p_no_deal);
 
+  const blendedClose = blendCloseMonth(claude.close_estimate, openai.close_estimate);
+
   return {
     ...claude,
     market: blendedMarket,
     buyers: blendedBuyers,
     p_no_deal: blendedPNoDeal,
+    close_estimate: blendedClose || claude.close_estimate || openai.close_estimate || null,
     models: {
       claude: extractClaudeNumbers(claude),
       openai: {
@@ -833,6 +851,7 @@ function blendPredictions(claude, openai) {
         buyers: openai.buyers,
         p_no_deal: openai.p_no_deal,
         p_no_deal_rationale: openai.p_no_deal_rationale,
+        close_estimate: openai.close_estimate || null,
       },
     },
   };
@@ -844,7 +863,32 @@ function extractClaudeNumbers(c) {
     buyers: (c.buyers || []).map(b => ({ id: b.id, probability: b.probability })),
     p_no_deal: c.p_no_deal,
     p_no_deal_rationale: c.p_no_deal_rationale,
+    close_estimate: c.close_estimate || null,
   };
+}
+
+// Average two YYYY-MM strings into a single YYYY-MM. Tolerant: returns null on
+// invalid input. Uses month-index arithmetic (Jan = 0, Dec = 11) anchored at
+// year zero so we don't worry about Date object timezone quirks.
+function blendCloseMonth(a, b) {
+  const parse = (s) => {
+    if (typeof s !== 'string') return null;
+    const m = s.match(/^(\d{4})-(\d{1,2})$/);
+    if (!m) return null;
+    const year = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
+    if (month < 1 || month > 12) return null;
+    return year * 12 + (month - 1);
+  };
+  const ax = parse(a);
+  const bx = parse(b);
+  if (ax == null && bx == null) return null;
+  if (ax == null) return a;
+  if (bx == null) return b;
+  const avg = Math.round((ax + bx) / 2);
+  const year = Math.floor(avg / 12);
+  const month = (avg % 12) + 1;
+  return `${year}-${String(month).padStart(2, '0')}`;
 }
 
 // Render a buyer's notes for the AI as a chronological timeline.
@@ -915,13 +959,17 @@ function validateRescanShape(p, onlyBuyerId) {
   if (typeof p.close_date_rationale !== 'string') return { ok: false, error: 'missing close_date_rationale' };
   if (typeof p.confidence_rationale !== 'string') return { ok: false, error: 'missing confidence_rationale' };
   if (typeof p.clearing_price_rationale !== 'string') return { ok: false, error: 'missing clearing_price_rationale' };
-  // p_no_deal is required for pipeline rescans; per-buyer rescans may legitimately
-  // omit it (the AI is told to focus on one buyer + echo prior dashboard values).
+  // p_no_deal + close_estimate are required for pipeline rescans; per-buyer
+  // rescans may legitimately omit them (the AI focuses on one buyer + echoes
+  // prior dashboard values).
   if (!onlyBuyerId) {
     if (typeof p.p_no_deal !== 'number' || p.p_no_deal < 0 || p.p_no_deal > 100) {
       return { ok: false, error: 'p_no_deal missing or out of range' };
     }
     if (typeof p.p_no_deal_rationale !== 'string') return { ok: false, error: 'missing p_no_deal_rationale' };
+    if (typeof p.close_estimate !== 'string' || !/^\d{4}-\d{1,2}$/.test(p.close_estimate)) {
+      return { ok: false, error: 'close_estimate missing or not YYYY-MM' };
+    }
   }
   return { ok: true };
 }

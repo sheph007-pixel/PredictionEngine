@@ -112,15 +112,39 @@ body { font-size: 14px; }
 .hero-range-sep { color: var(--ink-2); font-size: 18px; font-family: var(--mono); font-weight: 500; text-transform: uppercase; letter-spacing: 0.14em; align-self: center; padding: 0 4px; }
 .hero-kpi-foot { font-family: var(--sans); font-size: 13px; color: var(--ink-3); margin-top: 14px; line-height: 1.5; }
 .hero-kpi-foot b { color: var(--ink); font-weight: 500; }
-.hero-kpi-why { margin-top: auto; padding-top: 12px; border-top: 1px dashed var(--rule); display: flex; flex-direction: column; gap: 4px; }
-.hero-kpi-why-tag { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.hero-kpi-why { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--rule); display: flex; flex-direction: column; gap: 4px; }
 .hero-kpi-why-text {
   font-family: var(--sans); font-size: 11.5px; line-height: 1.45; color: var(--ink-2); font-style: italic;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
   min-height: calc(11.5px * 1.45 * 3);
 }
-.hero-kpi-why-empty .hero-kpi-why-tag { color: var(--ink-3); }
 .hero-kpi-why-empty .hero-kpi-why-text { color: var(--ink-3); }
+
+/* Two-model voting strip on each KPI card */
+.model-vote {
+  margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+}
+.model-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: 999px;
+  border: 1px solid var(--rule-2);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.02em;
+  background: var(--bg);
+}
+.model-chip-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0;
+  color: #fff;
+}
+.model-chip-val { color: var(--ink); font-weight: 500; }
+.model-chip-claude { border-color: rgba(204, 120, 92, 0.35); }
+.model-chip-claude .model-chip-mark { background: #cc785c; }
+.model-chip-openai { border-color: rgba(16, 163, 127, 0.4); }
+.model-chip-openai .model-chip-mark { background: #10a37f; }
+.model-chip-avg { border-color: var(--ink); background: var(--ink); }
+.model-chip-avg .model-chip-mark { background: var(--bg); color: var(--ink); width: auto; height: auto; padding: 0 4px; border-radius: 3px; font-size: 8.5px; letter-spacing: 0.06em; }
+.model-chip-avg .model-chip-val { color: var(--bg); font-weight: 600; }
 
 /* ---------- thin process tracker ---------- */
 .process-thin { background: var(--bg-card); border: 1px solid var(--rule); border-radius: 4px; margin-bottom: 12px; }

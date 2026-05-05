@@ -179,21 +179,50 @@ export const STAGE_PROB_RANGE = {
 };
 
 // ---------- hero KPIs ----------
-function HeroRationale({ text, twoModel, modelDetail }) {
+function HeroRationale({ text }) {
   if (!text) return (
     <div className="hero-kpi-why hero-kpi-why-empty">
-      <span className="hero-kpi-why-tag">AI</span>
-      <span className="hero-kpi-why-text">Re-scan to generate the AI prediction for this number.</span>
+      <span className="hero-kpi-why-text">Re-scan to generate the prediction for this number.</span>
     </div>
   );
   return (
     <div className="hero-kpi-why">
-      <span className="hero-kpi-why-tag" title={modelDetail || (twoModel ? 'Averaged across Claude + GPT-4o' : 'Claude only — GPT second opinion unavailable')}>
-        {twoModel ? 'Claude + GPT · avg' : 'AI'}
-      </span>
       <span className="hero-kpi-why-text" title={text}>{text}</span>
     </div>
   );
+}
+
+// Two-model voting strip — shows Claude's and GPT's individual predictions
+// side by side with an "avg" pill, letting the user see both reads at once
+// instead of just the blended number.
+function ModelVote({ claudeVal, openaiVal, avgVal }) {
+  const has = claudeVal != null || openaiVal != null;
+  if (!has) return null;
+  return (
+    <div className="model-vote">
+      <span className="model-chip model-chip-claude" title="Claude (Anthropic) prediction">
+        <span className="model-chip-mark">C</span>
+        <span className="model-chip-val">{claudeVal ?? '—'}</span>
+      </span>
+      <span className="model-chip model-chip-openai" title="GPT-4o (OpenAI) prediction">
+        <span className="model-chip-mark">G</span>
+        <span className="model-chip-val">{openaiVal ?? '—'}</span>
+      </span>
+      <span className="model-chip model-chip-avg" title="Averaged across both models — this is the headline number">
+        <span className="model-chip-mark">avg</span>
+        <span className="model-chip-val">{avgVal}</span>
+      </span>
+    </div>
+  );
+}
+
+// Render YYYY-MM as "Sep 2026"; falls back to raw string if malformed.
+function fmtCloseMonth(s) {
+  if (typeof s !== 'string') return null;
+  const m = s.match(/^(\d{4})-(\d{1,2})$/);
+  if (!m) return s;
+  const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, 1);
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
 export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales }) {
@@ -213,14 +242,31 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
     ? (rationales?.p_no_deal_rationale || rationales?.confidence)
     : rationales?.confidence;
 
-  const twoModel = !!rationales?.two_model;
   const models = rationales?.models;
-  const confDetail = models?.claude && models?.openai && typeof models.claude.p_no_deal === 'number' && typeof models.openai.p_no_deal === 'number'
-    ? `Claude: ${100 - models.claude.p_no_deal}% · GPT: ${100 - models.openai.p_no_deal}% · avg ${dealClosesPct}%`
-    : null;
-  const priceDetail = models?.claude?.market && models?.openai?.market
-    ? `Claude: ${models.claude.market[caseMode]?.low?.toFixed(1)}–${models.claude.market[caseMode]?.high?.toFixed(1)}× · GPT: ${models.openai.market[caseMode]?.low?.toFixed(1)}–${models.openai.market[caseMode]?.high?.toFixed(1)}× · avg shown`
-    : null;
+
+  // AI-predicted close month overrides the process-derived date when present.
+  const aiCloseMonth = rationales?.close_estimate ? fmtCloseMonth(rationales.close_estimate) : null;
+  const headlineClose = aiCloseMonth || fmtMonthYear(projectedClose);
+
+  // Per-card chip values — Claude vs GPT vs avg.
+  const closeChips = models?.claude?.close_estimate || models?.openai?.close_estimate ? {
+    claude: models?.claude?.close_estimate ? fmtCloseMonth(models.claude.close_estimate) : null,
+    openai: models?.openai?.close_estimate ? fmtCloseMonth(models.openai.close_estimate) : null,
+    avg: aiCloseMonth || fmtMonthYear(projectedClose),
+  } : null;
+
+  const confChips = (models?.claude && typeof models.claude.p_no_deal === 'number') || (models?.openai && typeof models.openai.p_no_deal === 'number') ? {
+    claude: typeof models?.claude?.p_no_deal === 'number' ? `${100 - models.claude.p_no_deal}%` : null,
+    openai: typeof models?.openai?.p_no_deal === 'number' ? `${100 - models.openai.p_no_deal}%` : null,
+    avg: `${dealClosesPct}%`,
+  } : null;
+
+  const fmtBand = (band) => band ? `${band.low?.toFixed(1)}–${band.high?.toFixed(1)}×` : null;
+  const priceChips = models?.claude?.market || models?.openai?.market ? {
+    claude: fmtBand(models?.claude?.market?.[caseMode]),
+    openai: fmtBand(models?.openai?.market?.[caseMode]),
+    avg: `${m.low.toFixed(1)}–${m.high.toFixed(1)}×`,
+  } : null;
 
   const m = (market && market[caseMode]) || marketMultiplesSeed(ebitda)[caseMode] || marketMultiplesSeed(ebitda).mid;
   const clearLow = ebitda * m.low;
@@ -231,15 +277,17 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
     <div className="hero">
       <div className="hero-kpi">
         <div className="hero-kpi-label">Projected close</div>
-        <div className="hero-kpi-value hero-kpi-close">{fmtMonthYear(projectedClose)}</div>
+        <div className="hero-kpi-value hero-kpi-close">{headlineClose}</div>
         <div className="hero-kpi-foot"><b>{weeksToClose}</b> weeks remaining · currently in <b>{currentTask.phase}</b></div>
-        <HeroRationale text={rationales?.close_date} twoModel={twoModel} />
+        {closeChips && <ModelVote claudeVal={closeChips.claude} openaiVal={closeChips.openai} avgVal={closeChips.avg} />}
+        <HeroRationale text={rationales?.close_date} />
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Deal confidence{aiNoDeal != null && <span className="hero-kpi-case"> · AI no-deal {aiNoDeal}%</span>}</div>
         <div className="hero-kpi-value hero-kpi-confidence">{dealClosesPct}<span>%</span></div>
         <div className="hero-kpi-foot"><b>{confLevel}</b> probability any deal closes{aiNoDeal == null && <> · <i style={{opacity:.6}}>computed (no AI rescan yet)</i></>}</div>
-        <HeroRationale text={confidenceText} twoModel={twoModel} modelDetail={confDetail} />
+        {confChips && <ModelVote claudeVal={confChips.claude} openaiVal={confChips.openai} avgVal={confChips.avg} />}
+        <HeroRationale text={confidenceText} />
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Market clearing price <span className="hero-kpi-case">· {m.label}</span></div>
@@ -249,7 +297,8 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
           <span className="hero-range-high">{fmtMoney(clearHigh)}</span>
         </div>
         <div className="hero-kpi-foot">${ebitda}M EBITDA × <b>{m.low.toFixed(1)}–{m.high.toFixed(1)}×</b> · midpoint <b>{fmtMoney(clearMid)}</b></div>
-        <HeroRationale text={rationales?.clearing_price} twoModel={twoModel} modelDetail={priceDetail} />
+        {priceChips && <ModelVote claudeVal={priceChips.claude} openaiVal={priceChips.openai} avgVal={priceChips.avg} />}
+        <HeroRationale text={rationales?.clearing_price} />
       </div>
     </div>
   );
