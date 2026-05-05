@@ -128,6 +128,19 @@ export default function App() {
         if (ws.market) setMarket(ws.market);
         if (ws.market_meta) setMarketMeta(ws.market_meta);
         if (ws.rationales) setRationales(ws.rationales);
+        // The v3 scrub of workspace rationales is hoisted up here so it runs
+        // even before the buyers branch (the rationale wipe should still
+        // apply on a workspace that has rationales but no buyers yet).
+        if (!localStorage.getItem('kennion.demoScrub.v3')) {
+          setRationales({
+            close_date: null,
+            close_estimate: null,
+            confidence: null,
+            clearing_price: null,
+            p_no_deal: null,
+            p_no_deal_rationale: null,
+          });
+        }
         if (ws.process) setProcess(ws.process);
         if (Array.isArray(ws.global_intel)) setGlobalIntel(ws.global_intel);
         if (Array.isArray(ws.pinned_rules)) setPinnedRules(ws.pinned_rules);
@@ -137,12 +150,13 @@ export default function App() {
         // chemistry_date, the legacy `notes` string, AI history, AI reasoning,
         // overrides). Runs once per browser, gated by a localStorage flag.
         // Identity fields and noteLog timeline entries are preserved.
-        // v2 adds `thesis` to the scrub — the seed thesis (e.g. OneDigital's
-        // "Highest distribution-fit. Pure benefits thesis aligns 1:1...") was
-        // surviving v1 and re-anchoring every rescan + advisor turn as if it
-        // were a verified fact. It's actually an AI-derived conclusion; wipe
-        // it so the next rescan re-derives from clean state.
-        const SCRUB_KEY = 'kennion.demoScrub.v2';
+        // v3 also scrubs the workspace rationales (close_date, confidence,
+        // clearing_price, p_no_deal_rationale, close_estimate). v2 wiped
+        // buyer-level AI-derived fields but missed these — they kept showing
+        // stale claims like "one chemistry meeting set for late May" anchored
+        // on the planted chemistry_date that was already scrubbed off the
+        // buyer. Wipe them so the next rescan re-derives.
+        const SCRUB_KEY = 'kennion.demoScrub.v3';
         let cleaned = result.buyers;
         if (!localStorage.getItem(SCRUB_KEY)) {
           cleaned = result.buyers.map(b => ({
@@ -422,6 +436,23 @@ export default function App() {
     if (reason) recordOverride(id, { kind: 'probability', from, to: probability, reason });
   };
 
+  // Pipeline-level analogue of invalidateBuyerPriors. When the user pushes
+  // back on a workspace-level AI claim (close-date rationale, confidence
+  // rationale, clearing-price rationale, p_no_deal rationale, the projected
+  // close month itself), wipe those rationale fields and log the correction
+  // as global intel. The auto-rescan re-derives them.
+  const invalidatePipelinePriors = (reason) => {
+    setRationales(prev => ({
+      ...prev,
+      close_date: null,
+      close_estimate: null,
+      confidence: null,
+      clearing_price: null,
+      p_no_deal_rationale: null,
+    }));
+    if (reason) appendGlobalIntel(reason);
+  };
+
   // When the user pushes back on something the advisor pulled from a buyer's
   // thesis or last AI reasoning ("you say X, not true"), wipe those AI-derived
   // fields on the affected buyers and log the user's correction as global
@@ -514,6 +545,7 @@ export default function App() {
           onSetStage={setBuyerStage}
           onOverrideProbability={overrideBuyerProbability}
           onInvalidatePriors={invalidateBuyerPriors}
+          onInvalidatePipelinePriors={invalidatePipelinePriors}
           onRescanAll={rescanAll}
         />
         <div className="pipeline-head">

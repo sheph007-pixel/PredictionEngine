@@ -1319,6 +1319,17 @@ const CONVO_TOOLS = [
     },
   },
   {
+    name: 'invalidate_pipeline_priors',
+    description: 'Wipe stale workspace-level AI rationales (close-date rationale, projected close month, confidence rationale, clearing-price rationale, no-deal rationale) when the user pushes back on a claim that came from one of those fields ("you say one chemistry meeting set for May, not true" / "close date doesn\'t match"). The rationale text and close_estimate shown to you are YOUR OWN prior conclusions, not user-verified facts. Logs the user\'s correction as pipeline-wide intel and forces the auto-rescan to re-derive from clean state. Use this for pipeline-level pushback; for buyer-level pushback use invalidate_buyer_priors instead.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: 'The user\'s correction in their words, max 30 words. Logged as pipeline-wide intel so future rescans see the correction.' },
+      },
+      required: ['reason'],
+    },
+  },
+  {
     name: 'invalidate_buyer_priors',
     description: 'Wipe stale AI-derived fields (thesis + last AI reasoning) on one or more buyers when the user pushes back on a claim that came from those fields ("you say OneDigital is pure-benefits, not true" / "you\'re wrong about X"). The thesis and last AI reasoning shown to you below are YOUR OWN prior conclusions, not user-verified facts — when the user disputes them, do NOT defend or apologize, call this tool. It logs the user\'s correction as pipeline-wide intel and forces the auto-rescan that follows to re-derive thesis + reasoning from clean state. Pass every buyer whose stale reasoning depends on the disputed claim.',
     input_schema: {
@@ -1336,7 +1347,7 @@ const CONVO_TOOLS = [
   },
 ];
 
-export function Conversation({ buyers, pinnedRules, globalIntel, market, rationales, ebitda, onAddBuyerNote, onAppendGlobal, onSetStage, onOverrideProbability, onInvalidatePriors, onRescanAll }) {
+export function Conversation({ buyers, pinnedRules, globalIntel, market, rationales, ebitda, onAddBuyerNote, onAppendGlobal, onSetStage, onOverrideProbability, onInvalidatePriors, onInvalidatePipelinePriors, onRescanAll }) {
   const [messages, setMessages] = useState(() => {
     try {
       const saved = localStorage.getItem(CONVO_STORAGE_KEY);
@@ -1400,12 +1411,16 @@ export function Conversation({ buyers, pinnedRules, globalIntel, market, rationa
       ? `EBITDA $${ebitdaRef.current}M · realistic ${m.mid.low?.toFixed?.(1)}–${m.mid.high?.toFixed?.(1)}× · conservative ${m.conservative?.low?.toFixed?.(1)}–${m.conservative?.high?.toFixed?.(1)}× · aggressive ${m.aggressive?.low?.toFixed?.(1)}–${m.aggressive?.high?.toFixed?.(1)}×`
       : `EBITDA $${ebitdaRef.current}M · market bands not yet set`;
 
+    // Workspace rationales are AI-PRIOR like buyer thesis: your own
+    // conclusions from earlier rescans, not user-verified facts. When the
+    // user disputes the close date or any rationale text below, call
+    // invalidate_pipeline_priors, do not defend.
     const dashboardCtx = [
-      r.close_estimate ? `close estimate: ${r.close_estimate}` : null,
-      r.close_date ? `close-date rationale: ${r.close_date}` : null,
-      r.confidence ? `confidence: ${r.confidence}` : null,
-      r.clearing_price ? `clearing price: ${r.clearing_price}` : null,
-      typeof r.p_no_deal === 'number' ? `p_no_deal: ${r.p_no_deal}%${r.p_no_deal_rationale ? ` (${r.p_no_deal_rationale})` : ''}` : null,
+      r.close_estimate ? `AI-prior · close month: ${r.close_estimate}` : null,
+      r.close_date ? `AI-prior · close-date rationale: ${r.close_date}` : null,
+      r.confidence ? `AI-prior · confidence rationale: ${r.confidence}` : null,
+      r.clearing_price ? `AI-prior · clearing-price rationale: ${r.clearing_price}` : null,
+      typeof r.p_no_deal === 'number' ? `AI-prior · p_no_deal: ${r.p_no_deal}%${r.p_no_deal_rationale ? ` (${r.p_no_deal_rationale})` : ''}` : null,
     ].filter(Boolean).join('\n  ');
 
     const rulesCtx = (pinnedRulesRef.current || []).length > 0
@@ -1420,16 +1435,17 @@ export function Conversation({ buyers, pinnedRules, globalIntel, market, rationa
 
 Speak like a sharp banker who knows the deal cold: direct, conversational, no fluff. Replies under 80 words, no markdown, no headers.
 
-# Two kinds of buyer context — treat them differently
+# Two kinds of context — treat them differently
 - **User-provided** (recent notes, overrides, pinned rules, pipeline intel): authoritative. The user logged these; trust them.
-- **AI-prior** (lines tagged \`AI-prior · thesis\` / \`AI-prior · last reasoning\`): YOUR OWN prior conclusions from earlier rescans. These are drafts, not facts. The seed pipeline contained planted theses that may not be true; older rescans may have anchored on them. When the user pushes back on one of these lines ("you say X is pure-benefits, not true" / "you're wrong about Y"), do NOT defend the claim and do NOT just apologize — call \`invalidate_buyer_priors\` for every buyer whose AI-prior line depended on the disputed claim, with the user's correction as \`reason\`. The auto-rescan that follows re-derives thesis + reasoning from clean state.
+- **AI-prior** (any line tagged \`AI-prior · …\` — buyer thesis, last reasoning, close month, close-date rationale, confidence rationale, clearing-price rationale, p_no_deal rationale): YOUR OWN prior conclusions from earlier rescans. These are drafts, not facts. The seed pipeline contained planted text that may not be true; older rescans may have anchored on stale data. When the user pushes back on one of these lines ("you say X is pure-benefits, not true" / "no chemistry meeting set" / "close date doesn't match"), do NOT defend the claim and do NOT just apologize — call the right invalidate tool with the user's correction as \`reason\`. The auto-rescan that follows re-derives from clean state.
 
 When the user gives you intel, apply it via tools — do not just acknowledge it:
 - buyer-specific facts → add_buyer_note
 - general market / process / sector intel → append_global_intel
 - explicit stage change requested → set_buyer_stage (always include reason)
 - explicit probability override requested → override_probability (always include reason)
-- user disputes an AI-prior thesis or reasoning → invalidate_buyer_priors (every affected buyer + the correction as reason)
+- user disputes a buyer-level AI-prior (thesis / last reasoning) → invalidate_buyer_priors (every affected buyer + the correction as reason)
+- user disputes a workspace-level AI-prior (close month, close-date / confidence / clearing-price / no-deal rationale) → invalidate_pipeline_priors (the correction as reason)
 
 After tools run, a full pipeline rescan automatically rescores every buyer with the new input. In your reply, briefly state what you did and one sharp implication. If the input is genuinely ambiguous (which buyer? which stage?), ask one clarifying question instead of guessing — but if the user is pushing back on an AI-prior line, invalidating is rarely ambiguous: clear the priors and let the rescan re-derive, even if the user hasn't given you the corrected fact yet.
 
@@ -1467,6 +1483,10 @@ ${buyerCtx || '(none)'}${droppedCtx}${rulesCtx}${intelCtx}`;
       const p = Math.max(1, Math.min(95, Math.round(args.probability)));
       onOverrideProbability(args.buyer_id, p, args.reason);
       return `ok: ${target.name} probability → ${p}%`;
+    }
+    if (name === 'invalidate_pipeline_priors') {
+      onInvalidatePipelinePriors(args.reason);
+      return `ok: cleared stale workspace rationales (close date, confidence, clearing price, no-deal); logged correction as pipeline intel`;
     }
     if (name === 'invalidate_buyer_priors') {
       const ids = Array.isArray(args.buyer_ids) ? args.buyer_ids : [];

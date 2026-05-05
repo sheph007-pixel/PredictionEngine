@@ -203,12 +203,21 @@ Call apply_rescan exactly once. Do not output prose outside the tool call. Be op
 Reasoning per buyer: max 45 words, single dense paragraph, no preamble like "Based on" or "After reviewing". Cite the strongest single piece of evidence; skip background. Dashboard rationales: max 25 words each. Summary: 1 sentence, max 25 words. Do not pad. The user values speed — every extra paragraph adds latency they feel.
 
 # Numerical self-consistency (NON-NEGOTIABLE)
-Before submitting, verify: any percentage or multiple cited in summary, close_date_rationale, confidence_rationale, clearing_price_rationale, or p_no_deal_rationale MUST match a number you set in this same response. Specifically:
+Before submitting, verify: any percentage, multiple, or month cited in summary, close_date_rationale, confidence_rationale, clearing_price_rationale, or p_no_deal_rationale MUST match a number you set in this same response. Specifically:
 - If you write "X% odds" or "X% chance" in a rationale, X must be a buyer.probability you wrote in the buyers[] array, OR p_no_deal, OR (100 - p_no_deal).
 - If you write a multiple (e.g. "5×–7×"), it must match a market band you wrote.
+- **Close month consistency**: any month you assert as the close in close_date_rationale (or any other rationale) MUST match the month in \`close_estimate\`. If close_estimate is "2026-09", do not write "close August" or "close in October" anywhere — write "close September" or "close Q3". Pick close_estimate FIRST, then write the rationale to match.
 - Do NOT reuse numbers from prior aiHistory entries or prior rationales without re-checking they match the values in THIS rescan's output.
 - If your top buyer this rescan is 15%, the rationale says "15% odds", not "20%+".
-The audit log shows both the rationale text and the buyers[] array side by side; mismatches are immediately visible to the user.`;
+The audit log shows both the rationale text and the buyers[] array side by side; mismatches are immediately visible to the user.
+
+# Evidence discipline — only assert events that have happened
+Do NOT assert that buyer milestones (chemistry meetings, NDAs, LOIs, exclusivity, closes) HAVE happened, ARE scheduled, or are "set" / "on the calendar" / "next week" unless one of the following is true:
+- The buyer's current stage reflects it (a buyer at \`chemistry\` stage means a chemistry meeting was held; \`loi\` means an LOI is in hand; \`closed\` means closed).
+- The buyer's noteLog or notes_timeline contains a dated entry asserting the event.
+- A document in the library asserts it.
+
+If you are PROJECTING when an event will likely happen (which is what \`close_estimate\` and the timeline rationale are for), use forward-looking language: "projected", "expected", "likely", "estimated mid-July", "anchor on Reagan's ~17-week timeline". Never write "one chemistry meeting set for late May" unless the noteLog has a dated chemistry entry. Never write "NDAs signed" unless buyers are at \`nda\` stage or later. Hallucinated events (events you assert as fact when there is no evidence) are the single worst failure mode of this engine — when in doubt, omit the specific event and stick to stage-level language.`;
 }
 
 const RESCAN_TOOL = {
