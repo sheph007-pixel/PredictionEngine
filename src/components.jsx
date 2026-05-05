@@ -829,7 +829,7 @@ Be realistic. Match the format of existing peers in the pipeline.`;
 //   - Submit appends a tagged note + triggers a per-buyer rescan, which
 //     re-ranks the entire list (App.jsx re-sorts on every render).
 //   - Up/down arrow shows last AI re-score's probability change (from aiHistory).
-export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuyer, winnerPct, rescanning, displayRank }) {
+export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuyer, winnerPct, claudeWinnerPct, openaiWinnerPct, rescanning, displayRank }) {
   const isDropped = buyer.stage === "dropped";
   const showProb = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
   const stageLabel = STAGES.find(s => s.id === buyer.stage)?.label || buyer.stage;
@@ -903,11 +903,11 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
             <span className="row-prob-delta row-prob-delta-flat" title="No change since last re-rank">·</span>
           )}
         </div>
-        {!isDropped && buyer.modelVote && (
+        {!isDropped && (typeof claudeWinnerPct === 'number' || typeof openaiWinnerPct === 'number') && (
           <ModelVote
-            claudeVal={typeof buyer.modelVote.claude === 'number' ? `${buyer.modelVote.claude}%` : null}
-            openaiVal={typeof buyer.modelVote.openai === 'number' ? `${buyer.modelVote.openai}%` : null}
-            avgVal={`${buyer.probability ?? '?'}%`}
+            claudeVal={typeof claudeWinnerPct === 'number' ? `${claudeWinnerPct}%` : null}
+            openaiVal={typeof openaiWinnerPct === 'number' ? `${openaiWinnerPct}%` : null}
+            avgVal={`${winnerPct ?? buyer.probability ?? '?'}%`}
           />
         )}
         {updatedAt && !isDropped && (

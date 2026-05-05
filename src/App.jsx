@@ -399,6 +399,20 @@ export default function App() {
   };
 
   const winnerData = winnerProbabilities(buyers, ebitda, caseMode);
+
+  // Per-model winner-allocations so the per-row chips speak the same language
+  // as the big headline number. Each model's raw probability array gets merged
+  // with the live buyers' stage state, then run through winnerProbabilities so
+  // its values are normalized the same way. Avg in the chip = headline number.
+  const computeModelWinner = (modelBuyers) => {
+    if (!Array.isArray(modelBuyers) || modelBuyers.length === 0) return null;
+    const byId = Object.fromEntries(modelBuyers.map(m => [m.id, m]));
+    const merged = buyers.map(b => byId[b.id] ? { ...b, probability: byId[b.id].probability } : b);
+    return winnerProbabilities(merged, ebitda, caseMode).winnerByBuyer;
+  };
+  const claudeWinnerByBuyer = computeModelWinner(rationales?.models?.claude?.buyers);
+  const openaiWinnerByBuyer = computeModelWinner(rationales?.models?.openai?.buyers);
+
   const ordered = [...buyers].sort((a, b) => {
     if (a.stage === 'dropped' && b.stage !== 'dropped') return 1;
     if (b.stage === 'dropped' && a.stage !== 'dropped') return -1;
@@ -458,6 +472,8 @@ export default function App() {
               onAppendNote={appendBuyerNote}
               onRescanBuyer={rescanOne}
               winnerPct={winnerData.winnerByBuyer[b.id] || 0}
+              claudeWinnerPct={claudeWinnerByBuyer ? claudeWinnerByBuyer[b.id] : null}
+              openaiWinnerPct={openaiWinnerByBuyer ? openaiWinnerByBuyer[b.id] : null}
               rescanning={!!rescanning[b.id]}
             />
           ))}
