@@ -903,7 +903,7 @@ function blendPredictions(claude, openai) {
   return {
     ...claude,
     market: blendedMarket,
-    buyers: blendedBuyers,
+    buyers: blendedBuyers.map(b => ({ ...b, thesis: reconcile(b.thesis) })),
     p_no_deal: blendedPNoDeal,
     close_estimate: blendedClose || claude.close_estimate || openai.close_estimate || null,
     summary: reconcile(claude.summary),
