@@ -747,10 +747,11 @@ const OPENAI_PREDICTION_SCHEMA = {
       type: 'array',
       items: {
         type: 'object', additionalProperties: false,
-        required: ['id', 'probability'],
+        required: ['id', 'probability', 'reasoning'],
         properties: {
           id: { type: 'string' },
           probability: { type: 'integer', minimum: 0, maximum: 100 },
+          reasoning: { type: 'string', description: 'ONE short sentence, max 25 words, citing the SINGLE strongest driver of the probability you assigned. The user hovers a chip to see this — make it the most useful one-line explanation possible.' },
         },
       },
     },
@@ -793,7 +794,7 @@ Notes timeline format: \`[YYYY-MM-DD] text\` or \`[YYYY-MM-DD][signal] text\` wh
 # Public broker comps (for context — apply 3-5× discount for private mid-market, 1-2× more for captive/niche)
 BRO 16×, AON 14×, MMC 15.5×, AJG 15.5×, WTW 13.5×, BWIN 13× fwd EBITDA
 
-Return JSON only — no commentary. Per-buyer probability MUST respect the stage range. Conservatism bias when evidence is thin.`;
+Return JSON only — no commentary. Per-buyer probability MUST respect the stage range. Conservatism bias when evidence is thin. Per-buyer reasoning: ONE sentence, max 25 words, citing the single strongest driver of the probability you set. The user sees this when they hover the chip — make it useful, not generic.`;
 
   const userMsg = `# Pipeline state
 EBITDA: $${ebitda}M
@@ -899,7 +900,7 @@ function blendPredictions(claude, openai) {
 function extractClaudeNumbers(c) {
   return {
     market: c.market,
-    buyers: (c.buyers || []).map(b => ({ id: b.id, probability: b.probability })),
+    buyers: (c.buyers || []).map(b => ({ id: b.id, probability: b.probability, reasoning: b.reasoning || null })),
     p_no_deal: c.p_no_deal,
     p_no_deal_rationale: c.p_no_deal_rationale,
     close_estimate: c.close_estimate || null,

@@ -143,10 +143,18 @@ export function applyRescanToBuyers(buyers, rescan, opts = {}) {
         : {}),
     };
     const aiHistory = [...(b.aiHistory || []), historyEntry].slice(-8);
-    const cp = claudeById[b.id]?.probability;
-    const op = openaiById[b.id]?.probability;
+    const cb = claudeById[b.id];
+    const ob = openaiById[b.id];
+    const cp = cb?.probability;
+    const op = ob?.probability;
     const modelVote = (typeof cp === 'number' || typeof op === 'number')
-      ? { claude: typeof cp === 'number' ? cp : null, openai: typeof op === 'number' ? op : null, avg: upd.probability }
+      ? {
+          claude: typeof cp === 'number' ? cp : null,
+          openai: typeof op === 'number' ? op : null,
+          avg: upd.probability,
+          claudeReasoning: cb?.reasoning || null,
+          openaiReasoning: ob?.reasoning || null,
+        }
       : null;
     return {
       ...b,

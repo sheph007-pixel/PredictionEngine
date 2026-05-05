@@ -195,20 +195,27 @@ function HeroRationale({ text }) {
 // Two-model voting strip — shows Claude's and GPT's individual predictions
 // side by side with an "avg" pill, letting the user see both reads at once
 // instead of just the blended number.
-function ModelVote({ claudeVal, openaiVal, avgVal }) {
+function ModelVote({ claudeVal, openaiVal, avgVal, claudeReasoning, openaiReasoning }) {
   const has = claudeVal != null || openaiVal != null;
   if (!has) return null;
+  const claudeTitle = claudeReasoning
+    ? `Claude said ${claudeVal}: ${claudeReasoning}`
+    : `Claude (Anthropic) prediction: ${claudeVal ?? '—'}`;
+  const openaiTitle = openaiReasoning
+    ? `GPT-4o said ${openaiVal}: ${openaiReasoning}`
+    : `GPT-4o (OpenAI) prediction: ${openaiVal ?? '—'}`;
+  const avgTitle = `Averaged: Claude ${claudeVal ?? '—'} + GPT ${openaiVal ?? '—'} → ${avgVal}. Drives the headline number.`;
   return (
     <div className="model-vote">
-      <span className="model-chip model-chip-claude" title="Claude (Anthropic) prediction">
+      <span className="model-chip model-chip-claude" title={claudeTitle}>
         <span className="model-chip-mark">C</span>
         <span className="model-chip-val">{claudeVal ?? '—'}</span>
       </span>
-      <span className="model-chip model-chip-openai" title="GPT-4o (OpenAI) prediction">
+      <span className="model-chip model-chip-openai" title={openaiTitle}>
         <span className="model-chip-mark">G</span>
         <span className="model-chip-val">{openaiVal ?? '—'}</span>
       </span>
-      <span className="model-chip model-chip-avg" title="Averaged across both models — this is the headline number">
+      <span className="model-chip model-chip-avg" title={avgTitle}>
         <span className="model-chip-mark">avg</span>
         <span className="model-chip-val">{avgVal}</span>
       </span>
@@ -910,6 +917,8 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
             claudeVal={typeof buyer.modelVote.claude === 'number' ? `${buyer.modelVote.claude}%` : null}
             openaiVal={typeof buyer.modelVote.openai === 'number' ? `${buyer.modelVote.openai}%` : null}
             avgVal={`${buyer.probability ?? '?'}%`}
+            claudeReasoning={buyer.modelVote.claudeReasoning}
+            openaiReasoning={buyer.modelVote.openaiReasoning}
           />
         )}
         {updatedAt && !isDropped && (
