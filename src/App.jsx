@@ -116,7 +116,12 @@ export default function App() {
         // chemistry_date, the legacy `notes` string, AI history, AI reasoning,
         // overrides). Runs once per browser, gated by a localStorage flag.
         // Identity fields and noteLog timeline entries are preserved.
-        const SCRUB_KEY = 'kennion.demoScrub.v1';
+        // v2 adds `thesis` to the scrub — the seed thesis (e.g. OneDigital's
+        // "Highest distribution-fit. Pure benefits thesis aligns 1:1...") was
+        // surviving v1 and re-anchoring every rescan + advisor turn as if it
+        // were a verified fact. It's actually an AI-derived conclusion; wipe
+        // it so the next rescan re-derives from clean state.
+        const SCRUB_KEY = 'kennion.demoScrub.v2';
         let cleaned = result.buyers;
         if (!localStorage.getItem(SCRUB_KEY)) {
           cleaned = result.buyers.map(b => ({
@@ -124,6 +129,7 @@ export default function App() {
             nda_signed: null,
             chemistry_date: null,
             notes: '',
+            thesis: null,
             aiHistory: [],
             aiNotes: null,
             aiCitations: [],
@@ -395,6 +401,24 @@ export default function App() {
     if (reason) recordOverride(id, { kind: 'probability', from, to: probability, reason });
   };
 
+  // When the user pushes back on something the advisor pulled from a buyer's
+  // thesis or last AI reasoning ("you say X, not true"), wipe those AI-derived
+  // fields on the affected buyers and log the user's correction as global
+  // intel. The auto-rescan that follows the tool call re-derives thesis +
+  // reasoning from clean state, so the next response can't re-anchor on the
+  // stale claim. We only drop the most recent aiHistory entry (the one the
+  // rescan endpoint replays as prior reasoning) to preserve the older audit
+  // trail.
+  const invalidateBuyerPriors = (buyerIds, reason) => {
+    if (!Array.isArray(buyerIds) || buyerIds.length === 0) return;
+    setBuyers(bs => bs.map(b => {
+      if (!buyerIds.includes(b.id)) return b;
+      const trimmedHistory = Array.isArray(b.aiHistory) ? b.aiHistory.slice(0, -1) : [];
+      return { ...b, thesis: null, aiNotes: null, aiCitations: [], aiHistory: trimmedHistory };
+    }));
+    if (reason) appendGlobalIntel(reason);
+  };
+
   // Brain handlers — pinned rules, lessons, and intel are all simple list
   // mutations that flow through the existing workspace write-through.
   const addPinnedRule = (text) => {
@@ -468,6 +492,7 @@ export default function App() {
           onAppendGlobal={appendGlobalIntel}
           onSetStage={setBuyerStage}
           onOverrideProbability={overrideBuyerProbability}
+          onInvalidatePriors={invalidateBuyerPriors}
           onRescanAll={rescanAll}
         />
         <div className="pipeline-head">

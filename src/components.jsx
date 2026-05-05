@@ -1307,9 +1307,25 @@ const CONVO_TOOLS = [
       required: ['buyer_id', 'probability', 'reason'],
     },
   },
+  {
+    name: 'invalidate_buyer_priors',
+    description: 'Wipe stale AI-derived fields (thesis + last AI reasoning) on one or more buyers when the user pushes back on a claim that came from those fields ("you say OneDigital is pure-benefits, not true" / "you\'re wrong about X"). The thesis and last AI reasoning shown to you below are YOUR OWN prior conclusions, not user-verified facts — when the user disputes them, do NOT defend or apologize, call this tool. It logs the user\'s correction as pipeline-wide intel and forces the auto-rescan that follows to re-derive thesis + reasoning from clean state. Pass every buyer whose stale reasoning depends on the disputed claim.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        buyer_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Buyer ids whose thesis + last AI reasoning should be cleared. Include any buyer whose prior conclusion depended on the disputed claim, not just the one the user named.',
+        },
+        reason: { type: 'string', description: 'The user\'s correction in their words, max 30 words. Logged as pipeline-wide intel so future rescans see the correction.' },
+      },
+      required: ['buyer_ids', 'reason'],
+    },
+  },
 ];
 
-export function Conversation({ buyers, pinnedRules, globalIntel, market, rationales, ebitda, onAddBuyerNote, onAppendGlobal, onSetStage, onOverrideProbability, onRescanAll }) {
+export function Conversation({ buyers, pinnedRules, globalIntel, market, rationales, ebitda, onAddBuyerNote, onAppendGlobal, onSetStage, onOverrideProbability, onInvalidatePriors, onRescanAll }) {
   const [messages, setMessages] = useState(() => {
     try {
       const saved = localStorage.getItem(CONVO_STORAGE_KEY);
@@ -1353,8 +1369,12 @@ export function Conversation({ buyers, pinnedRules, globalIntel, market, rationa
     const buyerCtx = ranked.map(b => {
       const recentNotes = (b.noteLog || []).slice(-4).map(n => `    [${(n.ts || '').slice(0,10)}] ${n.text}`).join('\n');
       const overrides = (b.overrides || []).slice(-3).map(o => `    [${(o.ts || '').slice(0,10)}] ${o.kind} ${o.from}→${o.to}: ${o.reason}`).join('\n');
-      const reasoning = b.aiNotes ? `\n  Last AI reasoning: ${b.aiNotes}` : '';
-      const thesis = b.thesis ? `\n  Thesis: ${b.thesis}` : '';
+      // thesis + aiNotes are AI-DERIVED prior conclusions (your own output from
+      // earlier rescans), not user-verified facts. Labeling matters: when the
+      // user disputes one of these, you should call invalidate_buyer_priors,
+      // not defend the line.
+      const reasoning = b.aiNotes ? `\n  AI-prior · last reasoning: ${b.aiNotes}` : '';
+      const thesis = b.thesis ? `\n  AI-prior · thesis: ${b.thesis}` : '';
       return `- id="${b.id}" · ${b.name} · ${b.type || ''} · ${b.ownership || ''}${b.sponsor && b.sponsor !== '—' ? '/' + b.sponsor : ''} · stage=${b.stage} · p=${b.probability ?? '?'}%${thesis}${reasoning}${recentNotes ? `\n  Recent notes:\n${recentNotes}` : ''}${overrides ? `\n  Recent overrides:\n${overrides}` : ''}`;
     }).join('\n');
 
@@ -1385,24 +1405,29 @@ export function Conversation({ buyers, pinnedRules, globalIntel, market, rationa
       ? `\n\nPipeline-wide intel log (newest first):\n${(globalIntelRef.current || []).slice(-10).reverse().map(g => `- [${(g.ts || '').slice(0,10)}] ${g.text}`).join('\n')}`
       : '';
 
-    return `You are the user's senior M&A advisor inside the Kennion Prediction Engine — the sell-side process for Kennion's Benefits Program (Reagan Consulting · Spring 2026). You have full visibility into the workspace state below — the same inputs the rescan engine sees on every Update. When the user references a buyer's thesis, reasoning, or any text they're seeing in the UI, you can read it from the context here. Do not deny knowledge of something that is in this context.
+    return `You are the user's senior M&A advisor inside the Kennion Prediction Engine — the sell-side process for Kennion's Benefits Program (Reagan Consulting · Spring 2026). You have full visibility into the workspace state below — the same inputs the rescan engine sees on every Update. When the user references something they're seeing in the UI, read it from the context. Do not deny knowledge of user-provided facts (recent notes, overrides, pinned rules, pipeline intel) that appear below.
 
 Speak like a sharp banker who knows the deal cold: direct, conversational, no fluff. Replies under 80 words, no markdown, no headers.
+
+# Two kinds of buyer context — treat them differently
+- **User-provided** (recent notes, overrides, pinned rules, pipeline intel): authoritative. The user logged these; trust them.
+- **AI-prior** (lines tagged \`AI-prior · thesis\` / \`AI-prior · last reasoning\`): YOUR OWN prior conclusions from earlier rescans. These are drafts, not facts. The seed pipeline contained planted theses that may not be true; older rescans may have anchored on them. When the user pushes back on one of these lines ("you say X is pure-benefits, not true" / "you're wrong about Y"), do NOT defend the claim and do NOT just apologize — call \`invalidate_buyer_priors\` for every buyer whose AI-prior line depended on the disputed claim, with the user's correction as \`reason\`. The auto-rescan that follows re-derives thesis + reasoning from clean state.
 
 When the user gives you intel, apply it via tools — do not just acknowledge it:
 - buyer-specific facts → add_buyer_note
 - general market / process / sector intel → append_global_intel
 - explicit stage change requested → set_buyer_stage (always include reason)
 - explicit probability override requested → override_probability (always include reason)
+- user disputes an AI-prior thesis or reasoning → invalidate_buyer_priors (every affected buyer + the correction as reason)
 
-After tools run, a full pipeline rescan automatically rescores every buyer with the new input. In your reply, briefly state what you logged and one sharp implication. If the input is ambiguous (which buyer? which stage?), ask one clarifying question instead of guessing.
+After tools run, a full pipeline rescan automatically rescores every buyer with the new input. In your reply, briefly state what you did and one sharp implication. If the input is genuinely ambiguous (which buyer? which stage?), ask one clarifying question instead of guessing — but if the user is pushing back on an AI-prior line, invalidating is rarely ambiguous: clear the priors and let the rescan re-derive, even if the user hasn't given you the corrected fact yet.
 
 If the user asks a question without giving new intel, answer from the context below — no tools.
 
 # Pipeline anchors
 ${marketCtx}${dashboardCtx ? `\n  ${dashboardCtx}` : ''}
 
-# Live buyers (full state — thesis, last AI reasoning, recent notes, recent overrides)
+# Live buyers (state — AI-prior lines are your own drafts, not user-verified facts)
 ${buyerCtx || '(none)'}${droppedCtx}${rulesCtx}${intelCtx}`;
   };
 
@@ -1431,6 +1456,14 @@ ${buyerCtx || '(none)'}${droppedCtx}${rulesCtx}${intelCtx}`;
       const p = Math.max(1, Math.min(95, Math.round(args.probability)));
       onOverrideProbability(args.buyer_id, p, args.reason);
       return `ok: ${target.name} probability → ${p}%`;
+    }
+    if (name === 'invalidate_buyer_priors') {
+      const ids = Array.isArray(args.buyer_ids) ? args.buyer_ids : [];
+      const valid = ids.filter(id => cur.some(b => b.id === id));
+      if (valid.length === 0) return `error: no valid buyer ids — valid: ${cur.map(b => b.id).join(', ')}`;
+      onInvalidatePriors(valid, args.reason);
+      const names = valid.map(id => cur.find(b => b.id === id)?.name || id).join(', ');
+      return `ok: cleared stale thesis + AI reasoning on ${names}; logged correction as pipeline intel`;
     }
     return `error: unknown tool "${name}"`;
   };
