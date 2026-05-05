@@ -200,7 +200,15 @@ For Kennion's profile (captive benefits, sub-mid-market) a healthy floor is 10�
 Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence. If evidence is insufficient to move a number, leave it stable and say so in reasoning.
 
 # Brevity is mandatory
-Reasoning per buyer: max 45 words, single dense paragraph, no preamble like "Based on" or "After reviewing". Cite the strongest single piece of evidence; skip background. Dashboard rationales: max 25 words each. Summary: 1 sentence, max 25 words. Do not pad. The user values speed — every extra paragraph adds latency they feel.`;
+Reasoning per buyer: max 45 words, single dense paragraph, no preamble like "Based on" or "After reviewing". Cite the strongest single piece of evidence; skip background. Dashboard rationales: max 25 words each. Summary: 1 sentence, max 25 words. Do not pad. The user values speed — every extra paragraph adds latency they feel.
+
+# Numerical self-consistency (NON-NEGOTIABLE)
+Before submitting, verify: any percentage or multiple cited in summary, close_date_rationale, confidence_rationale, clearing_price_rationale, or p_no_deal_rationale MUST match a number you set in this same response. Specifically:
+- If you write "X% odds" or "X% chance" in a rationale, X must be a buyer.probability you wrote in the buyers[] array, OR p_no_deal, OR (100 - p_no_deal).
+- If you write a multiple (e.g. "5×–7×"), it must match a market band you wrote.
+- Do NOT reuse numbers from prior aiHistory entries or prior rationales without re-checking they match the values in THIS rescan's output.
+- If your top buyer this rescan is 15%, the rationale says "15% odds", not "20%+".
+The audit log shows both the rationale text and the buyers[] array side by side; mismatches are immediately visible to the user.`;
 }
 
 const RESCAN_TOOL = {
@@ -295,11 +303,11 @@ const RESCAN_TOOL = {
       },
       confidence_rationale: {
         type: 'string',
-        description: 'Plain-English one-liner explaining the deal confidence percentage. Max 25 words, two short sentences max. State the paths to close and the main no-deal risk. No jargon.',
+        description: 'Plain-English one-liner explaining the deal confidence percentage. Max 25 words, two short sentences max. State the paths to close and the main no-deal risk. **CRITICAL: any probability you cite (e.g. "carries 20% odds") MUST match a buyer probability you set in this same response. If your top buyer is 15%, do not write "20% odds" — write "15% odds". Do NOT echo numbers from prior rationales without re-verifying against the buyers[] array you just wrote.** No jargon.',
       },
       clearing_price_rationale: {
         type: 'string',
-        description: 'Plain-English one-liner explaining the market clearing price band. Max 25 words, two short sentences max. State the multiple, why that size bucket, and what would push it higher. No jargon ("anchored on the bucket", "tuck-in math", "captive-niche-discount").',
+        description: 'Plain-English one-liner explaining the market clearing price band. Max 25 words, two short sentences max. State the multiple, why that size bucket, and what would push it higher. **Any multiple you cite must match the market band you set in this same response.** No jargon ("anchored on the bucket", "tuck-in math", "captive-niche-discount").',
       },
       p_no_deal: {
         type: 'integer',
@@ -309,7 +317,7 @@ const RESCAN_TOOL = {
       },
       p_no_deal_rationale: {
         type: 'string',
-        description: 'Plain-English one-liner explaining the no-deal probability. Max 25 words. Name the single biggest no-deal risk. No jargon.',
+        description: 'Plain-English one-liner explaining the no-deal probability. Max 25 words. Name the single biggest no-deal risk. **Any percentage cited must match p_no_deal in this same response.** No jargon.',
       },
       close_estimate: {
         type: 'string',
