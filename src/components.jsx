@@ -261,14 +261,14 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
     avg: `${dealClosesPct}%`,
   } : null;
 
+  const m = (market && market[caseMode]) || marketMultiplesSeed(ebitda)[caseMode] || marketMultiplesSeed(ebitda).mid;
+
   const fmtBand = (band) => band ? `${band.low?.toFixed(1)}–${band.high?.toFixed(1)}×` : null;
   const priceChips = models?.claude?.market || models?.openai?.market ? {
     claude: fmtBand(models?.claude?.market?.[caseMode]),
     openai: fmtBand(models?.openai?.market?.[caseMode]),
     avg: `${m.low.toFixed(1)}–${m.high.toFixed(1)}×`,
   } : null;
-
-  const m = (market && market[caseMode]) || marketMultiplesSeed(ebitda)[caseMode] || marketMultiplesSeed(ebitda).mid;
   const clearLow = ebitda * m.low;
   const clearHigh = ebitda * m.high;
   const clearMid = ebitda * ((m.low + m.high) / 2);
