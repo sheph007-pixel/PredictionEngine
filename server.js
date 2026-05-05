@@ -557,20 +557,28 @@ ${focusInstruction}`;
   };
   try {
     const systemPrompt = buildRescanSystemPrompt();
-    const message = await client.beta.messages.create({
-      model: MODEL,
-      max_tokens: 8192,
-      system: [
-        { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
-      ],
-      tools: [RESCAN_TOOL],
-      tool_choice: { type: 'tool', name: 'apply_rescan' },
-      messages: [{
-        role: 'user',
-        content: [...docBlocks, { type: 'text', text: userText }],
-      }],
-      betas: [FILES_BETA],
-    });
+    // Fire Claude (full rescan) and OpenAI (numerical second opinion) in parallel.
+    // OpenAI gets the same buyer state + EBITDA + live intel context. Server
+    // averages their numerical predictions on the way out.
+    const [message, openaiPred] = await Promise.all([
+      client.beta.messages.create({
+        model: MODEL,
+        max_tokens: 8192,
+        system: [
+          { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
+        ],
+        tools: [RESCAN_TOOL],
+        tool_choice: { type: 'tool', name: 'apply_rescan' },
+        messages: [{
+          role: 'user',
+          content: [...docBlocks, { type: 'text', text: userText }],
+        }],
+        betas: [FILES_BETA],
+      }),
+      getOpenAIPredictions({
+        ebitda, groundedBuyers, liveIntel, sizeBucket, only_buyer_id,
+      }),
+    ]);
 
     const toolUse = message.content.find(b => b.type === 'tool_use' && b.name === 'apply_rescan');
     if (!toolUse) {
@@ -587,11 +595,16 @@ ${focusInstruction}`;
       return res.status(502).json({ error: 'AI did not return structured output' });
     }
 
+    // Blend Claude's full rescan with OpenAI's numerical second opinion. If
+    // OpenAI returned null (unavailable / failed / parse error), the blend
+    // gracefully falls back to Claude alone with `models.openai = null`.
+    const blended = blendPredictions(toolUse.input, openaiPred);
     const responsePayload = {
-      ...toolUse.input,
+      ...blended,
       usage: message.usage,
       ts: new Date().toISOString(),
       live_intel_used: !!liveIntel,
+      two_model: !!openaiPred,
     };
 
     const validation = validateRescanShape(responsePayload, only_buyer_id);
@@ -647,11 +660,194 @@ ${focusInstruction}`;
   }
 });
 
-// Render a buyer's notes for the AI as a chronological timeline. Prefers the
-// new noteLog array; falls back to the legacy single-string `notes` field for
-// buyers that haven't been migrated yet. Entries with a user-tagged `signal`
-// emit a second bracket so the model can read them as deliberate user judgment
-// (warming/cooling/firm/stalling/passed) rather than free-text.
+// ───────────────────── OpenAI second-opinion (GPT-4o) ────────────────────────
+// Runs in parallel with Claude's full rescan. Returns just the dashboard-level
+// numbers (market bands, per-buyer probability, p_no_deal). Server averages
+// these with Claude's output so both models vote on the headline predictions.
+// If OpenAI fails or is unavailable, we silently fall back to Claude only.
+//
+// We intentionally do NOT ask GPT for per-buyer thesis/reasoning/fit — those
+// are Claude's domain (writing in Reagan's voice with grounded notes citation).
+// GPT just casts a numerical vote.
+
+const OPENAI_PREDICTION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['market', 'buyers', 'p_no_deal', 'p_no_deal_rationale'],
+  properties: {
+    market: {
+      type: 'object', additionalProperties: false,
+      required: ['conservative', 'mid', 'aggressive'],
+      properties: {
+        conservative: {
+          type: 'object', additionalProperties: false, required: ['low', 'high'],
+          properties: { low: { type: 'number' }, high: { type: 'number' } },
+        },
+        mid: {
+          type: 'object', additionalProperties: false, required: ['low', 'high'],
+          properties: { low: { type: 'number' }, high: { type: 'number' } },
+        },
+        aggressive: {
+          type: 'object', additionalProperties: false, required: ['low', 'high'],
+          properties: { low: { type: 'number' }, high: { type: 'number' } },
+        },
+      },
+    },
+    buyers: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        required: ['id', 'probability'],
+        properties: {
+          id: { type: 'string' },
+          probability: { type: 'integer', minimum: 0, maximum: 100 },
+        },
+      },
+    },
+    p_no_deal: { type: 'integer', minimum: 0, maximum: 100 },
+    p_no_deal_rationale: { type: 'string' },
+  },
+};
+
+async function getOpenAIPredictions({ ebitda, groundedBuyers, liveIntel, sizeBucket, only_buyer_id }) {
+  if (!openai) return null;
+  const sys = `You are a senior M&A analyst providing an independent SECOND OPINION on the Kennion Benefits Program sale (captive-style benefits brokerage, advised by Reagan Consulting, Spring 2026 process).
+
+Claude is producing the primary analysis. Your job is to vote on the same numerical predictions so the system can average two independent reads.
+
+# Size discipline (anchor the multiple band on this bucket FIRST)
+- EBITDA <$3M: realistic 4–6×, conservative 3–4.5×, aggressive 5.5–7.5×
+- EBITDA $3–5M: realistic 5–7×, conservative 4–5.5×, aggressive 6.5–8.5× ← captive-niche pulls toward lower half
+- EBITDA $5–10M: realistic 6.5–8.5×, conservative 5–7×, aggressive 8–10.5×
+- EBITDA $10–20M: realistic 8–10.5×, conservative 6.5–8.5×, aggressive 10–13×
+- EBITDA $20–50M: realistic 10–12.5×, conservative 8.5–10.5×, aggressive 12–14.5×
+- EBITDA >$50M: realistic 11–13.5×, conservative 9.5–11.5×, aggressive 13–16×
+
+# Stage discipline (probability ranges — final, no post-processing)
+- outreach: 8–22%
+- nda: 12–28%
+- chemistry: 18–38%
+- loi: 28–58%
+- closed: 90+%
+- dropped: omit
+
+# No-deal probability
+For Kennion's profile (captive-niche, sub-mid-market) a healthy floor is 10–20% even with strong buyers. Reflect buyer-pool depth, sponsor capacity, note trajectory, captive illiquidity.
+
+Notes timeline format: \`[YYYY-MM-DD] text\` or \`[YYYY-MM-DD][signal] text\` where signal ∈ {warming, cooling, firm, stalling, passed}. Signal-tagged notes carry direct user judgment — weight them heavily (\`firm\` is hardest evidence).
+
+# Public broker comps (for context — apply 3-5× discount for private mid-market, 1-2× more for captive/niche)
+BRO 16×, AON 14×, MMC 15.5×, AJG 15.5×, WTW 13.5×, BWIN 13× fwd EBITDA
+
+Return JSON only — no commentary. Per-buyer probability MUST respect the stage range. Conservatism bias when evidence is thin.`;
+
+  const userMsg = `# Pipeline state
+EBITDA: $${ebitda}M
+Size bucket: ${sizeBucket}
+
+# Buyers in scope
+${JSON.stringify(groundedBuyers, null, 2)}
+
+${liveIntel ? `# Live web intel (fetched today via web search — treat as hint, not ground truth)
+${liveIntel}
+` : '# Live web intel: unavailable.'}
+
+${only_buyer_id ? `SCOPE: Re-score ONLY buyer "${only_buyer_id}". Return only that buyer in the buyers array. Echo your best read of market bands and p_no_deal based on the full pipeline shown.` : 'SCOPE: Re-evaluate every non-dropped buyer.'}
+
+Return JSON matching the provided schema.`;
+
+  try {
+    const response = await openai.responses.create({
+      model: 'gpt-4o',
+      input: [
+        { role: 'system', content: sys },
+        { role: 'user', content: userMsg },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'predictions',
+          strict: true,
+          schema: OPENAI_PREDICTION_SCHEMA,
+        },
+      },
+      max_output_tokens: 1500,
+    });
+    const text = response.output_text || '';
+    if (!text.trim()) return null;
+    const parsed = JSON.parse(text);
+    return parsed;
+  } catch (err) {
+    console.warn('OpenAI second-opinion failed:', err.message);
+    return null;
+  }
+}
+
+// Average Claude's full rescan with OpenAI's numerical second opinion. We
+// average market bands, per-buyer probability (matched by id), and p_no_deal.
+// Claude's per-buyer thesis/reasoning/fit/confidence/citations pass through
+// unchanged — GPT only votes on numbers.
+function blendPredictions(claude, openai) {
+  if (!openai) return { ...claude, models: { claude: extractClaudeNumbers(claude), openai: null } };
+  const avg = (a, b) => Math.round(((a + b) / 2) * 10) / 10;
+  const avgInt = (a, b) => Math.round((a + b) / 2);
+
+  const blendedMarket = claude.market && openai.market ? {
+    conservative: {
+      low: avg(claude.market.conservative.low, openai.market.conservative.low),
+      high: avg(claude.market.conservative.high, openai.market.conservative.high),
+      note: claude.market.conservative.note,
+    },
+    mid: {
+      low: avg(claude.market.mid.low, openai.market.mid.low),
+      high: avg(claude.market.mid.high, openai.market.mid.high),
+      note: claude.market.mid.note,
+    },
+    aggressive: {
+      low: avg(claude.market.aggressive.low, openai.market.aggressive.low),
+      high: avg(claude.market.aggressive.high, openai.market.aggressive.high),
+      note: claude.market.aggressive.note,
+    },
+  } : claude.market;
+
+  const openaiById = Object.fromEntries((openai.buyers || []).map(b => [b.id, b]));
+  const blendedBuyers = (claude.buyers || []).map(cb => {
+    const ob = openaiById[cb.id];
+    if (!ob) return cb;
+    return { ...cb, probability: avgInt(cb.probability, ob.probability) };
+  });
+
+  const blendedPNoDeal = typeof claude.p_no_deal === 'number' && typeof openai.p_no_deal === 'number'
+    ? avgInt(claude.p_no_deal, openai.p_no_deal)
+    : (claude.p_no_deal ?? openai.p_no_deal);
+
+  return {
+    ...claude,
+    market: blendedMarket,
+    buyers: blendedBuyers,
+    p_no_deal: blendedPNoDeal,
+    models: {
+      claude: extractClaudeNumbers(claude),
+      openai: {
+        market: openai.market,
+        buyers: openai.buyers,
+        p_no_deal: openai.p_no_deal,
+        p_no_deal_rationale: openai.p_no_deal_rationale,
+      },
+    },
+  };
+}
+
+function extractClaudeNumbers(c) {
+  return {
+    market: c.market,
+    buyers: (c.buyers || []).map(b => ({ id: b.id, probability: b.probability })),
+    p_no_deal: c.p_no_deal,
+    p_no_deal_rationale: c.p_no_deal_rationale,
+  };
+}
+
+// Render a buyer's notes for the AI as a chronological timeline.
 function formatNoteTimeline(buyer) {
   if (Array.isArray(buyer.noteLog) && buyer.noteLog.length > 0) {
     return buyer.noteLog

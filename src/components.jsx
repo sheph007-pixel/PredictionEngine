@@ -179,16 +179,18 @@ export const STAGE_PROB_RANGE = {
 };
 
 // ---------- hero KPIs ----------
-function HeroRationale({ text }) {
+function HeroRationale({ text, twoModel, modelDetail }) {
   if (!text) return (
     <div className="hero-kpi-why hero-kpi-why-empty">
       <span className="hero-kpi-why-tag">AI</span>
-      <span className="hero-kpi-why-text">Re-scan to generate Reagan's defense of this number.</span>
+      <span className="hero-kpi-why-text">Re-scan to generate the AI prediction for this number.</span>
     </div>
   );
   return (
     <div className="hero-kpi-why">
-      <span className="hero-kpi-why-tag">Reagan · AI</span>
+      <span className="hero-kpi-why-tag" title={modelDetail || (twoModel ? 'Averaged across Claude + GPT-4o' : 'Claude only — GPT second opinion unavailable')}>
+        {twoModel ? 'Claude + GPT · avg' : 'AI'}
+      </span>
       <span className="hero-kpi-why-text" title={text}>{text}</span>
     </div>
   );
@@ -204,16 +206,21 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
   projectedClose.setDate(projectedClose.getDate() + weeksToClose * 7);
 
   const computed = winnerProbabilities(buyers, ebitda, caseMode);
-  // Prefer the AI's explicit p_no_deal when available — it's a deliberate
-  // estimate of market/process risk, not the inverse of independent buyer
-  // probabilities. Fall back to the union-derived dealClosesPct when no
-  // pipeline rescan has run yet.
   const aiNoDeal = typeof rationales?.p_no_deal === 'number' ? rationales.p_no_deal : null;
   const dealClosesPct = aiNoDeal != null ? Math.max(0, 100 - aiNoDeal) : computed.dealClosesPct;
   const confLevel = dealClosesPct >= 85 ? "High" : dealClosesPct >= 65 ? "Solid" : dealClosesPct >= 40 ? "Moderate" : "Low";
   const confidenceText = aiNoDeal != null
     ? (rationales?.p_no_deal_rationale || rationales?.confidence)
     : rationales?.confidence;
+
+  const twoModel = !!rationales?.two_model;
+  const models = rationales?.models;
+  const confDetail = models?.claude && models?.openai && typeof models.claude.p_no_deal === 'number' && typeof models.openai.p_no_deal === 'number'
+    ? `Claude: ${100 - models.claude.p_no_deal}% · GPT: ${100 - models.openai.p_no_deal}% · avg ${dealClosesPct}%`
+    : null;
+  const priceDetail = models?.claude?.market && models?.openai?.market
+    ? `Claude: ${models.claude.market[caseMode]?.low?.toFixed(1)}–${models.claude.market[caseMode]?.high?.toFixed(1)}× · GPT: ${models.openai.market[caseMode]?.low?.toFixed(1)}–${models.openai.market[caseMode]?.high?.toFixed(1)}× · avg shown`
+    : null;
 
   const m = (market && market[caseMode]) || marketMultiplesSeed(ebitda)[caseMode] || marketMultiplesSeed(ebitda).mid;
   const clearLow = ebitda * m.low;
@@ -226,13 +233,13 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
         <div className="hero-kpi-label">Projected close</div>
         <div className="hero-kpi-value hero-kpi-close">{fmtMonthYear(projectedClose)}</div>
         <div className="hero-kpi-foot"><b>{weeksToClose}</b> weeks remaining · currently in <b>{currentTask.phase}</b></div>
-        <HeroRationale text={rationales?.close_date} />
+        <HeroRationale text={rationales?.close_date} twoModel={twoModel} />
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Deal confidence{aiNoDeal != null && <span className="hero-kpi-case"> · AI no-deal {aiNoDeal}%</span>}</div>
         <div className="hero-kpi-value hero-kpi-confidence">{dealClosesPct}<span>%</span></div>
         <div className="hero-kpi-foot"><b>{confLevel}</b> probability any deal closes{aiNoDeal == null && <> · <i style={{opacity:.6}}>computed (no AI rescan yet)</i></>}</div>
-        <HeroRationale text={confidenceText} />
+        <HeroRationale text={confidenceText} twoModel={twoModel} modelDetail={confDetail} />
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Market clearing price <span className="hero-kpi-case">· {m.label}</span></div>
@@ -242,7 +249,7 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
           <span className="hero-range-high">{fmtMoney(clearHigh)}</span>
         </div>
         <div className="hero-kpi-foot">${ebitda}M EBITDA × <b>{m.low.toFixed(1)}–{m.high.toFixed(1)}×</b> · midpoint <b>{fmtMoney(clearMid)}</b></div>
-        <HeroRationale text={rationales?.clearing_price} />
+        <HeroRationale text={rationales?.clearing_price} twoModel={twoModel} modelDetail={priceDetail} />
       </div>
     </div>
   );

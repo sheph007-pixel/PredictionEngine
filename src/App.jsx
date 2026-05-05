@@ -160,6 +160,8 @@ export default function App() {
       clearing_price: result.clearing_price_rationale ?? prev.clearing_price ?? null,
       p_no_deal: typeof result.p_no_deal === 'number' ? result.p_no_deal : (prev.p_no_deal ?? null),
       p_no_deal_rationale: result.p_no_deal_rationale ?? prev.p_no_deal_rationale ?? null,
+      two_model: !!result.two_model,
+      models: result.models || prev.models || null,
       ts: result.ts || new Date().toISOString(),
     }));
   };
