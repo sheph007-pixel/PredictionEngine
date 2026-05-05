@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { STAGES, STAGE_INDEX, PROCESS_DEFAULT, BUYERS } from './data.js';
 import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
-  IntelBar, winnerProbabilities, AIHistoryButton, AIHistoryModal,
+  Conversation, winnerProbabilities, AIHistoryButton, AIHistoryModal,
 } from './components.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
@@ -323,11 +323,11 @@ export default function App() {
   };
   const openBuyer = (id, intent = null) => { setOpenId(id); setOpenIntent(intent); };
 
-  // IntelBar handlers — buyer-specific intel goes into that buyer's noteLog
-  // (so it shows up in the modal timeline + feeds future rescans). General
-  // intel appends to workspace.globalIntel which the rescan endpoint splices
-  // into every prompt as a running market-context log (capped at 30 entries
-  // server-side, 50 client-side to leave headroom).
+  // Conversation handlers — buyer-specific intel goes into that buyer's
+  // noteLog (so it shows up in the modal timeline + feeds future rescans).
+  // General intel appends to workspace.globalIntel which the rescan endpoint
+  // splices into every prompt as a running market-context log (capped at 50
+  // client-side, 20 most-recent server-side).
   const routeIntelToBuyer = (buyerId, note) => {
     appendBuyerNote(buyerId, note);
   };
@@ -336,6 +336,12 @@ export default function App() {
       const next = [...(Array.isArray(prev) ? prev : []), { ts: new Date().toISOString(), text }];
       return next.slice(-50);
     });
+  };
+  const setBuyerStage = (id, stage) => {
+    setBuyers(bs => bs.map(b => b.id === id ? { ...b, stage } : b));
+  };
+  const overrideBuyerProbability = (id, probability) => {
+    setBuyers(bs => bs.map(b => b.id === id ? { ...b, probability } : b));
   };
 
   const winnerData = winnerProbabilities(buyers, ebitda, caseMode);
@@ -369,11 +375,12 @@ export default function App() {
       <ProcessTracker process={process} onUpdate={setProcess} buyers={buyers} ebitda={ebitda} caseMode={caseMode} />
 
       <div className="pipeline">
-        <IntelBar
+        <Conversation
           buyers={buyers}
-          fileIds={fileIds}
-          onRouteToBuyer={routeIntelToBuyer}
+          onAddBuyerNote={routeIntelToBuyer}
           onAppendGlobal={appendGlobalIntel}
+          onSetStage={setBuyerStage}
+          onOverrideProbability={overrideBuyerProbability}
           onRescanAll={rescanAll}
         />
         <div className="pipeline-head">

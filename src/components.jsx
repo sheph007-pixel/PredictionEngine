@@ -1183,104 +1183,277 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
   );
 }
 
-// ---------- Intel Bar ----------
-// Single-shot capture above the pipeline. User types any field intel — buyer-
-// specific or general market — and the engine routes it: buyer-specific notes
-// land in that buyer's noteLog, general intel appends to the workspace's
-// globalIntel log. Either way, a full pipeline rescan runs immediately so
-// every prediction reflects the new input. Inputs accumulate as ground-truth
-// context the AI sees on every subsequent rescan.
-export function IntelBar({ buyers, fileIds, onRouteToBuyer, onAppendGlobal, onRescanAll }) {
-  const [text, setText] = useState('');
-  const [pending, setPending] = useState(false);
-  const [result, setResult] = useState(null);
+// ---------- Conversation panel ----------
+// Two-way chat with the AI advisor. User talks → AI replies in plain English
+// and applies tools that mutate pipeline state (notes, stage moves,
+// probability overrides, global intel). After any state-changing tool call,
+// a full rescan runs automatically so every score reflects the new input.
+// The thread is persistent (localStorage) so the running advisor relationship
+// survives page reloads. Compact by default — last message preview + input;
+// click to expand the full thread.
+const CONVO_STORAGE_KEY = 'kennion.convo.v1';
+const CONVO_VALID_STAGES = ['outreach', 'nda', 'chemistry', 'loi', 'closed', 'dropped'];
 
-  const submit = async () => {
-    const q = text.trim();
-    if (!q || pending) return;
-    setPending(true);
-    setResult(null);
-
-    const buyerCtx = buyers
-      .filter(b => b.stage !== 'dropped')
-      .map(b => `${b.id}=${b.name}`)
-      .join(', ');
-
-    const tool = {
-      name: 'route_intel',
-      description: 'Route the user input to the right place: a specific buyer if it is about that buyer, or general/market intel if it applies pipeline-wide.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          buyer_id: {
-            type: ['string', 'null'],
-            description: 'Buyer id (lowercase short id) the input is about. Null if it is market-level / pipeline-wide intel not tied to one buyer.',
-          },
-          note: {
-            type: 'string',
-            description: 'The intel as it should be logged. Lightly clean grammar; do not paraphrase or add facts.',
-          },
-        },
-        required: ['buyer_id', 'note'],
+const CONVO_TOOLS = [
+  {
+    name: 'add_buyer_note',
+    description: 'Append a piece of field intel to a specific buyer\'s timeline. Use when the user is telling you something about that buyer — feedback, signals, calls, document references.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        buyer_id: { type: 'string', description: 'Buyer id (lowercase short id like "hub", "onedigital").' },
+        note: { type: 'string', description: 'The intel preserving the user\'s wording with light grammar cleanup.' },
       },
-    };
-    const sys = `Route a single piece of field intel. Live buyers: ${buyerCtx}. If the input clearly references one buyer, set buyer_id to that buyer's id. Otherwise (market commentary, process notes, multi-buyer observations) set buyer_id to null. Always call route_intel exactly once. The note value should preserve the user's wording with minor cleanup only.`;
+      required: ['buyer_id', 'note'],
+    },
+  },
+  {
+    name: 'append_global_intel',
+    description: 'Log pipeline-wide intel that does not belong to any single buyer — market commentary, process observations, sector multiples shifting, corrections to global assumptions. Persists across rescans as running market context.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note: { type: 'string', description: 'The pipeline-wide intel.' },
+      },
+      required: ['note'],
+    },
+  },
+  {
+    name: 'set_buyer_stage',
+    description: 'Move a buyer to a new stage. Only call when the user is explicit ("advance Hub to NDA", "drop Marsh"). Stages: outreach → nda → chemistry → loi → closed. "dropped" is the kill state.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        buyer_id: { type: 'string' },
+        stage: { type: 'string', enum: CONVO_VALID_STAGES },
+      },
+      required: ['buyer_id', 'stage'],
+    },
+  },
+  {
+    name: 'override_probability',
+    description: 'Manually override a buyer\'s probability. Only call when the user explicitly asks ("set OneDigital to 40", "Hub should be lower, like 18"). Otherwise let the rescan reprice naturally based on the note you logged.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        buyer_id: { type: 'string' },
+        probability: { type: 'number', description: 'Integer 1-95.' },
+      },
+      required: ['buyer_id', 'probability'],
+    },
+  },
+];
 
+export function Conversation({ buyers, onAddBuyerNote, onAppendGlobal, onSetStage, onOverrideProbability, onRescanAll }) {
+  const [messages, setMessages] = useState(() => {
     try {
-      const resp = await claudeChat({
-        messages: [{ role: 'user', content: [{ type: 'text', text: q }] }],
-        system: sys,
-        tools: [tool],
-      });
-      const tu = resp.content?.find(b => b.type === 'tool_use' && b.name === 'route_intel');
-      const buyerId = tu?.input?.buyer_id || null;
-      const note = (tu?.input?.note || q).trim();
+      const saved = localStorage.getItem(CONVO_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  const [input, setInput] = useState('');
+  const [pending, setPending] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const threadRef = useRef(null);
+  const buyersRef = useRef(buyers);
+  buyersRef.current = buyers;
 
-      if (buyerId && onRouteToBuyer) {
-        onRouteToBuyer(buyerId, note);
-      } else if (onAppendGlobal) {
-        onAppendGlobal(note);
+  useEffect(() => {
+    try { localStorage.setItem(CONVO_STORAGE_KEY, JSON.stringify(messages.slice(-40))); } catch {}
+  }, [messages]);
+
+  useEffect(() => {
+    if (expanded && threadRef.current) {
+      threadRef.current.scrollTop = threadRef.current.scrollHeight;
+    }
+  }, [messages, pending, expanded]);
+
+  const buildSystem = () => {
+    const ranked = [...buyersRef.current]
+      .filter(b => b.stage !== 'dropped')
+      .sort((a, b) => (b.probability || 0) - (a.probability || 0));
+    const ctx = ranked.map(b => `- id="${b.id}" · ${b.name} · stage=${b.stage} · p=${b.probability ?? '?'}%`).join('\n');
+    return `You are the user's senior M&A advisor inside the Kennion Prediction Engine — the sell-side process for Kennion's Benefits Program (Reagan Consulting · Spring 2026). Speak like a sharp banker who knows the deal cold: direct, conversational, no fluff. Replies under 60 words, no markdown, no headers.
+
+When the user gives you intel, apply it via tools — do not just acknowledge it:
+- buyer-specific facts → add_buyer_note
+- general market / process / sector intel → append_global_intel
+- explicit stage change requested → set_buyer_stage
+- explicit probability override requested → override_probability
+
+After tools run, a full pipeline rescan automatically rescores every buyer with the new input. In your reply, briefly state what you logged and one sharp implication. If the input is ambiguous (which buyer? which stage?), ask one clarifying question instead of guessing.
+
+If the user asks a question without giving new intel, just answer — no tools.
+
+Live pipeline:
+${ctx}`;
+  };
+
+  const executeTool = (name, args) => {
+    const cur = buyersRef.current;
+    if (name === 'add_buyer_note') {
+      const target = cur.find(b => b.id === args.buyer_id);
+      if (!target) return `error: no buyer "${args.buyer_id}" — valid: ${cur.map(b => b.id).join(', ')}`;
+      onAddBuyerNote(args.buyer_id, args.note);
+      return `ok: logged to ${target.name}`;
+    }
+    if (name === 'append_global_intel') {
+      onAppendGlobal(args.note);
+      return 'ok: logged as pipeline-wide intel';
+    }
+    if (name === 'set_buyer_stage') {
+      const target = cur.find(b => b.id === args.buyer_id);
+      if (!target) return `error: no buyer "${args.buyer_id}"`;
+      if (!CONVO_VALID_STAGES.includes(args.stage)) return `error: invalid stage "${args.stage}"`;
+      onSetStage(args.buyer_id, args.stage);
+      return `ok: ${target.name} → ${args.stage}`;
+    }
+    if (name === 'override_probability') {
+      const target = cur.find(b => b.id === args.buyer_id);
+      if (!target) return `error: no buyer "${args.buyer_id}"`;
+      const p = Math.max(1, Math.min(95, Math.round(args.probability)));
+      onOverrideProbability(args.buyer_id, p);
+      return `ok: ${target.name} probability → ${p}%`;
+    }
+    return `error: unknown tool "${name}"`;
+  };
+
+  const send = async () => {
+    const q = input.trim();
+    if (!q || pending) return;
+    setInput('');
+    setPending(true);
+    setExpanded(true);
+
+    const userMsg = { role: 'user', content: [{ type: 'text', text: q }] };
+    let history = [...messages, userMsg];
+    setMessages(history);
+
+    let mutated = false;
+    try {
+      for (let i = 0; i < 5; i++) {
+        const resp = await claudeChat({
+          messages: history.map(m => ({ role: m.role, content: m.content })),
+          system: buildSystem(),
+          tools: CONVO_TOOLS,
+        });
+        const assistantMsg = { role: 'assistant', content: resp.content };
+        history = [...history, assistantMsg];
+        setMessages(history);
+
+        if (resp.stop_reason !== 'tool_use') break;
+
+        const toolUses = resp.content.filter(b => b.type === 'tool_use');
+        const toolResults = toolUses.map(tu => {
+          const res = executeTool(tu.name, tu.input);
+          if (res.startsWith('ok:')) mutated = true;
+          return { type: 'tool_result', tool_use_id: tu.id, content: res };
+        });
+        history = [...history, { role: 'user', content: toolResults }];
+        setMessages(history);
       }
-
-      // Always rescan so every buyer's score reflects the new input.
-      await onRescanAll(q);
-
-      const targetName = buyerId
-        ? (buyers.find(b => b.id === buyerId)?.name || buyerId)
-        : null;
-      setResult(targetName
-        ? `Logged to ${targetName} · pipeline updated`
-        : 'Logged as market intel · pipeline updated');
-      setText('');
+      if (mutated) {
+        await onRescanAll(q);
+      }
     } catch (e) {
-      setResult(`Error: ${e.message}`);
+      setMessages(m => [...m, { role: 'assistant', content: [{ type: 'text', text: `(advisor error: ${e.message})` }] }]);
     } finally {
       setPending(false);
     }
   };
 
+  const clearThread = () => {
+    if (messages.length === 0) return;
+    if (!window.confirm('Clear the advisor thread? Pipeline state and notes are not affected.')) return;
+    setMessages([]);
+    setExpanded(false);
+  };
+
+  // Find the most recent assistant text block for the collapsed preview.
+  const lastAssistantText = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role !== 'assistant') continue;
+      const text = (messages[i].content || []).filter(b => b.type === 'text').map(b => b.text).join(' ').trim();
+      if (text) return text;
+    }
+    return null;
+  })();
+
   return (
-    <div className="intel-bar">
-      <form className="intel-bar-form" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+    <div className="convo">
+      <form className="convo-form" onSubmit={(e) => { e.preventDefault(); send(); }}>
         <textarea
-          className="intel-bar-input"
+          className="convo-input"
           rows={1}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
-          placeholder="Log any intel — buyer feedback, market shifts, process updates, corrections… enter to submit"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+          placeholder="Talk to the advisor — log intel, ask questions, correct anything. Enter to send."
           disabled={pending}
         />
-        <button
-          type="submit"
-          className="intel-bar-send"
-          disabled={pending || !text.trim()}
-          title="Submit · routes to the right buyer and re-scores the whole pipeline"
-        >
-          {pending ? 'Updating…' : 'Submit'}
+        <button type="submit" className="convo-send" disabled={pending || !input.trim()}>
+          {pending ? 'Thinking…' : 'Send'}
         </button>
       </form>
-      {result && <div className="intel-bar-result">{result}</div>}
+
+      {(lastAssistantText || pending) && !expanded && (
+        <div className="convo-preview" onClick={() => setExpanded(true)} title="Click to expand thread">
+          <span className="convo-preview-tag">Advisor</span>
+          <span className="convo-preview-text">
+            {pending ? 'Thinking…' : lastAssistantText}
+          </span>
+          {messages.length > 0 && <span className="convo-preview-more">{messages.length} msgs ↓</span>}
+        </div>
+      )}
+
+      {expanded && (
+        <div className="convo-thread" ref={threadRef}>
+          {messages.map((m, i) => {
+            const blocks = Array.isArray(m.content) ? m.content : [{ type: 'text', text: m.content }];
+            const isAllToolResults = blocks.every(b => b.type === 'tool_result');
+            if (isAllToolResults) {
+              return blocks.map((b, j) => {
+                const ok = typeof b.content === 'string' && b.content.startsWith('ok:');
+                return (
+                  <div key={`${i}-${j}`} className="convo-msg convo-msg-tool">
+                    <span className="convo-tool-mark" style={{ color: ok ? '#1f9d55' : '#c44' }}>{ok ? '✓' : '!'}</span>
+                    <span>{typeof b.content === 'string' ? b.content.replace(/^(ok|error):\s*/, '') : 'applied'}</span>
+                  </div>
+                );
+              });
+            }
+            return (
+              <div key={i} className={'convo-msg convo-msg-' + m.role}>
+                {m.role === 'assistant' && <span className="convo-msg-tag">Advisor</span>}
+                {m.role === 'user' && <span className="convo-msg-tag convo-msg-tag-user">You</span>}
+                <div className="convo-msg-body">
+                  {blocks.map((b, j) => {
+                    if (b.type === 'text') return <div key={j}>{b.text}</div>;
+                    if (b.type === 'tool_use') {
+                      return (
+                        <div key={j} className="convo-tool-call">→ {b.name}({Object.entries(b.input).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')})</div>
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          {pending && (
+            <div className="convo-msg convo-msg-assistant">
+              <span className="convo-msg-tag">Advisor</span>
+              <div className="convo-msg-body convo-thinking"><span></span><span></span><span></span></div>
+            </div>
+          )}
+          <div className="convo-thread-actions">
+            <button type="button" className="convo-thread-action" onClick={() => setExpanded(false)}>Collapse</button>
+            {messages.length > 0 && (
+              <button type="button" className="convo-thread-action" onClick={clearThread}>Clear thread</button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
