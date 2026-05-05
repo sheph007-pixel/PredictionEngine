@@ -131,7 +131,7 @@ export default function App() {
         // The v3 scrub of workspace rationales is hoisted up here so it runs
         // even before the buyers branch (the rationale wipe should still
         // apply on a workspace that has rationales but no buyers yet).
-        if (!localStorage.getItem('kennion.demoScrub.v3')) {
+        if (!localStorage.getItem('kennion.demoScrub.v4')) {
           setRationales({
             close_date: null,
             close_estimate: null,
@@ -150,26 +150,30 @@ export default function App() {
         // chemistry_date, the legacy `notes` string, AI history, AI reasoning,
         // overrides). Runs once per browser, gated by a localStorage flag.
         // Identity fields and noteLog timeline entries are preserved.
-        // v3 also scrubs the workspace rationales (close_date, confidence,
-        // clearing_price, p_no_deal_rationale, close_estimate). v2 wiped
-        // buyer-level AI-derived fields but missed these — they kept showing
-        // stale claims like "one chemistry meeting set for late May" anchored
-        // on the planted chemistry_date that was already scrubbed off the
-        // buyer. Wipe them so the next rescan re-derives.
-        const SCRUB_KEY = 'kennion.demoScrub.v3';
+        // v4 also force-refreshes the `website` field from the seed by id.
+        // Previous seeds had wrong URLs for some firms (e.g. Oakbridge,
+        // Cason) and the user couldn't correct them via the advisor — the
+        // advisor said it would but had no tool. Now the seed is the
+        // source of truth on first scrub; subsequent corrections via
+        // correct_buyer_website override it.
+        const SCRUB_KEY = 'kennion.demoScrub.v4';
         let cleaned = result.buyers;
         if (!localStorage.getItem(SCRUB_KEY)) {
-          cleaned = result.buyers.map(b => ({
-            ...b,
-            nda_signed: null,
-            chemistry_date: null,
-            notes: '',
-            thesis: null,
-            aiHistory: [],
-            aiNotes: null,
-            aiCitations: [],
-            overrides: [],
-          }));
+          cleaned = result.buyers.map(b => {
+            const seed = SEED_BY_ID[b.id];
+            return {
+              ...b,
+              ...(seed ? { website: seed.website } : {}),
+              nda_signed: null,
+              chemistry_date: null,
+              notes: '',
+              thesis: null,
+              aiHistory: [],
+              aiNotes: null,
+              aiCitations: [],
+              overrides: [],
+            };
+          });
           try { localStorage.setItem(SCRUB_KEY, new Date().toISOString()); } catch {}
           // Push cleaned state back to Postgres so other devices see the scrub.
           pushBuyers(cleaned).catch(() => {});
@@ -436,6 +440,19 @@ export default function App() {
     if (reason) recordOverride(id, { kind: 'probability', from, to: probability, reason });
   };
 
+  // Apply a website correction the advisor logged via the chat. We also
+  // record an override entry so the next rescan sees "user corrected
+  // website to X because Y" as durable training context, and the new URL
+  // gets pushed to Postgres via the normal write-through.
+  const correctBuyerWebsite = (id, website, reason) => {
+    const target = buyers.find(b => b.id === id);
+    if (!target) return false;
+    const from = target.website || null;
+    setBuyers(bs => bs.map(b => b.id === id ? { ...b, website } : b));
+    if (reason) recordOverride(id, { kind: 'website', from, to: website, reason });
+    return true;
+  };
+
   // Pipeline-level analogue of invalidateBuyerPriors. When the user pushes
   // back on a workspace-level AI claim (close-date rationale, confidence
   // rationale, clearing-price rationale, p_no_deal rationale, the projected
@@ -546,6 +563,7 @@ export default function App() {
           onOverrideProbability={overrideBuyerProbability}
           onInvalidatePriors={invalidateBuyerPriors}
           onInvalidatePipelinePriors={invalidatePipelinePriors}
+          onCorrectWebsite={correctBuyerWebsite}
           onRescanAll={rescanAll}
         />
         <div className="pipeline-head">

@@ -1319,6 +1319,19 @@ const CONVO_TOOLS = [
     },
   },
   {
+    name: 'correct_buyer_website',
+    description: 'Update a buyer\'s website URL when the user tells you the stored one is wrong ("Cason Group should be thecasongroup.com, not casongroup.com"). Always include a short reason so the change is logged as a durable override. Do NOT use this for general intel — only when the user is specifically correcting the website link.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        buyer_id: { type: 'string', description: 'Buyer id (lowercase short id like "cason", "oakbridge").' },
+        website: { type: 'string', description: 'The corrected URL. Must start with https:// or http://.' },
+        reason: { type: 'string', description: 'One short sentence (max 20 words) capturing the user\'s correction in their words.' },
+      },
+      required: ['buyer_id', 'website', 'reason'],
+    },
+  },
+  {
     name: 'invalidate_pipeline_priors',
     description: 'Wipe stale workspace-level AI rationales (close-date rationale, projected close month, confidence rationale, clearing-price rationale, no-deal rationale) when the user pushes back on a claim that came from one of those fields ("you say one chemistry meeting set for May, not true" / "close date doesn\'t match"). The rationale text and close_estimate shown to you are YOUR OWN prior conclusions, not user-verified facts. Logs the user\'s correction as pipeline-wide intel and forces the auto-rescan to re-derive from clean state. Use this for pipeline-level pushback; for buyer-level pushback use invalidate_buyer_priors instead.',
     input_schema: {
@@ -1347,7 +1360,7 @@ const CONVO_TOOLS = [
   },
 ];
 
-export function Conversation({ buyers, pinnedRules, globalIntel, market, rationales, ebitda, onAddBuyerNote, onAppendGlobal, onSetStage, onOverrideProbability, onInvalidatePriors, onInvalidatePipelinePriors, onRescanAll }) {
+export function Conversation({ buyers, pinnedRules, globalIntel, market, rationales, ebitda, onAddBuyerNote, onAppendGlobal, onSetStage, onOverrideProbability, onInvalidatePriors, onInvalidatePipelinePriors, onCorrectWebsite, onRescanAll }) {
   const [messages, setMessages] = useState(() => {
     try {
       const saved = localStorage.getItem(CONVO_STORAGE_KEY);
@@ -1397,7 +1410,8 @@ export function Conversation({ buyers, pinnedRules, globalIntel, market, rationa
       // not defend the line.
       const reasoning = b.aiNotes ? `\n  AI-prior · last reasoning: ${b.aiNotes}` : '';
       const thesis = b.thesis ? `\n  AI-prior · thesis: ${b.thesis}` : '';
-      return `- id="${b.id}" · ${b.name} · ${b.type || ''} · ${b.ownership || ''}${b.sponsor && b.sponsor !== '—' ? '/' + b.sponsor : ''} · stage=${b.stage} · p=${b.probability ?? '?'}%${thesis}${reasoning}${recentNotes ? `\n  Recent notes:\n${recentNotes}` : ''}${overrides ? `\n  Recent overrides:\n${overrides}` : ''}`;
+      const site = b.website ? `\n  website: ${b.website}` : '';
+      return `- id="${b.id}" · ${b.name} · ${b.type || ''} · ${b.ownership || ''}${b.sponsor && b.sponsor !== '—' ? '/' + b.sponsor : ''} · stage=${b.stage} · p=${b.probability ?? '?'}%${site}${thesis}${reasoning}${recentNotes ? `\n  Recent notes:\n${recentNotes}` : ''}${overrides ? `\n  Recent overrides:\n${overrides}` : ''}`;
     }).join('\n');
 
     const dropped = (buyersRef.current || []).filter(b => b.stage === 'dropped');
@@ -1444,6 +1458,7 @@ When the user gives you intel, apply it via tools — do not just acknowledge it
 - general market / process / sector intel → append_global_intel
 - explicit stage change requested → set_buyer_stage (always include reason)
 - explicit probability override requested → override_probability (always include reason)
+- user corrects a buyer's website URL → correct_buyer_website (buyer_id + corrected URL + reason). Always actually call the tool — don't just say you'll update it.
 - user disputes a buyer-level AI-prior (thesis / last reasoning) → invalidate_buyer_priors (every affected buyer + the correction as reason)
 - user disputes a workspace-level AI-prior (close month, close-date / confidence / clearing-price / no-deal rationale) → invalidate_pipeline_priors (the correction as reason)
 
@@ -1487,6 +1502,14 @@ ${buyerCtx || '(none)'}${droppedCtx}${rulesCtx}${intelCtx}`;
     if (name === 'invalidate_pipeline_priors') {
       onInvalidatePipelinePriors(args.reason);
       return `ok: cleared stale workspace rationales (close date, confidence, clearing price, no-deal); logged correction as pipeline intel`;
+    }
+    if (name === 'correct_buyer_website') {
+      const target = cur.find(b => b.id === args.buyer_id);
+      if (!target) return `error: no buyer "${args.buyer_id}" — valid: ${cur.map(b => b.id).join(', ')}`;
+      const url = String(args.website || '').trim();
+      if (!/^https?:\/\//i.test(url)) return `error: website must start with http:// or https:// — got "${url}"`;
+      onCorrectWebsite(args.buyer_id, url, args.reason);
+      return `ok: ${target.name} website → ${url}`;
     }
     if (name === 'invalidate_buyer_priors') {
       const ids = Array.isArray(args.buyer_ids) ? args.buyer_ids : [];
