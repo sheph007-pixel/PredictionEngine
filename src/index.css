@@ -658,3 +658,53 @@ body { font-size: 14px; }
 body.dark { --bg: #14110d; --bg-card: #1c1814; --ink: #f4efe6; --ink-2: #c8c1b3; --ink-3: #807868; --rule: #2a251f; --rule-2: #3a342c; }
 body.dark .modal-card-prob { background: #0a0907; border-color: #0a0907; }
 body.dark .ai { background: #0a0907; }
+
+/* ---------- Brain modal ---------- */
+.brain-update-link { background: transparent; border: none; color: var(--accent); font: inherit; cursor: pointer; padding: 0; text-decoration: underline; }
+.brain-update-link:hover { opacity: 0.7; }
+.brain-section { border-top: 1px solid var(--rule); padding: 14px 0 10px; }
+.brain-section:first-of-type { border-top: 0; padding-top: 4px; }
+.brain-section-head { width: 100%; display: flex; align-items: center; gap: 10px; background: transparent; border: none; padding: 0; cursor: pointer; text-align: left; }
+.brain-section-num { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: var(--bg); font-family: var(--mono); font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.brain-section-title { font-family: var(--serif); font-size: 17px; color: var(--ink); }
+.brain-section-badge { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 7px; border-radius: 3px; }
+.brain-section-badge-edit { background: rgba(31, 157, 85, 0.12); color: #1f9d55; border: 1px solid rgba(31, 157, 85, 0.3); }
+.brain-section-badge-lock { background: var(--bg); color: var(--ink-3); border: 1px solid var(--rule-2); }
+.brain-section-count { font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin-left: auto; }
+.brain-section-toggle { font-family: var(--mono); font-size: 12px; color: var(--ink-3); margin-left: 8px; flex-shrink: 0; }
+.brain-section-caption { margin: 6px 0 10px 32px; font-size: 12px; line-height: 1.5; color: var(--ink-3); }
+.brain-section-body { margin-left: 32px; }
+.brain-bullets { margin: 0; padding-left: 16px; font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
+.brain-bullets li { margin-bottom: 4px; }
+.brain-footnote { margin-top: 8px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; color: var(--ink-3); }
+.brain-footnote code { background: var(--bg); padding: 1px 5px; border-radius: 2px; font-size: 10px; }
+.brain-add-row { display: flex; gap: 6px; margin-bottom: 10px; }
+.brain-add-input { flex: 1; padding: 8px 10px; border: 1px solid var(--rule-2); border-radius: 3px; background: var(--bg); color: var(--ink); font: 13px var(--sans); outline: none; }
+.brain-add-input:focus { border-color: var(--accent); }
+.brain-add-btn { background: #1f9d55; border: none; padding: 0 14px; cursor: pointer; font-family: var(--mono); font-size: 11px; font-weight: 600; color: #fff; letter-spacing: 0.06em; text-transform: uppercase; border-radius: 3px; transition: background 0.12s; }
+.brain-add-btn:hover:not(:disabled) { background: #178045; }
+.brain-add-btn:disabled { background: #7fbf9e; cursor: not-allowed; }
+.brain-empty { font-family: var(--mono); font-size: 11px; color: var(--ink-3); padding: 8px 0; font-style: italic; }
+.brain-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto; }
+.brain-list-numbered { list-style: decimal inside; padding-left: 4px; }
+.brain-list-numbered .brain-row::marker { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.brain-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--bg); border: 1px solid var(--rule); border-radius: 3px; font-size: 12.5px; line-height: 1.45; }
+.brain-row-note { flex-wrap: wrap; }
+.brain-row-text { flex: 1; min-width: 0; color: var(--ink); }
+.brain-row-time { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); letter-spacing: 0.05em; flex-shrink: 0; }
+.brain-row-buyer { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); flex-shrink: 0; }
+.brain-row-btn { background: transparent; border: 1px solid var(--rule-2); padding: 3px 8px; border-radius: 2px; cursor: pointer; font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; color: var(--ink-2); transition: all 0.12s; flex-shrink: 0; }
+.brain-row-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.brain-row-del { background: transparent; border: none; color: var(--ink-3); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 4px; border-radius: 2px; flex-shrink: 0; }
+.brain-row-del:hover { color: #c44; background: rgba(196, 68, 68, 0.08); }
+.brain-edit-input { flex: 1; padding: 6px 8px; border: 1px solid var(--accent); border-radius: 2px; background: var(--bg-card); color: var(--ink); font: 12.5px var(--sans); outline: none; }
+.brain-chip { display: inline-flex; align-items: center; padding: 2px 8px; background: var(--bg-card); border: 1px solid var(--rule-2); border-radius: 999px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; color: var(--ink-2); flex-shrink: 0; }
+.brain-link { background: transparent; border: none; padding: 0; cursor: pointer; color: var(--accent); font: inherit; text-decoration: underline; }
+.brain-link:hover { opacity: 0.7; }
+.brain-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 8px 12px; background: var(--bg); border: 1px solid var(--rule); border-radius: 3px; font-size: 12px; color: var(--ink-2); }
+.brain-grid b { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.brain-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.brain-table th { text-align: left; padding: 4px 8px; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); border-bottom: 1px solid var(--rule); }
+.brain-table td { padding: 6px 8px; border-bottom: 1px solid var(--rule); color: var(--ink); }
+.brain-table tr:last-child td { border-bottom: 0; }
+.brain-pre { margin: 6px 0 0; padding: 10px; font-size: 11px; line-height: 1.5; background: var(--bg); border: 1px solid var(--rule); border-radius: 2px; white-space: pre-wrap; max-height: 280px; overflow-y: auto; color: var(--ink-2); }

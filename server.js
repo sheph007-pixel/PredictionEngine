@@ -76,6 +76,8 @@ async function initDb() {
       );
       CREATE INDEX IF NOT EXISTS rescan_log_ts_idx ON rescan_log (workspace_id, ts DESC);
       ALTER TABLE workspace ADD COLUMN IF NOT EXISTS global_intel JSONB NOT NULL DEFAULT '[]';
+      ALTER TABLE workspace ADD COLUMN IF NOT EXISTS pinned_rules JSONB NOT NULL DEFAULT '[]';
+      ALTER TABLE workspace ADD COLUMN IF NOT EXISTS lessons JSONB NOT NULL DEFAULT '[]';
     `);
     console.log('DB schema ready');
   } catch (err) {
@@ -465,7 +467,7 @@ Cite every fact with a source URL inline. If a topic has no material updates, sa
 // Re-evaluate the buyer pipeline with full context (buyers + docs + notes + prior reasoning).
 // Used by the top-bar Re-scan, per-buyer note submission, and post-classify doc upload.
 app.post('/api/ai/rescan', async (req, res) => {
-  const { buyers, ebitda, file_ids, only_buyer_id, prior_market, global_intel, extra_intel } = req.body;
+  const { buyers, ebitda, file_ids, only_buyer_id, prior_market, global_intel, extra_intel, pinned_rules, lessons } = req.body;
   if (!Array.isArray(buyers) || buyers.length === 0) {
     return res.status(400).json({ error: 'buyers array required' });
   }
@@ -493,6 +495,7 @@ app.post('/api/ai/rescan', async (req, res) => {
     multipleOverride: b.multipleOverride || null,
     aiNotes: b.aiNotes || null,
     aiHistory: (b.aiHistory || []).slice(-3),
+    overrides: (b.overrides || []).slice(-5),
   });
   const compactSummary = (b) => ({
     id: b.id, name: b.name, stage: b.stage, ownership: b.ownership, sponsor: b.sponsor,
@@ -541,6 +544,12 @@ ${liveIntel ? `# Live web intel (fetched ${new Date().toISOString().slice(0,10)}
 ${liveIntel}
 ` : '# Live web intel: unavailable for this rescan.'}
 
+${Array.isArray(pinned_rules) && pinned_rules.length > 0 ? `# User-pinned rules (always apply — these are guardrails the user has explicitly told you to follow, on top of the system prompt)
+${pinned_rules.map((r, i) => `${i + 1}. ${r.text}`).join('\n')}
+` : ''}
+${Array.isArray(lessons) && lessons.length > 0 ? `# Lessons from prior outcomes (deals that closed or dropped — apply these patterns to similar buyers)
+${lessons.slice(-20).map(l => `- ${l.buyer_name ? `${l.buyer_name}: ` : ''}predicted ${l.predicted ?? '?'}%, outcome ${l.outcome || '?'}. Lesson: ${l.text}`).join('\n')}
+` : ''}
 ${Array.isArray(global_intel) && global_intel.length > 0 ? `# Pipeline-level intel log (free-text user inputs, newest first — running record of process-wide observations not tied to a single buyer)
 ${global_intel.slice(-20).reverse().map(g => `[${(g.ts || '').slice(0,10)}] ${g.text}`).join('\n')}
 ` : ''}
@@ -1030,6 +1039,8 @@ app.get('/api/workspace', async (_req, res) => {
         rationales: ws.rationales,
         process: ws.process,
         global_intel: ws.global_intel || [],
+        pinned_rules: ws.pinned_rules || [],
+        lessons: ws.lessons || [],
         updated_at: ws.updated_at,
       } : null,
       buyers: buyersRows.rows.map(r => ({ ...r.data, updated_at: r.updated_at })),
@@ -1042,11 +1053,11 @@ app.get('/api/workspace', async (_req, res) => {
 
 app.put('/api/workspace', async (req, res) => {
   if (!ensureDb(res)) return;
-  const { ebitda, case_mode, market, market_meta, rationales, process: proc, global_intel } = req.body || {};
+  const { ebitda, case_mode, market, market_meta, rationales, process: proc, global_intel, pinned_rules, lessons } = req.body || {};
   try {
     await pool.query(`
-      INSERT INTO workspace (id, ebitda, case_mode, market, market_meta, rationales, process, global_intel, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+      INSERT INTO workspace (id, ebitda, case_mode, market, market_meta, rationales, process, global_intel, pinned_rules, lessons, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
       ON CONFLICT (id) DO UPDATE SET
         ebitda = COALESCE(EXCLUDED.ebitda, workspace.ebitda),
         case_mode = COALESCE(EXCLUDED.case_mode, workspace.case_mode),
@@ -1055,8 +1066,10 @@ app.put('/api/workspace', async (req, res) => {
         rationales = COALESCE(EXCLUDED.rationales, workspace.rationales),
         process = COALESCE(EXCLUDED.process, workspace.process),
         global_intel = COALESCE(EXCLUDED.global_intel, workspace.global_intel),
+        pinned_rules = COALESCE(EXCLUDED.pinned_rules, workspace.pinned_rules),
+        lessons = COALESCE(EXCLUDED.lessons, workspace.lessons),
         updated_at = now()
-    `, [WORKSPACE_ID, ebitda ?? null, case_mode ?? null, market ?? null, market_meta ?? null, rationales ?? null, proc ?? null, global_intel ?? null]);
+    `, [WORKSPACE_ID, ebitda ?? null, case_mode ?? null, market ?? null, market_meta ?? null, rationales ?? null, proc ?? null, global_intel ?? null, pinned_rules ?? null, lessons ?? null]);
     res.json({ ok: true });
   } catch (err) {
     console.error('PUT /api/workspace error:', err.message);

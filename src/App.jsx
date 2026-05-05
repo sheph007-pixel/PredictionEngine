@@ -3,6 +3,7 @@ import { STAGES, STAGE_INDEX, PROCESS_DEFAULT, BUYERS } from './data.js';
 import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
   Conversation, winnerProbabilities, AIHistoryButton, AIHistoryModal,
+  BrainButton, BrainModal,
 } from './components.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
@@ -71,10 +72,13 @@ export default function App() {
   const [marketMeta, setMarketMeta] = usePersistedState('marketMeta', 'AI · sector deal flow + public comp drift · 2 min ago');
   const [rationales, setRationales] = usePersistedState('rationales', { close_date: null, confidence: null, clearing_price: null, p_no_deal: null, p_no_deal_rationale: null });
   const [globalIntel, setGlobalIntel] = usePersistedState('globalIntel', []);
+  const [pinnedRules, setPinnedRules] = usePersistedState('pinnedRules', []);
+  const [lessons, setLessons] = usePersistedState('lessons', []);
 
   const [openId, setOpenId] = useState(null);
   const [openIntent, setOpenIntent] = useState(null);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [showBrain, setShowBrain] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [docs, setDocs] = useLibrary();
   const [rescanError, setRescanError] = useState(null);
@@ -106,6 +110,8 @@ export default function App() {
         if (ws.rationales) setRationales(ws.rationales);
         if (ws.process) setProcess(ws.process);
         if (Array.isArray(ws.global_intel)) setGlobalIntel(ws.global_intel);
+        if (Array.isArray(ws.pinned_rules)) setPinnedRules(ws.pinned_rules);
+        if (Array.isArray(ws.lessons)) setLessons(ws.lessons);
       }
       if (Array.isArray(result.buyers) && result.buyers.length > 0) {
         setBuyers(result.buyers);
@@ -115,6 +121,7 @@ export default function App() {
         await pushWorkspace({
           ebitda, case_mode: caseMode, market, market_meta: marketMeta,
           rationales, process, global_intel: globalIntel,
+          pinned_rules: pinnedRules, lessons,
         });
       }
       setSyncStatus('synced');
@@ -132,10 +139,11 @@ export default function App() {
       const ok = await pushWorkspace({
         ebitda, case_mode: caseMode, market, market_meta: marketMeta,
         rationales, process, global_intel: globalIntel,
+        pinned_rules: pinnedRules, lessons,
       });
       setSyncStatus(ok ? 'synced' : 'offline');
     });
-  }, [ebitda, caseMode, market, marketMeta, rationales, process, globalIntel]);
+  }, [ebitda, caseMode, market, marketMeta, rationales, process, globalIntel, pinnedRules, lessons]);
 
   // Buyers sync — bulk replace (rescans typically touch many buyers at once).
   useEffect(() => {
@@ -178,6 +186,8 @@ export default function App() {
         priorMarket: market,
         globalIntel,
         extraIntel,
+        pinnedRules,
+        lessons,
       });
       setBuyers(bs => applyRescanToBuyers(bs, result));
       setMarket(result.market);
@@ -204,6 +214,8 @@ export default function App() {
         priorMarket: market,
         buyerId,
         globalIntel,
+        pinnedRules,
+        lessons,
       });
       const trigger = opts.triggerNoteId
         ? { buyerId, noteId: opts.triggerNoteId }
@@ -337,11 +349,76 @@ export default function App() {
       return next.slice(-50);
     });
   };
-  const setBuyerStage = (id, stage) => {
-    setBuyers(bs => bs.map(b => b.id === id ? { ...b, stage } : b));
+  // Override-with-reason: every manual stage/probability change captured as
+  // structured override on the buyer so the next rescan sees "user overrode
+  // X to Y because Z" — turns disagreement into durable training signal.
+  const recordOverride = (id, entry) => {
+    setBuyers(bs => bs.map(b => {
+      if (b.id !== id) return b;
+      const prior = Array.isArray(b.overrides) ? b.overrides : [];
+      return { ...b, overrides: [...prior, { ...entry, ts: new Date().toISOString() }].slice(-20) };
+    }));
   };
-  const overrideBuyerProbability = (id, probability) => {
-    setBuyers(bs => bs.map(b => b.id === id ? { ...b, probability } : b));
+  const setBuyerStage = (id, stage, reason) => {
+    let from = null;
+    setBuyers(bs => bs.map(b => {
+      if (b.id !== id) return b;
+      from = b.stage;
+      return { ...b, stage };
+    }));
+    if (reason) recordOverride(id, { kind: 'stage', from, to: stage, reason });
+  };
+  const overrideBuyerProbability = (id, probability, reason) => {
+    let from = null;
+    setBuyers(bs => bs.map(b => {
+      if (b.id !== id) return b;
+      from = b.probability;
+      return { ...b, probability };
+    }));
+    if (reason) recordOverride(id, { kind: 'probability', from, to: probability, reason });
+  };
+
+  // Brain handlers — pinned rules, lessons, and intel are all simple list
+  // mutations that flow through the existing workspace write-through.
+  const addPinnedRule = (text) => {
+    const t = text?.trim();
+    if (!t) return;
+    setPinnedRules(prev => [...(prev || []), { id: `r_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, ts: new Date().toISOString(), text: t }].slice(-30));
+  };
+  const updatePinnedRule = (id, text) => {
+    setPinnedRules(prev => (prev || []).map(r => r.id === id ? { ...r, text, ts: new Date().toISOString() } : r));
+  };
+  const deletePinnedRule = (id) => {
+    setPinnedRules(prev => (prev || []).filter(r => r.id !== id));
+  };
+  const updateGlobalIntel = (idx, text) => {
+    setGlobalIntel(prev => (prev || []).map((g, i) => i === idx ? { ...g, text } : g));
+  };
+  const deleteGlobalIntel = (idx) => {
+    setGlobalIntel(prev => (prev || []).filter((_, i) => i !== idx));
+  };
+  const addLesson = ({ buyerId, buyerName, predicted, outcome, text }) => {
+    const t = text?.trim();
+    if (!t) return;
+    setLessons(prev => [...(prev || []), {
+      id: `l_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
+      ts: new Date().toISOString(),
+      buyer_id: buyerId || null,
+      buyer_name: buyerName || null,
+      predicted: typeof predicted === 'number' ? predicted : null,
+      outcome: outcome || null,
+      text: t,
+    }].slice(-50));
+  };
+  const updateLesson = (id, text) => {
+    setLessons(prev => (prev || []).map(l => l.id === id ? { ...l, text } : l));
+  };
+  const deleteLesson = (id) => {
+    setLessons(prev => (prev || []).filter(l => l.id !== id));
+  };
+  const clearBuyerHistory = (id) => {
+    if (!window.confirm('Clear this buyer\'s AI reasoning history? Notes and overrides are preserved. The next rescan will start with no prior reasoning context for this buyer.')) return;
+    setBuyers(bs => bs.map(b => b.id === id ? { ...b, aiHistory: [], aiNotes: null, aiCitations: [] } : b));
   };
 
   const winnerData = winnerProbabilities(buyers, ebitda, caseMode);
@@ -358,6 +435,7 @@ export default function App() {
           <div className="brand-mark">Prediction <span className="accent">Engine</span></div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <BrainButton onClick={() => setShowBrain(true)} />
           <AIHistoryButton onClick={() => setShowHistory(true)} syncStatus={syncStatus} />
           <LibraryButton count={docs.length} onClick={() => setShowLibrary(true)} />
           <SystemBar
@@ -443,6 +521,34 @@ export default function App() {
 
       {showHistory && (
         <AIHistoryModal onClose={() => setShowHistory(false)} buyers={buyers} />
+      )}
+
+      {showBrain && (
+        <BrainModal
+          onClose={() => setShowBrain(false)}
+          buyers={buyers}
+          ebitda={ebitda}
+          caseMode={caseMode}
+          market={market}
+          process={process}
+          docs={docs}
+          pinnedRules={pinnedRules}
+          globalIntel={globalIntel}
+          lessons={lessons}
+          onAddPinnedRule={addPinnedRule}
+          onUpdatePinnedRule={updatePinnedRule}
+          onDeletePinnedRule={deletePinnedRule}
+          onUpdateGlobalIntel={updateGlobalIntel}
+          onDeleteGlobalIntel={deleteGlobalIntel}
+          onAddLesson={addLesson}
+          onUpdateLesson={updateLesson}
+          onDeleteLesson={deleteLesson}
+          onRemoveBuyerNote={removeBuyerNote}
+          onClearBuyerHistory={clearBuyerHistory}
+          onOpenBuyer={(id) => { setShowBrain(false); openBuyer(id); }}
+          onOpenLibrary={() => { setShowBrain(false); setShowLibrary(true); }}
+          onRescanAll={rescanAll}
+        />
       )}
 
     </div>

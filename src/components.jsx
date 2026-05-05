@@ -1220,26 +1220,28 @@ const CONVO_TOOLS = [
   },
   {
     name: 'set_buyer_stage',
-    description: 'Move a buyer to a new stage. Only call when the user is explicit ("advance Hub to NDA", "drop Marsh"). Stages: outreach → nda → chemistry → loi → closed. "dropped" is the kill state.',
+    description: 'Move a buyer to a new stage. Only call when the user is explicit ("advance Hub to NDA", "drop Marsh"). Stages: outreach → nda → chemistry → loi → closed. "dropped" is the kill state. Always include a short reason capturing why the user changed it — this becomes durable training context for future rescans.',
     input_schema: {
       type: 'object',
       properties: {
         buyer_id: { type: 'string' },
         stage: { type: 'string', enum: CONVO_VALID_STAGES },
+        reason: { type: 'string', description: 'One short sentence (max 20 words) capturing the user\'s reason for the change, in their words.' },
       },
-      required: ['buyer_id', 'stage'],
+      required: ['buyer_id', 'stage', 'reason'],
     },
   },
   {
     name: 'override_probability',
-    description: 'Manually override a buyer\'s probability. Only call when the user explicitly asks ("set OneDigital to 40", "Hub should be lower, like 18"). Otherwise let the rescan reprice naturally based on the note you logged.',
+    description: 'Manually override a buyer\'s probability. Only call when the user explicitly asks ("set OneDigital to 40", "Hub should be lower, like 18"). Otherwise let the rescan reprice naturally based on the note you logged. Always include a short reason — this becomes durable training context for future rescans.',
     input_schema: {
       type: 'object',
       properties: {
         buyer_id: { type: 'string' },
         probability: { type: 'number', description: 'Integer 1-95.' },
+        reason: { type: 'string', description: 'One short sentence (max 20 words) capturing the user\'s reason for the override, in their words.' },
       },
-      required: ['buyer_id', 'probability'],
+      required: ['buyer_id', 'probability', 'reason'],
     },
   },
 ];
@@ -1305,14 +1307,14 @@ ${ctx}`;
       const target = cur.find(b => b.id === args.buyer_id);
       if (!target) return `error: no buyer "${args.buyer_id}"`;
       if (!CONVO_VALID_STAGES.includes(args.stage)) return `error: invalid stage "${args.stage}"`;
-      onSetStage(args.buyer_id, args.stage);
+      onSetStage(args.buyer_id, args.stage, args.reason);
       return `ok: ${target.name} → ${args.stage}`;
     }
     if (name === 'override_probability') {
       const target = cur.find(b => b.id === args.buyer_id);
       if (!target) return `error: no buyer "${args.buyer_id}"`;
       const p = Math.max(1, Math.min(95, Math.round(args.probability)));
-      onOverrideProbability(args.buyer_id, p);
+      onOverrideProbability(args.buyer_id, p, args.reason);
       return `ok: ${target.name} probability → ${p}%`;
     }
     return `error: unknown tool "${name}"`;
@@ -1910,6 +1912,464 @@ export function AIHistoryModal({ onClose, buyers }) {
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Brain (audit + training cockpit) ----------
+// Mirrors the rescan prompt in prompt order. Each section says either
+// "editable — your changes hit the next Update" or "defined in code".
+// The user sees exactly what Claude is being fed and can curate the
+// editable parts.
+export function BrainButton({ onClick }) {
+  return (
+    <button
+      className="brain-btn"
+      onClick={onClick}
+      title="AI Brain — see and edit what Claude uses to score every prediction"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 8,
+        background: 'transparent', border: '1px solid var(--rule-2)', borderRadius: 4,
+        padding: '6px 12px', cursor: 'pointer',
+        fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em',
+        textTransform: 'uppercase', color: 'var(--ink-2)', transition: 'all 0.12s',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--ink)'; e.currentTarget.style.color = 'var(--bg)'; e.currentTarget.style.borderColor = 'var(--ink)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ink-2)'; e.currentTarget.style.borderColor = 'var(--rule-2)'; }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }}></span>
+      Brain
+    </button>
+  );
+}
+
+function BrainSection({ num, title, badge, caption, count, defaultOpen, children }) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  return (
+    <div className="brain-section">
+      <button type="button" className="brain-section-head" onClick={() => setOpen(o => !o)}>
+        <span className="brain-section-num">{num}</span>
+        <span className="brain-section-title">{title}</span>
+        {badge && <span className={'brain-section-badge brain-section-badge-' + (badge === 'editable' ? 'edit' : 'lock')}>{badge}</span>}
+        {typeof count === 'number' && <span className="brain-section-count">{count}</span>}
+        <span className="brain-section-toggle">{open ? '▾' : '▸'}</span>
+      </button>
+      {caption && <div className="brain-section-caption">{caption}</div>}
+      {open && <div className="brain-section-body">{children}</div>}
+    </div>
+  );
+}
+
+export function BrainModal({
+  onClose, buyers, ebitda, caseMode, market, process, docs,
+  pinnedRules, globalIntel, lessons,
+  onAddPinnedRule, onUpdatePinnedRule, onDeletePinnedRule,
+  onUpdateGlobalIntel, onDeleteGlobalIntel,
+  onAddLesson, onUpdateLesson, onDeleteLesson,
+  onRemoveBuyerNote, onClearBuyerHistory,
+  onOpenBuyer, onOpenLibrary, onRescanAll,
+}) {
+  const [newRule, setNewRule] = useState('');
+  const [newLesson, setNewLesson] = useState({ buyerId: '', predicted: '', outcome: 'closed', text: '' });
+  const [editingId, setEditingId] = useState(null);
+  const [editingText, setEditingText] = useState('');
+  const [liveIntel, setLiveIntel] = useState(null);
+  const [liveIntelLoading, setLiveIntelLoading] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  // Fetch the most recent rescan log entry to show what live web intel
+  // Claude saw last time. Read-only — to refresh, hit top-bar Update.
+  useEffect(() => {
+    let cancelled = false;
+    setLiveIntelLoading(true);
+    fetch('/api/rescans?limit=1')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (!cancelled) setLiveIntel(data?.rescans?.[0] || null); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLiveIntelLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const live = (buyers || []).filter(b => b.stage !== 'dropped');
+  const allNotes = (buyers || []).flatMap(b =>
+    (Array.isArray(b.noteLog) ? b.noteLog : []).map(n => ({ ...n, buyerId: b.id, buyerName: b.name }))
+  ).sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
+
+  const startEdit = (id, text) => { setEditingId(id); setEditingText(text); };
+  const cancelEdit = () => { setEditingId(null); setEditingText(''); };
+  const saveRuleEdit = () => {
+    if (!editingId) return;
+    onUpdatePinnedRule(editingId, editingText.trim());
+    cancelEdit();
+  };
+  const saveIntelEdit = () => {
+    if (editingId == null) return;
+    const idx = parseInt(String(editingId).replace('intel_', ''), 10);
+    if (Number.isFinite(idx)) onUpdateGlobalIntel(idx, editingText.trim());
+    cancelEdit();
+  };
+  const saveLessonEdit = () => {
+    if (!editingId) return;
+    onUpdateLesson(editingId, editingText.trim());
+    cancelEdit();
+  };
+
+  const addLessonSubmit = () => {
+    const t = newLesson.text.trim();
+    if (!t) return;
+    const buyer = buyers.find(b => b.id === newLesson.buyerId);
+    onAddLesson({
+      buyerId: newLesson.buyerId || null,
+      buyerName: buyer?.name || null,
+      predicted: newLesson.predicted ? Number(newLesson.predicted) : null,
+      outcome: newLesson.outcome,
+      text: t,
+    });
+    setNewLesson({ buyerId: '', predicted: '', outcome: 'closed', text: '' });
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 960 }}>
+        <button className="modal-close" onClick={onClose}>×</button>
+        <div className="modal-eyebrow">AI Brain</div>
+        <div className="modal-title" style={{ fontSize: 30, marginBottom: 6 }}>What Claude sees on every Update</div>
+        <div className="modal-sub" style={{ marginBottom: 18 }}>
+          The model is stateless. Every prediction is built from the inputs below, in this order. Edit or delete the editable parts; the next Update reflects your changes. <button type="button" className="brain-update-link" onClick={() => onRescanAll()}>Run Update now →</button>
+        </div>
+
+        {/* 1. System rules */}
+        <BrainSection
+          num={1}
+          title="System rules"
+          badge="defined in code"
+          caption="The senior-banker prompt: size-bucket multiples, stage probability anchors, output schema, multiples discipline. Lives in server.js. Edit requires a code change."
+        >
+          <ul className="brain-bullets">
+            <li><b>Size buckets</b> · sub-$3M, $3–5M, $5–10M, $10–20M, $20–50M, $50M+. Each bucket has conservative / realistic / aggressive multiple bands.</li>
+            <li><b>Stage discipline</b> · outreach rarely &gt;25% · NDA 10–35% · chemistry 15–45% · LOI 35–75% · closed 80–95%.</li>
+            <li><b>Conservatism</b> · public comps (BRO, AON, MMC) discounted 3–5× for private mid-market, plus another 1–2× for captive/niche.</li>
+            <li><b>Output schema</b> · per-buyer probability + fit + thesis + reasoning + confidence; pipeline-level close date + clearing price + p_no_deal rationales.</li>
+          </ul>
+          <div className="brain-footnote">Defined in <code>server.js</code> · <code>buildRescanSystemPrompt</code></div>
+        </BrainSection>
+
+        {/* 2. Pinned rules */}
+        <BrainSection
+          num={2}
+          title="Pinned rules"
+          badge="editable"
+          caption={`Your always-on guardrails. Spliced into every rescan above pipeline intel. Use this to correct mistakes ("Hub rarely pays >9×"), enforce constraints ("don't compress timeline without LOI"), or pin domain truths the system prompt misses.`}
+          count={pinnedRules?.length || 0}
+          defaultOpen
+        >
+          <div className="brain-add-row">
+            <input
+              type="text"
+              className="brain-add-input"
+              value={newRule}
+              onChange={(e) => setNewRule(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { onAddPinnedRule(newRule); setNewRule(''); } }}
+              placeholder='e.g. "Hub rarely pays >9× regardless of EBITDA bucket"'
+            />
+            <button
+              type="button"
+              className="brain-add-btn"
+              onClick={() => { onAddPinnedRule(newRule); setNewRule(''); }}
+              disabled={!newRule.trim()}
+            >Add rule</button>
+          </div>
+          {(!pinnedRules || pinnedRules.length === 0) ? (
+            <div className="brain-empty">No pinned rules yet. Type one above to start steering predictions.</div>
+          ) : (
+            <ol className="brain-list brain-list-numbered">
+              {pinnedRules.map(r => (
+                <li key={r.id} className="brain-row">
+                  {editingId === r.id ? (
+                    <>
+                      <input
+                        type="text"
+                        className="brain-edit-input"
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        autoFocus
+                        onKeyDown={(e) => { if (e.key === 'Enter') saveRuleEdit(); if (e.key === 'Escape') cancelEdit(); }}
+                      />
+                      <button type="button" className="brain-row-btn" onClick={saveRuleEdit}>Save</button>
+                      <button type="button" className="brain-row-btn" onClick={cancelEdit}>Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="brain-row-text">{r.text}</span>
+                      <button type="button" className="brain-row-btn" onClick={() => startEdit(r.id, r.text)}>Edit</button>
+                      <button type="button" className="brain-row-del" onClick={() => onDeletePinnedRule(r.id)} title="Delete rule">×</button>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </BrainSection>
+
+        {/* 3. Anchors */}
+        <BrainSection
+          num={3}
+          title="Anchors"
+          badge="defined in code"
+          caption="The numeric anchors fed every rescan: your EBITDA, the size bucket it implies, current market bands, public broker comps. EBITDA is editable in the top bar; market bands are AI-set on every Update."
+        >
+          <div className="brain-grid">
+            <div><b>EBITDA</b><br/>${ebitda}M</div>
+            <div><b>Case mode</b><br/>{caseMode}</div>
+            <div><b>Process step</b><br/>{process?.currentTaskId || '—'}</div>
+            <div><b>Conservative</b><br/>{market?.conservative ? `${market.conservative.low.toFixed(1)}–${market.conservative.high.toFixed(1)}×` : '—'}</div>
+            <div><b>Realistic</b><br/>{market?.mid ? `${market.mid.low.toFixed(1)}–${market.mid.high.toFixed(1)}×` : '—'}</div>
+            <div><b>Aggressive</b><br/>{market?.aggressive ? `${market.aggressive.low.toFixed(1)}–${market.aggressive.high.toFixed(1)}×` : '—'}</div>
+          </div>
+          <div className="brain-footnote">Public broker comps (BRO, AON, MMC, AJG, WTW, BWIN) injected from <code>src/data/precedents.js</code>.</div>
+        </BrainSection>
+
+        {/* 4. Buyers */}
+        <BrainSection
+          num={4}
+          title="Buyers"
+          badge="editable"
+          caption="Each live buyer's profile + note timeline + last AI reasoning + manual overrides. This is the bulk of what the model sees per rescan. Click a buyer to edit; clear AI history when you want a buyer to start with a clean reasoning slate."
+          count={live.length}
+          defaultOpen
+        >
+          {live.length === 0 ? (
+            <div className="brain-empty">No live buyers.</div>
+          ) : (
+            <table className="brain-table">
+              <thead>
+                <tr>
+                  <th>Buyer</th>
+                  <th>Stage</th>
+                  <th>P</th>
+                  <th>Notes</th>
+                  <th>Overrides</th>
+                  <th>AI hist</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {live.map(b => (
+                  <tr key={b.id}>
+                    <td><button type="button" className="brain-link" onClick={() => onOpenBuyer(b.id)}>{b.name}</button></td>
+                    <td>{b.stage}</td>
+                    <td>{b.probability ?? '?'}%</td>
+                    <td>{(b.noteLog || []).length}</td>
+                    <td>{(b.overrides || []).length}</td>
+                    <td>{(b.aiHistory || []).length}</td>
+                    <td><button type="button" className="brain-row-btn" onClick={() => onClearBuyerHistory(b.id)} title="Clear AI reasoning history for this buyer">Clear</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </BrainSection>
+
+        {/* 5. All buyer notes (flat) */}
+        <BrainSection
+          num={5}
+          title="All buyer notes"
+          badge="editable"
+          caption="Every note across every buyer, newest first. The AI sees these per-buyer in the rescan. Delete noisy or outdated ones if they were poisoning the predictions."
+          count={allNotes.length}
+        >
+          {allNotes.length === 0 ? (
+            <div className="brain-empty">No notes anywhere yet.</div>
+          ) : (
+            <ul className="brain-list">
+              {allNotes.slice(0, 200).map(n => (
+                <li key={`${n.buyerId}_${n.id}`} className="brain-row brain-row-note">
+                  <button type="button" className="brain-chip brain-link" onClick={() => onOpenBuyer(n.buyerId)}>{n.buyerName}</button>
+                  <span className="brain-row-time">{relativeTime(n.ts)}</span>
+                  <span className="brain-row-text">{n.text}</span>
+                  <button type="button" className="brain-row-del" onClick={() => onRemoveBuyerNote(n.buyerId, n.id)} title="Delete note">×</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </BrainSection>
+
+        {/* 6. Pipeline intel */}
+        <BrainSection
+          num={6}
+          title="Pipeline intel log"
+          badge="editable"
+          caption="Process-wide observations not tied to any single buyer (market shifts, sector commentary). Add via the Conversation panel above the pipeline. Edit/delete here. Last 20 entries fed into every rescan."
+          count={(globalIntel || []).length}
+          defaultOpen
+        >
+          {(!globalIntel || globalIntel.length === 0) ? (
+            <div className="brain-empty">No pipeline intel yet. Talk to the advisor about market or process observations to populate this.</div>
+          ) : (
+            <ul className="brain-list">
+              {globalIntel.slice().reverse().map((g, revIdx) => {
+                const idx = globalIntel.length - 1 - revIdx;
+                const editId = `intel_${idx}`;
+                return (
+                  <li key={idx} className="brain-row">
+                    {editingId === editId ? (
+                      <>
+                        <input
+                          type="text"
+                          className="brain-edit-input"
+                          value={editingText}
+                          onChange={(e) => setEditingText(e.target.value)}
+                          autoFocus
+                          onKeyDown={(e) => { if (e.key === 'Enter') saveIntelEdit(); if (e.key === 'Escape') cancelEdit(); }}
+                        />
+                        <button type="button" className="brain-row-btn" onClick={saveIntelEdit}>Save</button>
+                        <button type="button" className="brain-row-btn" onClick={cancelEdit}>Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="brain-row-time">{relativeTime(g.ts)}</span>
+                        <span className="brain-row-text">{g.text}</span>
+                        <button type="button" className="brain-row-btn" onClick={() => startEdit(editId, g.text)}>Edit</button>
+                        <button type="button" className="brain-row-del" onClick={() => onDeleteGlobalIntel(idx)} title="Delete intel">×</button>
+                      </>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </BrainSection>
+
+        {/* 7. Lessons from outcomes */}
+        <BrainSection
+          num={7}
+          title="Lessons from outcomes"
+          badge="editable"
+          caption="When a deal closes or drops, capture what the model got wrong. These get fed into every future rescan as patterns to apply to similar buyers — the closest thing to actually training the system."
+          count={(lessons || []).length}
+          defaultOpen
+        >
+          <div className="brain-add-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <select
+                className="brain-add-input"
+                style={{ flex: '0 0 180px' }}
+                value={newLesson.buyerId}
+                onChange={(e) => setNewLesson(l => ({ ...l, buyerId: e.target.value }))}
+              >
+                <option value="">— buyer (optional) —</option>
+                {buyers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <input
+                type="number"
+                className="brain-add-input"
+                style={{ flex: '0 0 110px' }}
+                placeholder="Predicted %"
+                value={newLesson.predicted}
+                onChange={(e) => setNewLesson(l => ({ ...l, predicted: e.target.value }))}
+              />
+              <select
+                className="brain-add-input"
+                style={{ flex: '0 0 110px' }}
+                value={newLesson.outcome}
+                onChange={(e) => setNewLesson(l => ({ ...l, outcome: e.target.value }))}
+              >
+                <option value="closed">closed</option>
+                <option value="dropped">dropped</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                type="text"
+                className="brain-add-input"
+                value={newLesson.text}
+                onChange={(e) => setNewLesson(l => ({ ...l, text: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') addLessonSubmit(); }}
+                placeholder='What did we miss? e.g. "Underweighted sponsor capital depletion — they went silent for 6 weeks before pulling out."'
+              />
+              <button type="button" className="brain-add-btn" onClick={addLessonSubmit} disabled={!newLesson.text.trim()}>Add lesson</button>
+            </div>
+          </div>
+          {(!lessons || lessons.length === 0) ? (
+            <div className="brain-empty">No lessons yet. After every closed/dropped deal, write down what the model missed.</div>
+          ) : (
+            <ul className="brain-list">
+              {lessons.slice().reverse().map(l => (
+                <li key={l.id} className="brain-row brain-row-note">
+                  <span className="brain-chip">{l.outcome || 'outcome'}</span>
+                  {l.buyer_name && <span className="brain-row-buyer">{l.buyer_name}</span>}
+                  {typeof l.predicted === 'number' && <span className="brain-row-time">predicted {l.predicted}%</span>}
+                  {editingId === l.id ? (
+                    <>
+                      <input
+                        type="text"
+                        className="brain-edit-input"
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        autoFocus
+                        onKeyDown={(e) => { if (e.key === 'Enter') saveLessonEdit(); if (e.key === 'Escape') cancelEdit(); }}
+                      />
+                      <button type="button" className="brain-row-btn" onClick={saveLessonEdit}>Save</button>
+                      <button type="button" className="brain-row-btn" onClick={cancelEdit}>Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="brain-row-text">{l.text}</span>
+                      <button type="button" className="brain-row-btn" onClick={() => startEdit(l.id, l.text)}>Edit</button>
+                      <button type="button" className="brain-row-del" onClick={() => onDeleteLesson(l.id)} title="Delete lesson">×</button>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </BrainSection>
+
+        {/* 8. Documents */}
+        <BrainSection
+          num={8}
+          title="Documents"
+          badge="editable in Library"
+          caption="PDFs, CIMs, LOIs, term sheets attached via the Library. The model reads these as evidence on every rescan — hard documents (LOIs, term sheets) directly anchor multiple_override and confidence."
+          count={(docs || []).length}
+        >
+          {(!docs || docs.length === 0) ? (
+            <div className="brain-empty">No documents attached.</div>
+          ) : (
+            <ul className="brain-list">
+              {docs.map(d => (
+                <li key={d.id} className="brain-row">
+                  <span className="brain-row-text">📎 {d.filename || d.name || d.id}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button type="button" className="brain-add-btn" style={{ marginTop: 8 }} onClick={onOpenLibrary}>Open Library →</button>
+        </BrainSection>
+
+        {/* 9. Live web intel */}
+        <BrainSection
+          num={9}
+          title="Live web intel (last fetched)"
+          badge="defined in code"
+          caption="Auto-fetched per Update via OpenAI web search — recent M&A transactions and public broker comp multiples. Cannot be edited; refreshes on every Update."
+        >
+          {liveIntelLoading && <div className="brain-empty">Loading…</div>}
+          {!liveIntelLoading && !liveIntel && <div className="brain-empty">No rescan log entries yet. Hit Update to fetch live intel.</div>}
+          {!liveIntelLoading && liveIntel && !liveIntel.live_intel && <div className="brain-empty">Last rescan ran without web intel ({new Date(liveIntel.ts).toLocaleString()}).</div>}
+          {!liveIntelLoading && liveIntel?.live_intel && (
+            <>
+              <div className="brain-footnote">Fetched {new Date(liveIntel.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+              <pre className="brain-pre">{liveIntel.live_intel}</pre>
+            </>
+          )}
+        </BrainSection>
       </div>
     </div>
   );
