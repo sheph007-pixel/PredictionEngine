@@ -78,3 +78,46 @@ export function debouncedPush(key, fn, ms = SYNC_DEBOUNCE_MS) {
     fn();
   }, ms));
 }
+
+export async function fetchPrecedents() {
+  try {
+    const res = await fetch('/api/precedents');
+    if (res.status === 503) return { available: false, precedents: [] };
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    const data = await res.json();
+    return { available: true, precedents: data.precedents || [] };
+  } catch (err) {
+    console.warn('fetchPrecedents failed:', err.message);
+    return { available: false, precedents: [] };
+  }
+}
+
+export async function pushPrecedents(precedents) {
+  try {
+    const res = await fetch('/api/precedents', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ precedents }),
+    });
+    if (res.status === 503) return false;
+    return res.ok;
+  } catch (err) {
+    console.warn('pushPrecedents failed:', err.message);
+    return false;
+  }
+}
+
+export async function postSnapshot({ label, p_no_deal, market, buyers }) {
+  try {
+    const res = await fetch('/api/snapshots', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label, p_no_deal, market, buyers }),
+    });
+    if (res.status === 503) return false;
+    return res.ok;
+  } catch (err) {
+    console.warn('postSnapshot failed:', err.message);
+    return false;
+  }
+}

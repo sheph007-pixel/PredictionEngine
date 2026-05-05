@@ -8,11 +8,19 @@
 //
 // Schema:
 //   buyer.noteLog: NoteEntry[]
-//   NoteEntry = { id: string, ts: ISO string, text: string }
+//   NoteEntry = { id, ts, text, signal? }
+//   signal ∈ { 'warming' | 'cooling' | 'firm' | 'stalling' | 'passed' } (optional)
+//
+// `signal` lets the user tag a note with an explicit trajectory classification.
+// Tagged notes are emitted to the AI as `[YYYY-MM-DD][signal] text` so the
+// model weights deliberate user judgment over free-text. Untagged notes still
+// work; signal is purely additive and backward-compatible.
 //
 // Backward compat: legacy `buyer.notes: string` is migrated lazily on load.
 // `[YYYY-MM-DD] text` markers in the legacy string are parsed into separate
 // dated entries so the user's existing chronology is preserved.
+
+export const NOTE_SIGNALS = ['warming', 'cooling', 'firm', 'stalling', 'passed'];
 
 const DATE_MARKER = /\[(\d{4}-\d{2}-\d{2})\]\s*/g;
 
@@ -69,11 +77,12 @@ export function migrateNoteLog(buyer) {
   return { ...buyer, noteLog };
 }
 
-export function appendNote(buyer, text) {
+export function appendNote(buyer, text, opts = {}) {
   const trimmed = (text || '').trim();
   if (!trimmed) return buyer;
   const base = Array.isArray(buyer.noteLog) ? buyer.noteLog : migrateNoteLog(buyer).noteLog;
   const entry = { id: newId(), ts: new Date().toISOString(), text: trimmed };
+  if (opts.signal && NOTE_SIGNALS.includes(opts.signal)) entry.signal = opts.signal;
   return { ...buyer, noteLog: [...base, entry] };
 }
 
@@ -87,11 +96,16 @@ export function removeNote(buyer, noteId) {
 }
 
 // Chronological log the AI receives. Most recent at the bottom so a left-to-right
-// reader sees the trajectory of intel.
+// reader sees the trajectory of intel. Signal-tagged entries get a second
+// bracket so the model can read user-judged trajectory directly.
 export function formatTimelineForAI(noteLog) {
   if (!Array.isArray(noteLog) || noteLog.length === 0) return '';
   return noteLog
-    .map(e => `[${(e.ts || '').slice(0, 10)}] ${e.text}`)
+    .map(e => {
+      const date = (e.ts || '').slice(0, 10);
+      const sig = e.signal ? `[${e.signal}] ` : '';
+      return `[${date}] ${sig}${e.text}`;
+    })
     .join('\n');
 }
 

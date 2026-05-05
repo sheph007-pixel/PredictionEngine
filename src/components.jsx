@@ -2,9 +2,24 @@ import { useState, useEffect, useRef } from 'react';
 import { STAGES, STAGE_INDEX, PROCESS_TASKS, PHASES } from './data.js';
 import { claudeComplete, claudeChat } from './utils/ai.js';
 import { PRECEDENT_BY_ID, PUBLIC_COMP_BANDS } from './data/precedents.js';
-import { relativeTime, EVENT_SPECS } from './lib/notes.js';
+import { relativeTime, EVENT_SPECS, NOTE_SIGNALS } from './lib/notes.js';
 
 const PUBLIC_COMP_BY_TICKER = Object.fromEntries(PUBLIC_COMP_BANDS.comps.map(c => [c.ticker, c]));
+
+const SIGNAL_COLORS = {
+  warming: '#2f8c4d',
+  cooling: '#a83232',
+  firm: '#0a4d8c',
+  stalling: '#8c6f1a',
+  passed: '#666666',
+};
+const SIGNAL_HINTS = {
+  warming: 'Buyer trajectory is heating up (engagement, follow-ups, sponsor signals)',
+  cooling: 'Buyer is going quiet, pulling back, or signaling lower priority',
+  firm: 'Hard evidence of price/terms (LOI, term sheet, written or explicit verbal offer)',
+  stalling: 'Process is stuck — meetings keep getting moved, decisions deferred',
+  passed: 'Buyer formally passed on the process',
+};
 
 // ---------- helpers ----------
 function addWeeks(dateStr, weeks) {
@@ -181,7 +196,7 @@ function HeroRationale({ text }) {
   );
 }
 
-export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales }) {
+export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales, dealProfile }) {
   const currentIdx = PROCESS_TASKS.findIndex(t => t.id === process.currentTaskId);
   const currentTask = PROCESS_TASKS[currentIdx];
   const closeTask = PROCESS_TASKS[PROCESS_TASKS.length - 1];
@@ -190,13 +205,27 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
   const projectedClose = new Date(today);
   projectedClose.setDate(projectedClose.getDate() + weeksToClose * 7);
 
-  const { dealClosesPct } = winnerProbabilities(buyers, ebitda, caseMode);
+  const computed = winnerProbabilities(buyers, ebitda, caseMode);
+  // Prefer the AI's explicit p_no_deal when available — it's a deliberate
+  // estimate of market/process risk, not the inverse of independent buyer
+  // probabilities. Fall back to the union-derived dealClosesPct when no
+  // pipeline rescan has run yet.
+  const aiNoDeal = typeof rationales?.p_no_deal === 'number' ? rationales.p_no_deal : null;
+  const dealClosesPct = aiNoDeal != null ? Math.max(0, 100 - aiNoDeal) : computed.dealClosesPct;
   const confLevel = dealClosesPct >= 85 ? "High" : dealClosesPct >= 65 ? "Solid" : dealClosesPct >= 40 ? "Moderate" : "Low";
+  const confidenceText = aiNoDeal != null
+    ? (rationales?.p_no_deal_rationale || rationales?.confidence)
+    : rationales?.confidence;
 
-  const m = (market && market[caseMode]) || marketMultiplesSeed(ebitda)[caseMode] || marketMultiplesSeed(ebitda).mid;
-  const clearLow = ebitda * m.low;
-  const clearHigh = ebitda * m.high;
-  const clearMid = ebitda * ((m.low + m.high) / 2);
+  // Size the clearing-price headline on the CIM-derived EBITDA when present,
+  // so the displayed bucket matches what the AI is anchoring on.
+  const sizingEbitda = (dealProfile && typeof dealProfile.ebitda === 'number' && dealProfile.ebitda > 0)
+    ? dealProfile.ebitda
+    : ebitda;
+  const m = (market && market[caseMode]) || marketMultiplesSeed(sizingEbitda)[caseMode] || marketMultiplesSeed(sizingEbitda).mid;
+  const clearLow = sizingEbitda * m.low;
+  const clearHigh = sizingEbitda * m.high;
+  const clearMid = sizingEbitda * ((m.low + m.high) / 2);
 
   return (
     <div className="hero">
@@ -207,10 +236,10 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
         <HeroRationale text={rationales?.close_date} />
       </div>
       <div className="hero-kpi">
-        <div className="hero-kpi-label">Deal confidence</div>
+        <div className="hero-kpi-label">Deal confidence{aiNoDeal != null && <span className="hero-kpi-case"> · AI no-deal {aiNoDeal}%</span>}</div>
         <div className="hero-kpi-value hero-kpi-confidence">{dealClosesPct}<span>%</span></div>
-        <div className="hero-kpi-foot"><b>{confLevel}</b> probability any deal closes</div>
-        <HeroRationale text={rationales?.confidence} />
+        <div className="hero-kpi-foot"><b>{confLevel}</b> probability any deal closes{aiNoDeal == null && <> · <i style={{opacity:.6}}>computed (no AI rescan yet)</i></>}</div>
+        <HeroRationale text={confidenceText} />
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Market clearing price <span className="hero-kpi-case">· {m.label}</span></div>
@@ -219,7 +248,7 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
           <span className="hero-range-sep">to</span>
           <span className="hero-range-high">{fmtMoney(clearHigh)}</span>
         </div>
-        <div className="hero-kpi-foot">${ebitda}M EBITDA × <b>{m.low.toFixed(1)}–{m.high.toFixed(1)}×</b> · midpoint <b>{fmtMoney(clearMid)}</b></div>
+        <div className="hero-kpi-foot">${sizingEbitda}M EBITDA × <b>{m.low.toFixed(1)}–{m.high.toFixed(1)}×</b> · midpoint <b>{fmtMoney(clearMid)}</b></div>
         <HeroRationale text={rationales?.clearing_price} />
       </div>
     </div>
@@ -372,6 +401,7 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
   const [draft, setDraft] = useState(String(ebitda));
   const [refreshing, setRefreshing] = useState(false);
   const [localErr, setLocalErr] = useState(null);
+  const lastClickRef = useRef(0);
   useEffect(() => setDraft(String(ebitda)), [ebitda]);
 
   const mult = market || marketMultiplesSeed(ebitda);
@@ -385,7 +415,11 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
   };
 
   const rescan = async () => {
-    if (refreshing || !onRescan) return;
+    // Hard 1.5s lockout in addition to the in-flight guard, so a
+    // double-click can't fire two API calls back-to-back.
+    const now = Date.now();
+    if (refreshing || !onRescan || now - lastClickRef.current < 1500) return;
+    lastClickRef.current = now;
     setRefreshing(true);
     setLocalErr(null);
     try {
@@ -870,11 +904,12 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
     if (h.triggered_by_note_id) aiHistoryByNoteId[h.triggered_by_note_id] = h;
   }
   const [draft, setDraft] = useState('');
+  const [draftSignal, setDraftSignal] = useState(null);
   const [pending, setPending] = useState(false);
   const [aiError, setAiError] = useState(null);
   const [logEntry, setLogEntry] = useState(null);
   const [logLoading, setLogLoading] = useState(false);
-  useEffect(() => { setDraft(''); setAiError(null); }, [buyer.id]);
+  useEffect(() => { setDraft(''); setDraftSignal(null); setAiError(null); }, [buyer.id]);
 
   // Lazy-load the most recent rescan log row for this buyer (live web intel
   // text + cited URLs) so the Research card can show the actual evidence.
@@ -907,8 +942,9 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
     if (!text || pending) return;
     setPending(true);
     setAiError(null);
-    const newNoteId = onAppendNote ? onAppendNote(buyer.id, text) : null;
+    const newNoteId = onAppendNote ? onAppendNote(buyer.id, text, draftSignal) : null;
     setDraft('');
+    setDraftSignal(null);
     if (!onRescanBuyer) {
       setPending(false);
       return;
@@ -1137,6 +1173,25 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
                 placeholder="Log buyer feedback, market signals, chemistry takeaways…"
                 disabled={pending}
               />
+              <div className="signal-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ink-3)', alignSelf: 'center', marginRight: 4 }}>Signal:</span>
+                {NOTE_SIGNALS.map(sig => (
+                  <button
+                    key={sig}
+                    type="button"
+                    className="chip"
+                    onClick={() => setDraftSignal(s => s === sig ? null : sig)}
+                    disabled={pending}
+                    style={{
+                      borderColor: draftSignal === sig ? SIGNAL_COLORS[sig] : undefined,
+                      background: draftSignal === sig ? SIGNAL_COLORS[sig] + '22' : undefined,
+                      color: draftSignal === sig ? SIGNAL_COLORS[sig] : undefined,
+                      fontSize: 11,
+                    }}
+                    title={SIGNAL_HINTS[sig]}
+                  >{sig}</button>
+                ))}
+              </div>
               <div className="notes-actions">
                 <button
                   className="btn btn-submit"
@@ -1162,6 +1217,19 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
                       <li key={entry.id} className="notes-entry">
                         <div className="notes-entry-head">
                           <span className="notes-entry-time" title={new Date(entry.ts).toLocaleString()}>{relativeTime(entry.ts)}</span>
+                          {entry.signal && (
+                            <span style={{
+                              fontFamily: 'var(--mono)',
+                              fontSize: 9.5,
+                              letterSpacing: '0.06em',
+                              textTransform: 'uppercase',
+                              color: SIGNAL_COLORS[entry.signal] || 'var(--ink-3)',
+                              border: `1px solid ${SIGNAL_COLORS[entry.signal] || 'var(--rule-2)'}`,
+                              borderRadius: 3,
+                              padding: '1px 5px',
+                              marginLeft: 6,
+                            }} title={SIGNAL_HINTS[entry.signal]}>{entry.signal}</span>
+                          )}
                           {onRemoveNote && (
                             <button
                               className="notes-entry-delete"
@@ -1660,3 +1728,143 @@ export function AIHistoryModal({ onClose, buyers }) {
     </div>
   );
 }
+
+// ---------- precedent editor ----------
+// User-editable comp table. Bound to the workspace `precedents` array. Save
+// pushes the full list to the server; the AI cites these on every rescan.
+export function PrecedentEditor({ precedents, onSave, onClose }) {
+  const [draft, setDraft] = useState(() => (precedents || []).map(p => ({ ...p })));
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose && onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const update = (i, patch) => setDraft(d => d.map((row, j) => j === i ? { ...row, ...patch } : row));
+  const remove = (i) => setDraft(d => d.filter((_, j) => j !== i));
+  const add = () => setDraft(d => [...d, {
+    id: 'new-' + Math.random().toString(36).slice(2, 7),
+    label: '', target: '', acquirer: '',
+    closed: '', ev_b: null, multiple_ltm_ebitda: null,
+    multiple_note: '', segment: '', confidence: 'estimate', notes: '',
+    type: 'aggregate-band', benefits_mix: '',
+  }]);
+
+  const save = () => {
+    // Reject duplicate ids — the AI cites by id, so collisions are silent bugs.
+    const ids = draft.map(p => p.id);
+    if (ids.some((id, i) => !id || ids.indexOf(id) !== i)) {
+      setError('Each precedent needs a unique non-empty id.');
+      return;
+    }
+    setError(null);
+    onSave(draft.map(p => ({
+      ...p,
+      ev_b: p.ev_b === '' || p.ev_b == null ? null : Number(p.ev_b),
+      multiple_ltm_ebitda: p.multiple_ltm_ebitda === '' || p.multiple_ltm_ebitda == null ? null : Number(p.multiple_ltm_ebitda),
+    })));
+  };
+
+  const placeholderCount = draft.filter(p => p.confidence === 'estimate').length;
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 900 }}>
+        <button className="modal-close" onClick={onClose}>×</button>
+        <div className="modal-eyebrow">Precedent comp table</div>
+        <div className="modal-title" style={{ fontSize: 28, marginBottom: 6 }}>Edit precedents</div>
+        <div className="modal-sub" style={{ marginBottom: 14 }}>
+          The AI cites these on every rescan. Replace placeholders with Reagan's real comps for accurate clearing-price predictions.
+        </div>
+        {placeholderCount > 0 && (
+          <div style={{
+            marginBottom: 14, padding: '10px 14px',
+            background: '#fff7d6', border: '1px solid #d4a72c', borderRadius: 4,
+            fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.04em', color: '#5c4810',
+          }}>
+            ⚠ {placeholderCount} row{placeholderCount === 1 ? '' : 's'} marked <b>estimate</b> — AI is anchoring on placeholder data. Replace with verified Reagan comps before relying on the clearing price.
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: '55vh', overflowY: 'auto' }}>
+          {draft.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--ink-3)', fontSize: 13 }}>
+              No precedents yet. Add one to start.
+            </div>
+          )}
+          {draft.map((p, i) => (
+            <div key={i} style={{
+              border: `1px solid ${p.confidence === 'estimate' ? '#d4a72c' : 'var(--rule)'}`,
+              borderRadius: 4, padding: 12, background: 'var(--bg-card)',
+              display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, alignItems: 'flex-start',
+            }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>id</label>
+                <input value={p.id || ''} onChange={(e) => update(i, { id: e.target.value })} style={precedentInputStyle} />
+                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 4 }}>Label</label>
+                <input value={p.label || ''} onChange={(e) => update(i, { label: e.target.value })} placeholder="NFP → Aon (2024)" style={precedentInputStyle} />
+                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 4 }}>Segment</label>
+                <input value={p.segment || ''} onChange={(e) => update(i, { segment: e.target.value })} placeholder="captive benefits / mid-mkt PE" style={precedentInputStyle} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Target</label>
+                <input value={p.target || ''} onChange={(e) => update(i, { target: e.target.value })} style={precedentInputStyle} />
+                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 4 }}>Acquirer</label>
+                <input value={p.acquirer || ''} onChange={(e) => update(i, { acquirer: e.target.value })} style={precedentInputStyle} />
+                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 4 }}>Closed</label>
+                <input value={p.closed || ''} onChange={(e) => update(i, { closed: e.target.value })} placeholder="2025-09" style={precedentInputStyle} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>EV ($B)</label>
+                <input type="number" step="0.1" value={p.ev_b ?? ''} onChange={(e) => update(i, { ev_b: e.target.value })} style={precedentInputStyle} />
+                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 4 }}>Multiple (× LTM EBITDA)</label>
+                <input type="number" step="0.1" value={p.multiple_ltm_ebitda ?? ''} onChange={(e) => update(i, { multiple_ltm_ebitda: e.target.value })} style={precedentInputStyle} />
+                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 4 }}>Confidence</label>
+                <select value={p.confidence || 'estimate'} onChange={(e) => update(i, { confidence: e.target.value })} style={precedentInputStyle}>
+                  <option value="verified">verified</option>
+                  <option value="estimate">estimate (placeholder)</option>
+                </select>
+              </div>
+              <button className="btn-mini btn-mini-drop" onClick={() => remove(i)} style={{ alignSelf: 'flex-start' }}>Remove</button>
+              <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Notes</label>
+                <textarea
+                  value={p.notes || ''}
+                  onChange={(e) => update(i, { notes: e.target.value })}
+                  rows={2}
+                  placeholder="Source, caveats, EBITDA basis disclosed, etc."
+                  style={{ ...precedentInputStyle, minHeight: 48, resize: 'vertical' }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {error && (
+          <div className="add-error" style={{ marginTop: 12 }}>{error}</div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 14, justifyContent: 'space-between' }}>
+          <button className="btn-ghost" onClick={add}>+ Add precedent</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn-ghost" onClick={onClose}>Cancel</button>
+            <button className="btn btn-submit" onClick={save}>Save & rescan-ready</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const precedentInputStyle = {
+  width: '100%',
+  padding: '6px 8px',
+  border: '1px solid var(--rule-2)',
+  borderRadius: 3,
+  background: 'var(--bg)',
+  color: 'var(--ink)',
+  font: 'inherit',
+  fontSize: 12,
+};

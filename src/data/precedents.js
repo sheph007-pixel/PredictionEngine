@@ -1,24 +1,24 @@
 // Precedent transactions and public comps — the AI's grounding source.
 //
-// The Re-scan engine injects this file into Claude's system prompt and
-// requires every buyer's reasoning to cite at least one entry by `id`.
-// If a comp isn't in this file, the AI cannot use it.
-//
 // ───────────────────────────────────────────────────────────────────
-//  IMPORTANT: most precedent multiples are NOT publicly disclosed.
-//  This file is your PRIVATE comp table. Populate it from:
-//    - Reagan Consulting's precedent deck
-//    - Banker conversations / market intel
-//    - LOIs and process letters you've seen
-//  Do NOT seed it with guesses. The AI weights this as ground truth.
+//  THIS FILE IS THE FALLBACK SEED ONLY.
+//  In production, the precedent table is loaded from the `precedents`
+//  Postgres table (workspace-scoped) and is edited in-app via the
+//  PrecedentEditor (⚙ Tweaks → "Edit precedents"). The rows below are
+//  used only when:
+//    - DATABASE_URL is unset (local dev), OR
+//    - the precedents table is empty (first boot)
+//  Edit precedents IN THE APP. Do not anchor production decisions on
+//  the placeholders here — replace them with Reagan's real comps.
 // ───────────────────────────────────────────────────────────────────
 //
 // HOW TO MAINTAIN
-//   - Add a precedent when Reagan or a banker shares it.
+//   - Open the app → ⚙ Tweaks → "Edit precedents" — add/edit/delete rows.
+//   - The Re-scan engine pulls precedents from the DB on every call.
 //   - Update PUBLIC_COMP_BANDS quarterly with fresh forward-EBITDA prints.
-//   - Mark each entry `confidence: 'verified'` (you have a credible source)
-//     or `confidence: 'estimate'` (educated guess — explain in `notes`).
-//   - The AI cannot cite a precedent that isn't in this file.
+//   - Mark each entry `confidence: 'verified'` (credible source) or
+//     `confidence: 'estimate'` (placeholder; the editor shows a banner).
+//   - The AI cannot cite a precedent that isn't in the active table.
 
 export const PRECEDENTS = [
   // ─── Public deals (broadly reported in press / filings) ────────────

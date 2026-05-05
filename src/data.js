@@ -67,7 +67,6 @@ const _RAW_BUYERS = [
     fit: { size: 5, benefits: 3, pe: 1, precedent: 5 },
     thesis: "Scale buyer with active 2025-26 M&A cadence. Capacity to absorb a benefits-heavy book and pay for it. Risk: integration discount on cultural fit.",
     probability: 22,
-    lastWeekWinnerPct: 19,
   },
   {
     id: "alliant",
@@ -95,7 +94,6 @@ const _RAW_BUYERS = [
     fit: { size: 5, benefits: 2, pe: 1, precedent: 4 },
     thesis: "Deep capital base; benefits not the priority vertical. Watch as financial bidder more than strategic.",
     probability: 14,
-    lastWeekWinnerPct: 12,
   },
   {
     id: "baldwin",
@@ -115,7 +113,6 @@ const _RAW_BUYERS = [
     fit: { size: 4, benefits: 3, pe: 0, precedent: 3 },
     thesis: "Strategic + cultural overlap via CAC, but capital-markets headwinds make a competitive bid harder.",
     probability: 9,
-    lastWeekWinnerPct: 9,
   },
   {
     id: "cb",
@@ -136,7 +133,6 @@ const _RAW_BUYERS = [
     fit: { size: 4, benefits: 5, pe: 0, precedent: 4 },
     thesis: "Strongest pure-strategic fit on the list. Captive expertise overlaps directly with our book. Less price tension than PE bidders.",
     probability: 18,
-    lastWeekWinnerPct: 14,
   },
   {
     id: "onedigital",
@@ -165,7 +161,6 @@ const _RAW_BUYERS = [
     fit: { size: 4, benefits: 5, pe: 1, precedent: 5 },
     thesis: "Highest distribution-fit. Pure benefits thesis aligns 1:1. PE sponsors actively deploying.",
     probability: 27,
-    lastWeekWinnerPct: 28,
   },
   {
     id: "ima",
@@ -193,7 +188,6 @@ const _RAW_BUYERS = [
     fit: { size: 4, benefits: 3, pe: 1, precedent: 5 },
     thesis: "Most active acquirer in 2025. Recent Birmingham proximity (Valent). Pattern says they bid; question is on price discipline.",
     probability: 16,
-    lastWeekWinnerPct: 15,
   },
   {
     id: "higgi",
@@ -220,7 +214,6 @@ const _RAW_BUYERS = [
     fit: { size: 4, benefits: 2, pe: 1, precedent: 2 },
     thesis: "Two prior soft passes. Formal process may not change priors unless thesis has shifted internally.",
     probability: 5,
-    lastWeekWinnerPct: 6,
   },
   {
     id: "br",
@@ -240,7 +233,6 @@ const _RAW_BUYERS = [
     fit: { size: 3, benefits: 2, pe: 0, precedent: 2 },
     thesis: "Adjacent rather than core fit. Watch as outside chance.",
     probability: 4,
-    lastWeekWinnerPct: 5,
   },
   {
     id: "kelly",
@@ -261,7 +253,6 @@ const _RAW_BUYERS = [
     fit: { size: 2, benefits: 5, pe: 0, precedent: 3 },
     thesis: "Cultural and product fit are real. Capacity to bid at market clears is the open question.",
     probability: 6,
-    lastWeekWinnerPct: 7,
   },
   {
     id: "cason",
@@ -289,7 +280,6 @@ const _RAW_BUYERS = [
     fit: { size: 2, benefits: 5, pe: 1, precedent: 3 },
     thesis: "High product overlap. Sponsor capacity to fund a stretch deal is the swing variable.",
     probability: 7,
-    lastWeekWinnerPct: 6,
   },
   {
     id: "oakbridge",
@@ -316,14 +306,13 @@ const _RAW_BUYERS = [
     fit: { size: 2, benefits: 3, pe: 1, precedent: 2 },
     thesis: "Regional fit, limited capital. Realistic only as a tuck-in not a platform acquirer.",
     probability: 3,
-    lastWeekWinnerPct: 3,
   },
 ];
 
 // Strip opinion/AI fields from each raw entry so the seed exported to the app
 // starts truly clean. The first AI rescan generates fit, probability, thesis,
 // market bands, and per-buyer reasoning from market comps + precedents.
-const _OPINION_FIELDS = ['notes', 'thesis', 'probability', 'lastWeekWinnerPct', 'fit', 'noteLog', 'aiNotes', 'aiHistory', 'aiCitations', 'aiCitedPrecedents', 'aiConfidence', 'lastAnalyzed', 'multipleOverride'];
+const _OPINION_FIELDS = ['notes', 'thesis', 'probability', 'fit', 'noteLog', 'aiNotes', 'aiHistory', 'aiCitations', 'aiCitedPrecedents', 'aiConfidence', 'lastAnalyzed', 'multipleOverride'];
 export const BUYERS = _RAW_BUYERS.map(b => {
   const clean = { ...b };
   for (const f of _OPINION_FIELDS) delete clean[f];

@@ -9,7 +9,7 @@ import pg from 'pg';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
-import { precedentSummary } from './src/data/precedents.js';
+import { precedentSummary, PRECEDENTS as SEED_PRECEDENTS, PUBLIC_COMP_BANDS } from './src/data/precedents.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -55,6 +55,7 @@ async function initDb() {
         process JSONB NOT NULL DEFAULT '{}',
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      ALTER TABLE workspace ADD COLUMN IF NOT EXISTS deal_profile JSONB NOT NULL DEFAULT '{}';
       CREATE TABLE IF NOT EXISTS buyers (
         workspace_id TEXT NOT NULL,
         id TEXT NOT NULL,
@@ -75,11 +76,71 @@ async function initDb() {
         error TEXT
       );
       CREATE INDEX IF NOT EXISTS rescan_log_ts_idx ON rescan_log (workspace_id, ts DESC);
+      CREATE TABLE IF NOT EXISTS precedents (
+        workspace_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        data JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (workspace_id, id)
+      );
+      CREATE TABLE IF NOT EXISTS prediction_snapshots (
+        id BIGSERIAL PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+        label TEXT,
+        p_no_deal INT,
+        market JSONB,
+        buyers JSONB
+      );
+      CREATE INDEX IF NOT EXISTS prediction_snapshots_ts_idx ON prediction_snapshots (workspace_id, ts DESC);
     `);
     console.log('DB schema ready');
   } catch (err) {
     console.error('DB init failed — continuing without persistence:', err.message);
   }
+}
+
+// Load precedents from DB. Falls back to file seed when DB is empty / missing.
+async function loadPrecedents() {
+  if (!pool) return SEED_PRECEDENTS;
+  try {
+    const r = await pool.query(`SELECT data FROM precedents WHERE workspace_id = $1 ORDER BY id`, [WORKSPACE_ID]);
+    if (r.rows.length === 0) return SEED_PRECEDENTS;
+    return r.rows.map(row => row.data);
+  } catch (err) {
+    console.warn('loadPrecedents failed; falling back to seed:', err.message);
+    return SEED_PRECEDENTS;
+  }
+}
+
+async function loadDealProfile() {
+  if (!pool) return {};
+  try {
+    const r = await pool.query(`SELECT deal_profile FROM workspace WHERE id = $1`, [WORKSPACE_ID]);
+    return r.rows[0]?.deal_profile || {};
+  } catch (err) {
+    return {};
+  }
+}
+
+function dealProfileSummary(p = {}) {
+  const lines = ['# DEAL PROFILE (CIM-derived facts; treat as ground truth)'];
+  const fields = [
+    ['EBITDA (LTM, $M)', p.ebitda],
+    ['Recurring revenue %', p.recurring_rev_pct],
+    ['Top-10 customer concentration %', p.top10_concentration],
+    ['EBITDA margin %', p.ebitda_margin],
+    ['3-yr revenue CAGR %', p.growth_3yr],
+    ['Captive % of book', p.captive_pct],
+    ['Key-person risk', p.key_person_risk],
+  ];
+  let any = false;
+  for (const [k, v] of fields) {
+    if (v != null && v !== '') { lines.push(`- ${k}: ${v}`); any = true; }
+  }
+  if (p.business_description) { lines.push(`- Description: ${p.business_description}`); any = true; }
+  if (!any) lines.push('(empty — user has not entered structured CIM facts yet; fall back to attached docs and buyer profile inference)');
+  return lines.join('\n');
 }
 
 // Fire-and-forget audit log writer — does not block the rescan response.
@@ -92,7 +153,8 @@ function logRescan({ scope, only_buyer_id, input, output, live_intel, duration_m
   ).catch(err => console.warn('rescan_log write failed:', err.message));
 }
 
-const RESCAN_SYSTEM_PROMPT = `You are the Kennion Prediction Engine — a senior M&A advisor's AI co-pilot for the sell-side process of Kennion's Benefits Program (a captive-style benefits brokerage advised by Reagan Consulting, currently in the Spring 2026 sale process). The actual current LTM EBITDA for the asset is provided in every user message — read it from there, do not assume a size.
+function buildRescanSystemPrompt({ precedents, dealProfile }) {
+  return `You are the Kennion Prediction Engine — a senior M&A advisor's AI co-pilot for the sell-side process of Kennion's Benefits Program (a captive-style benefits brokerage advised by Reagan Consulting, currently in the Spring 2026 sale process). The actual current LTM EBITDA for the asset is provided in every user message — read it from there, do not assume a size.
 
 # Core architecture (READ FIRST)
 There is ONE asset for sale (Kennion). The market clearing multiple for that asset is set by INDUSTRY DATA, not by individual buyers — every credible buyer pays roughly within the industry band for assets of this profile. Your output has two layers:
@@ -105,7 +167,9 @@ This means most buyers' rescores will leave multiple_override = null. That's cor
 
 Re-evaluate using ONLY the evidence provided: buyer profile data, attached documents (CIM, LOIs, buyer emails, redlines, models), user field intelligence in notes, your own prior reasoning, and the precedent table.
 
-${precedentSummary()}
+${precedentSummary({ precedents, publicComps: PUBLIC_COMP_BANDS })}
+
+${dealProfileSummary(dealProfile)}
 
 # Citation requirement
 Every buyer's reasoning MUST cite at least one precedent id from the table above (or a public comp ticker like "BRO"). The cited_precedents array lists which ids you anchored on. Do NOT invent deals not in the table — if a deal is missing, say so and the user will add it.
@@ -138,7 +202,7 @@ Bands ~2× wide; bands may overlap (conservative.high may equal realistic.low). 
 **Conservatism bias**: when evidence is thin, lean to the lower half of the bucket. It is better to surface a credible $22–29M valuation that holds up under LP scrutiny than a wishful $40M+ that collapses at LOI. Every band note must include the size bucket you used (e.g. "$3–5M EBITDA bucket · captive-niche").
 
 # Notes timeline (treat as field intelligence over time, not as a static brief)
-Each buyer's \`notes_timeline\` field is a chronological log of field intel — one line per entry, prefixed with \`[YYYY-MM-DD]\`. Read it as a story, not a list:
+Each buyer's \`notes_timeline\` field is a chronological log of field intel — one line per entry, prefixed with \`[YYYY-MM-DD]\` and optionally a user-tagged signal classification \`[warming|cooling|firm|stalling|passed]\`. Signal-tagged notes carry direct user judgment about the trajectory — weight them more heavily than untagged free-text notes (\`firm\` is hardest evidence, then \`passed\`, then \`warming\`/\`cooling\`/\`stalling\`). Read it as a story, not a list:
 - **Recent entries weigh more than older ones.** Look for momentum (warming, cooling, stalling), not average sentiment. A single recent strong signal (LOI hint, cooling chemistry, sponsor change, capacity pull) can override a stack of older neutral notes.
 - **Reference dates** when you anchor on a specific note (e.g., "the 2026-05-22 chemistry note"). Do not invent dates — only use ones present in the timeline.
 - **Trajectory matters**: a buyer with three warming notes in two weeks is materially different from a buyer with three warming notes spread over six months. Reflect that in probability and confidence.
@@ -181,15 +245,25 @@ Format examples (illustrative only — do NOT copy buyer names, dates, percentag
 
 These rationales must reflect the CURRENT pipeline state in this rescan call. If a per-buyer rescan changed only one buyer, update the rationales only if the change is material to the dashboard number; otherwise echo prior values.
 
+# No-deal probability (\`p_no_deal\`, 0–100)
+This is the probability that the asset does NOT sell within the planned process window. It reflects market/process risk, not the inverse of buyer probabilities. Consider:
+- Buyer-pool depth for the size bucket (sub-mid-market = thinner pool = higher no-deal risk)
+- Captive-niche illiquidity (smaller buyer set = higher no-deal risk)
+- Sponsor capacity / deployment cycle drag
+- Trajectory of recent notes (multiple cooling signals, declined-2x flags, capacity pulls increase no-deal risk)
+- Process timeline pressure (further from LOI deadline = lower urgency = higher no-deal risk)
+For Kennion's profile (captive benefits, sub-mid-market) a healthy floor is 10–20% even with strong buyers. Do not let it go below 5% absent firm-evidence LOIs from multiple buyers. \`p_no_deal_rationale\`: max 25 words, plain English, name the single biggest no-deal risk.
+
 # Output discipline
 Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence. If evidence is insufficient to move a number, leave it stable and say so in reasoning.`;
+}
 
 const RESCAN_TOOL = {
   name: 'apply_rescan',
   description: 'Apply a re-evaluation of one or more buyers in the pipeline based on all available context (buyer profiles, attached documents, user field intelligence, prior reasoning).',
   input_schema: {
     type: 'object',
-    required: ['market', 'buyers', 'summary', 'close_date_rationale', 'confidence_rationale', 'clearing_price_rationale'],
+    required: ['market', 'buyers', 'summary', 'close_date_rationale', 'confidence_rationale', 'clearing_price_rationale', 'p_no_deal', 'p_no_deal_rationale'],
     properties: {
       market: {
         type: 'object',
@@ -293,6 +367,16 @@ const RESCAN_TOOL = {
         type: 'string',
         description: 'Plain-English one-liner explaining the market clearing price band. Max 25 words, two short sentences max. State the multiple, why that size bucket, and what would push it higher. No jargon ("anchored on the bucket", "tuck-in math", "captive-niche-discount").',
       },
+      p_no_deal: {
+        type: 'integer',
+        minimum: 0,
+        maximum: 100,
+        description: 'Probability the asset does NOT sell within the planned process window (0-100). Independent of any single buyer probability. Reflects market/process risk: buyer-pool depth, captive-niche illiquidity, sponsor capacity, note trajectory, process timeline pressure.',
+      },
+      p_no_deal_rationale: {
+        type: 'string',
+        description: 'Plain-English one-liner explaining the no-deal probability. Max 25 words. Name the single biggest no-deal risk. No jargon.',
+      },
     },
   },
 };
@@ -311,7 +395,7 @@ app.post('/api/ai/complete', async (req, res) => {
   try {
     const message = await client.messages.create({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 512,
       messages: [{ role: 'user', content: prompt }],
     });
     res.json({ text: message.content[0].text });
@@ -364,42 +448,96 @@ app.post('/api/ai/chat', async (req, res) => {
   }
 });
 
-// Fetch fresh market intel using OpenAI's web_search tool. Returns a text blob
-// with cited URLs for Claude to reference. Returns null on failure / when not
-// configured — caller proceeds without live intel.
-async function fetchLiveMarketIntel({ buyers, scopedBuyerId }) {
-  if (!openai) return null;
+// In-memory live-intel cache. Keyed by query string. TTL 30 min. On a single
+// Railway dyno this is sufficient; cross-process caching would need a DB-backed
+// table (deferred). Cache is best-effort — eviction on miss is fine.
+const liveIntelCache = new Map();
+const LIVE_INTEL_TTL_MS = 30 * 60 * 1000;
 
-  const live = (buyers || []).filter(b => b.stage !== 'dropped');
-  const buyerNames = scopedBuyerId
-    ? [live.find(b => b.id === scopedBuyerId)?.name].filter(Boolean)
-    : live.slice(0, 4).map(b => b.name);
+function readIntelCache(key) {
+  const hit = liveIntelCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > LIVE_INTEL_TTL_MS) {
+    liveIntelCache.delete(key);
+    return null;
+  }
+  return hit.text;
+}
+function writeIntelCache(key, text) {
+  if (text) liveIntelCache.set(key, { ts: Date.now(), text });
+  // Soft cap: drop oldest if over 64 entries.
+  if (liveIntelCache.size > 64) {
+    const first = liveIntelCache.keys().next().value;
+    if (first) liveIntelCache.delete(first);
+  }
+}
 
-  const today = new Date().toISOString().slice(0, 10);
-  const buyerSection = buyerNames.length
-    ? `\n2. M&A activity, sponsor changes, or material news in the last 6 months for these specific firms: ${buyerNames.join(', ')}.`
-    : '';
-
-  const query = `Today is ${today}. Search the web and report concrete, recent facts only:
-
-1. U.S. insurance / benefits brokerage M&A transactions closed or announced in the last 6 months. For each, give target, acquirer, EV, and EBITDA multiple if disclosed.${buyerSection}
-3. Current forward-EBITDA multiples for public broker comps (BRO, AON, MMC, AJG, WTW) — most recent sell-side or earnings-call print.
-
-Cite every fact with a source URL inline. If a topic has no material updates, say "no material updates" — do not pad. Be terse. Skip generic background.`;
-
+async function runWebSearch(query, label) {
+  const cached = readIntelCache(query);
+  if (cached) {
+    console.log(`live_intel cache hit · ${label}`);
+    return cached;
+  }
   try {
     const response = await openai.responses.create({
       model: LIVE_INTEL_MODEL,
       tools: [{ type: 'web_search' }],
       input: query,
-      max_output_tokens: 1500,
+      max_output_tokens: 900,
     });
-    const text = response.output_text || '';
-    return text.trim() || null;
+    const text = (response.output_text || '').trim() || null;
+    if (text) writeIntelCache(query, text);
+    return text;
   } catch (err) {
-    console.warn('Live market intel fetch failed:', err.message);
+    console.warn(`live_intel fetch failed (${label}):`, err.message);
     return null;
   }
+}
+
+// Fetch fresh market intel using OpenAI's web_search tool. Fans out into one
+// market-wide query plus one per-buyer query (capped at 4 buyers per call) and
+// stitches the results into a labeled blob. Per-query results are cached for
+// 30 min so successive rescans don't re-hit the web.
+async function fetchLiveMarketIntel({ buyers, scopedBuyerId }) {
+  if (!openai) return null;
+  const live = (buyers || []).filter(b => b.stage !== 'dropped');
+  const today = new Date().toISOString().slice(0, 10);
+
+  const targets = scopedBuyerId
+    ? live.filter(b => b.id === scopedBuyerId)
+    : [...live].sort((a, b) => (b.probability || 0) - (a.probability || 0)).slice(0, 4);
+
+  const marketQuery = `Today is ${today}. Search the web and report concrete, recent facts only:
+
+1. U.S. insurance / benefits brokerage M&A transactions closed or announced in the last 6 months. For each, give target, acquirer, EV, and EBITDA multiple if disclosed.
+2. Current forward-EBITDA multiples for public broker comps (BRO, AON, MMC, AJG, WTW, BWIN) — most recent sell-side or earnings-call print.
+
+Cite every fact with a source URL inline. If a topic has no material updates, say "no material updates" — do not pad. Be terse. Skip generic background.`;
+
+  const buyerQueryFor = (b) => `Today is ${today}. Find concrete, recent (last 6 months) facts about ${b.name}${b.sponsor && b.sponsor !== '—' ? ` (sponsor: ${b.sponsor})` : ''} relevant to a U.S. benefits-brokerage M&A bid. Specifically:
+- Acquisitions they made in 2025-2026 (target, EV/multiple if disclosed)
+- Sponsor capital deployment status, fund vintage, dry powder commentary
+- Capacity / leadership / strategy changes that affect their willingness to bid
+- Any public statements about benefits-brokerage M&A appetite
+
+Cite every fact with a source URL inline. If nothing material, say "no material updates" — do not pad.`;
+
+  const tasks = [
+    { label: 'market', query: marketQuery },
+    ...targets.map(b => ({ label: b.name, query: buyerQueryFor(b), buyerId: b.id })),
+  ];
+
+  // Cap parallel OpenAI calls at 5. 1 market + up to 4 buyers fits naturally.
+  const results = await Promise.allSettled(tasks.map(t => runWebSearch(t.query, t.label)));
+
+  const sections = [];
+  results.forEach((r, i) => {
+    const t = tasks[i];
+    const text = r.status === 'fulfilled' ? r.value : null;
+    if (!text) return;
+    sections.push(`## ${t.label === 'market' ? 'Market & public comps' : `Buyer · ${t.label}`}\n${text}`);
+  });
+  return sections.length > 0 ? sections.join('\n\n') : null;
 }
 
 // Re-evaluate the buyer pipeline with full context (buyers + docs + notes + prior reasoning).
@@ -454,19 +592,29 @@ app.post('/api/ai/rescan', async (req, res) => {
     ? `SCOPE: Re-score ONLY buyer "${only_buyer_id}" based on their latest notes and any new documents. Return apply_rescan with that one buyer in the buyers array. Echo the prior market values unchanged in the market field. The other buyers are shown as compact summaries solely to give you context for the dashboard-level rationales — do NOT include them in your response.`
     : `SCOPE: Re-evaluate every non-dropped buyer in the pipeline. Update market multiple bands if evidence has shifted; otherwise echo prior values.`;
 
-  // Fetch fresh web intel BEFORE Claude's rescan. Runs in parallel-style with
-  // Anthropic call setup; non-fatal on failure.
-  const liveIntel = await fetchLiveMarketIntel({ buyers: livePipeline, scopedBuyerId: only_buyer_id });
+  // Load DB-backed precedents + deal profile in parallel with the live web
+  // intel fetch. Both feed the system / user prompt below.
+  const [precedents, dealProfile, liveIntel] = await Promise.all([
+    loadPrecedents(),
+    loadDealProfile(),
+    fetchLiveMarketIntel({ buyers: livePipeline, scopedBuyerId: only_buyer_id }),
+  ]);
 
+  // Profile EBITDA wins over the workspace-level number when populated. The
+  // workspace-level value is the editable hero KPI; deal_profile.ebitda is the
+  // CIM-anchored truth used to bucket the multiple.
+  const sizingEbitda = (dealProfile && typeof dealProfile.ebitda === 'number' && dealProfile.ebitda > 0)
+    ? dealProfile.ebitda
+    : ebitda;
   const sizeBucket =
-    ebitda < 3 ? '<$3M (sub-scale, local strategics + small PE tuck-ins only)'
-    : ebitda < 5 ? '$3–5M (captive-niche bucket, sub-mid-market multiples)'
-    : ebitda < 10 ? '$5–10M (lower mid-market, limited PE platform interest)'
-    : ebitda < 20 ? '$10–20M (mid-market PE band starts to apply)'
-    : ebitda < 50 ? '$20–50M (full mid-market PE / strategic platform)'
+    sizingEbitda < 3 ? '<$3M (sub-scale, local strategics + small PE tuck-ins only)'
+    : sizingEbitda < 5 ? '$3–5M (captive-niche bucket, sub-mid-market multiples)'
+    : sizingEbitda < 10 ? '$5–10M (lower mid-market, limited PE platform interest)'
+    : sizingEbitda < 20 ? '$10–20M (mid-market PE band starts to apply)'
+    : sizingEbitda < 50 ? '$20–50M (full mid-market PE / strategic platform)'
     : '>$50M (scaled-platform comps with private discount)';
   const userText = `# Pipeline state
-EBITDA: $${ebitda}M (locked, set by Reagan — do not adjust)
+EBITDA: $${sizingEbitda}M (locked, set by Reagan — do not adjust)
 Size bucket: ${sizeBucket}
 **Reminder: anchor the realistic multiple band on this bucket FIRST. Do not apply mid-market or scaled-broker multiples to a sub-$10M asset without explicit hard evidence (LOI, term sheet, written offer).**
 
@@ -493,11 +641,12 @@ ${focusInstruction}`;
     user_text: userText,
   };
   try {
+    const systemPrompt = buildRescanSystemPrompt({ precedents, dealProfile });
     const message = await client.beta.messages.create({
       model: MODEL,
       max_tokens: 8192,
       system: [
-        { type: 'text', text: RESCAN_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
       ],
       tools: [RESCAN_TOOL],
       tool_choice: { type: 'tool', name: 'apply_rescan' },
@@ -585,11 +734,17 @@ ${focusInstruction}`;
 
 // Render a buyer's notes for the AI as a chronological timeline. Prefers the
 // new noteLog array; falls back to the legacy single-string `notes` field for
-// buyers that haven't been migrated yet.
+// buyers that haven't been migrated yet. Entries with a user-tagged `signal`
+// emit a second bracket so the model can read them as deliberate user judgment
+// (warming/cooling/firm/stalling/passed) rather than free-text.
 function formatNoteTimeline(buyer) {
   if (Array.isArray(buyer.noteLog) && buyer.noteLog.length > 0) {
     return buyer.noteLog
-      .map(e => `[${(e.ts || '').slice(0, 10)}] ${e.text || ''}`)
+      .map(e => {
+        const date = (e.ts || '').slice(0, 10);
+        const sig = e.signal ? `[${e.signal}] ` : '';
+        return `[${date}] ${sig}${e.text || ''}`;
+      })
       .filter(line => line.trim().length > '[2024-01-01] '.length)
       .join('\n');
   }
@@ -652,6 +807,14 @@ function validateRescanShape(p, onlyBuyerId) {
   if (typeof p.close_date_rationale !== 'string') return { ok: false, error: 'missing close_date_rationale' };
   if (typeof p.confidence_rationale !== 'string') return { ok: false, error: 'missing confidence_rationale' };
   if (typeof p.clearing_price_rationale !== 'string') return { ok: false, error: 'missing clearing_price_rationale' };
+  // p_no_deal is required for pipeline rescans; per-buyer rescans may legitimately
+  // omit it (the AI is told to focus on one buyer + echo prior dashboard values).
+  if (!onlyBuyerId) {
+    if (typeof p.p_no_deal !== 'number' || p.p_no_deal < 0 || p.p_no_deal > 100) {
+      return { ok: false, error: 'p_no_deal missing or out of range' };
+    }
+    if (typeof p.p_no_deal_rationale !== 'string') return { ok: false, error: 'missing p_no_deal_rationale' };
+  }
   return { ok: true };
 }
 
@@ -719,6 +882,7 @@ app.get('/api/workspace', async (_req, res) => {
         market_meta: ws.market_meta,
         rationales: ws.rationales,
         process: ws.process,
+        deal_profile: ws.deal_profile || {},
         updated_at: ws.updated_at,
       } : null,
       buyers: buyersRows.rows.map(r => ({ ...r.data, updated_at: r.updated_at })),
@@ -731,11 +895,11 @@ app.get('/api/workspace', async (_req, res) => {
 
 app.put('/api/workspace', async (req, res) => {
   if (!ensureDb(res)) return;
-  const { ebitda, case_mode, market, market_meta, rationales, process: proc } = req.body || {};
+  const { ebitda, case_mode, market, market_meta, rationales, process: proc, deal_profile } = req.body || {};
   try {
     await pool.query(`
-      INSERT INTO workspace (id, ebitda, case_mode, market, market_meta, rationales, process, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+      INSERT INTO workspace (id, ebitda, case_mode, market, market_meta, rationales, process, deal_profile, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
       ON CONFLICT (id) DO UPDATE SET
         ebitda = COALESCE(EXCLUDED.ebitda, workspace.ebitda),
         case_mode = COALESCE(EXCLUDED.case_mode, workspace.case_mode),
@@ -743,11 +907,82 @@ app.put('/api/workspace', async (req, res) => {
         market_meta = COALESCE(EXCLUDED.market_meta, workspace.market_meta),
         rationales = COALESCE(EXCLUDED.rationales, workspace.rationales),
         process = COALESCE(EXCLUDED.process, workspace.process),
+        deal_profile = COALESCE(EXCLUDED.deal_profile, workspace.deal_profile),
         updated_at = now()
-    `, [WORKSPACE_ID, ebitda ?? null, case_mode ?? null, market ?? null, market_meta ?? null, rationales ?? null, proc ?? null]);
+    `, [WORKSPACE_ID, ebitda ?? null, case_mode ?? null, market ?? null, market_meta ?? null, rationales ?? null, proc ?? null, deal_profile ?? null]);
     res.json({ ok: true });
   } catch (err) {
     console.error('PUT /api/workspace error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Precedents — user-editable comp table the AI cites in every rescan.
+app.get('/api/precedents', async (_req, res) => {
+  if (!ensureDb(res)) return;
+  try {
+    const r = await pool.query(`SELECT id, data FROM precedents WHERE workspace_id = $1 ORDER BY id`, [WORKSPACE_ID]);
+    res.json({ precedents: r.rows.length > 0 ? r.rows.map(row => row.data) : SEED_PRECEDENTS });
+  } catch (err) {
+    console.error('GET /api/precedents error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/precedents', async (req, res) => {
+  if (!ensureDb(res)) return;
+  const list = Array.isArray(req.body?.precedents) ? req.body.precedents : null;
+  if (!list) return res.status(400).json({ error: 'precedents array required' });
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query(`DELETE FROM precedents WHERE workspace_id = $1`, [WORKSPACE_ID]);
+    for (const p of list) {
+      if (!p?.id) continue;
+      await c.query(
+        `INSERT INTO precedents (workspace_id, id, data) VALUES ($1, $2, $3)`,
+        [WORKSPACE_ID, p.id, p]
+      );
+    }
+    await c.query('COMMIT');
+    res.json({ ok: true, count: list.length });
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => {});
+    console.error('PUT /api/precedents error:', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    c.release();
+  }
+});
+
+// Pipeline snapshots — captured manually so we can score predictions later.
+app.post('/api/snapshots', async (req, res) => {
+  if (!ensureDb(res)) return;
+  const { label, p_no_deal, market, buyers } = req.body || {};
+  try {
+    await pool.query(
+      `INSERT INTO prediction_snapshots (workspace_id, label, p_no_deal, market, buyers)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [WORKSPACE_ID, label || null, p_no_deal ?? null, market ?? null, buyers ?? null]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/snapshots error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/snapshots', async (_req, res) => {
+  if (!ensureDb(res)) return;
+  try {
+    const r = await pool.query(
+      `SELECT id, ts, label, p_no_deal, market, buyers FROM prediction_snapshots
+       WHERE workspace_id = $1 ORDER BY ts DESC LIMIT 50`,
+      [WORKSPACE_ID]
+    );
+    res.json({ snapshots: r.rows });
+  } catch (err) {
+    console.error('GET /api/snapshots error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

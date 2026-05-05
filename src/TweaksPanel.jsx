@@ -160,3 +160,36 @@ export function TweakAction({ label, hint, onClick, danger = false }) {
     </div>
   );
 }
+
+export function TweakNumber({ label, value, onChange, hint, step = 1, min, max }) {
+  const display = value == null || value === '' ? '' : String(value);
+  return (
+    <div className="twk-row">
+      <div className="twk-lbl"><span>{label}</span></div>
+      <input
+        type="number"
+        step={step}
+        min={min}
+        max={max}
+        value={display}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === '') return onChange(null);
+          const n = parseFloat(v);
+          if (!Number.isNaN(n)) onChange(n);
+        }}
+        style={{
+          width: '100%',
+          padding: '6px 8px',
+          border: '1px solid rgba(0,0,0,.18)',
+          borderRadius: 6,
+          background: 'rgba(255,255,255,.55)',
+          color: '#29261b',
+          font: 'inherit',
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      />
+      {hint && <div className="twk-action-hint">{hint}</div>}
+    </div>
+  );
+}
