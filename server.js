@@ -75,6 +75,7 @@ async function initDb() {
         error TEXT
       );
       CREATE INDEX IF NOT EXISTS rescan_log_ts_idx ON rescan_log (workspace_id, ts DESC);
+      ALTER TABLE workspace ADD COLUMN IF NOT EXISTS global_intel JSONB NOT NULL DEFAULT '[]';
     `);
     console.log('DB schema ready');
   } catch (err) {
@@ -464,7 +465,7 @@ Cite every fact with a source URL inline. If a topic has no material updates, sa
 // Re-evaluate the buyer pipeline with full context (buyers + docs + notes + prior reasoning).
 // Used by the top-bar Re-scan, per-buyer note submission, and post-classify doc upload.
 app.post('/api/ai/rescan', async (req, res) => {
-  const { buyers, ebitda, file_ids, only_buyer_id, prior_market } = req.body;
+  const { buyers, ebitda, file_ids, only_buyer_id, prior_market, global_intel, extra_intel } = req.body;
   if (!Array.isArray(buyers) || buyers.length === 0) {
     return res.status(400).json({ error: 'buyers array required' });
   }
@@ -540,6 +541,12 @@ ${liveIntel ? `# Live web intel (fetched ${new Date().toISOString().slice(0,10)}
 ${liveIntel}
 ` : '# Live web intel: unavailable for this rescan.'}
 
+${Array.isArray(global_intel) && global_intel.length > 0 ? `# Pipeline-level intel log (free-text user inputs, newest first — running record of process-wide observations not tied to a single buyer)
+${global_intel.slice(-20).reverse().map(g => `[${(g.ts || '').slice(0,10)}] ${g.text}`).join('\n')}
+` : ''}
+${extra_intel ? `# Just submitted (incorporate this into the rescan)
+${extra_intel}
+` : ''}
 ${focusInstruction}`;
 
   const t0 = Date.now();
@@ -1022,6 +1029,7 @@ app.get('/api/workspace', async (_req, res) => {
         market_meta: ws.market_meta,
         rationales: ws.rationales,
         process: ws.process,
+        global_intel: ws.global_intel || [],
         updated_at: ws.updated_at,
       } : null,
       buyers: buyersRows.rows.map(r => ({ ...r.data, updated_at: r.updated_at })),
@@ -1034,11 +1042,11 @@ app.get('/api/workspace', async (_req, res) => {
 
 app.put('/api/workspace', async (req, res) => {
   if (!ensureDb(res)) return;
-  const { ebitda, case_mode, market, market_meta, rationales, process: proc } = req.body || {};
+  const { ebitda, case_mode, market, market_meta, rationales, process: proc, global_intel } = req.body || {};
   try {
     await pool.query(`
-      INSERT INTO workspace (id, ebitda, case_mode, market, market_meta, rationales, process, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+      INSERT INTO workspace (id, ebitda, case_mode, market, market_meta, rationales, process, global_intel, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
       ON CONFLICT (id) DO UPDATE SET
         ebitda = COALESCE(EXCLUDED.ebitda, workspace.ebitda),
         case_mode = COALESCE(EXCLUDED.case_mode, workspace.case_mode),
@@ -1046,8 +1054,9 @@ app.put('/api/workspace', async (req, res) => {
         market_meta = COALESCE(EXCLUDED.market_meta, workspace.market_meta),
         rationales = COALESCE(EXCLUDED.rationales, workspace.rationales),
         process = COALESCE(EXCLUDED.process, workspace.process),
+        global_intel = COALESCE(EXCLUDED.global_intel, workspace.global_intel),
         updated_at = now()
-    `, [WORKSPACE_ID, ebitda ?? null, case_mode ?? null, market ?? null, market_meta ?? null, rationales ?? null, proc ?? null]);
+    `, [WORKSPACE_ID, ebitda ?? null, case_mode ?? null, market ?? null, market_meta ?? null, rationales ?? null, proc ?? null, global_intel ?? null]);
     res.json({ ok: true });
   } catch (err) {
     console.error('PUT /api/workspace error:', err.message);

@@ -82,7 +82,7 @@ export function diffBuyer(prev, next) {
 
 // ---------- core call ----------
 
-async function callRescan({ buyers, ebitda, fileIds, onlyBuyerId, priorMarket }) {
+async function callRescan({ buyers, ebitda, fileIds, onlyBuyerId, priorMarket, globalIntel, extraIntel }) {
   const res = await fetch(RESCAN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -92,6 +92,8 @@ async function callRescan({ buyers, ebitda, fileIds, onlyBuyerId, priorMarket })
       file_ids: fileIds || [],
       only_buyer_id: onlyBuyerId || null,
       prior_market: priorMarket,
+      global_intel: globalIntel || [],
+      extra_intel: extraIntel || null,
     }),
   });
   if (!res.ok) {
@@ -152,12 +154,12 @@ export function applyRescanToBuyers(buyers, rescan, opts = {}) {
 
 // ---------- public API ----------
 
-export async function rescanPipeline({ buyers, ebitda, fileIds, priorMarket }) {
-  return callRescan({ buyers, ebitda, fileIds, priorMarket });
+export async function rescanPipeline({ buyers, ebitda, fileIds, priorMarket, globalIntel, extraIntel }) {
+  return callRescan({ buyers, ebitda, fileIds, priorMarket, globalIntel, extraIntel });
 }
 
-export async function rescanBuyer({ buyers, ebitda, fileIds, priorMarket, buyerId }) {
-  return callRescan({ buyers, ebitda, fileIds, priorMarket, onlyBuyerId: buyerId });
+export async function rescanBuyer({ buyers, ebitda, fileIds, priorMarket, buyerId, globalIntel, extraIntel }) {
+  return callRescan({ buyers, ebitda, fileIds, priorMarket, onlyBuyerId: buyerId, globalIntel, extraIntel });
 }
 
 export async function rescanBuyers({ buyers, ebitda, fileIds, priorMarket, buyerIds }) {

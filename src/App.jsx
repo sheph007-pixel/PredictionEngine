@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { STAGES, STAGE_INDEX, PROCESS_DEFAULT, BUYERS } from './data.js';
 import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
-  AIChat, winnerProbabilities, AIHistoryButton, AIHistoryModal,
+  IntelBar, winnerProbabilities, AIHistoryButton, AIHistoryModal,
 } from './components.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
@@ -70,10 +70,10 @@ export default function App() {
   const [market, setMarket] = usePersistedState('market', DEFAULT_MARKET);
   const [marketMeta, setMarketMeta] = usePersistedState('marketMeta', 'AI · sector deal flow + public comp drift · 2 min ago');
   const [rationales, setRationales] = usePersistedState('rationales', { close_date: null, confidence: null, clearing_price: null, p_no_deal: null, p_no_deal_rationale: null });
+  const [globalIntel, setGlobalIntel] = usePersistedState('globalIntel', []);
 
   const [openId, setOpenId] = useState(null);
   const [openIntent, setOpenIntent] = useState(null);
-  const [aiOpen, setAiOpen] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [docs, setDocs] = useLibrary();
@@ -105,6 +105,7 @@ export default function App() {
         if (ws.market_meta) setMarketMeta(ws.market_meta);
         if (ws.rationales) setRationales(ws.rationales);
         if (ws.process) setProcess(ws.process);
+        if (Array.isArray(ws.global_intel)) setGlobalIntel(ws.global_intel);
       }
       if (Array.isArray(result.buyers) && result.buyers.length > 0) {
         setBuyers(result.buyers);
@@ -113,7 +114,7 @@ export default function App() {
         await pushBuyers(buyers);
         await pushWorkspace({
           ebitda, case_mode: caseMode, market, market_meta: marketMeta,
-          rationales, process,
+          rationales, process, global_intel: globalIntel,
         });
       }
       setSyncStatus('synced');
@@ -130,11 +131,11 @@ export default function App() {
     debouncedPush('workspace', async () => {
       const ok = await pushWorkspace({
         ebitda, case_mode: caseMode, market, market_meta: marketMeta,
-        rationales, process,
+        rationales, process, global_intel: globalIntel,
       });
       setSyncStatus(ok ? 'synced' : 'offline');
     });
-  }, [ebitda, caseMode, market, marketMeta, rationales, process]);
+  }, [ebitda, caseMode, market, marketMeta, rationales, process, globalIntel]);
 
   // Buyers sync — bulk replace (rescans typically touch many buyers at once).
   useEffect(() => {
@@ -167,7 +168,7 @@ export default function App() {
     }));
   };
 
-  const rescanAll = async () => {
+  const rescanAll = async (extraIntel = null) => {
     setRescanError(null);
     try {
       const result = await rescanPipeline({
@@ -175,6 +176,8 @@ export default function App() {
         ebitda,
         fileIds,
         priorMarket: market,
+        globalIntel,
+        extraIntel,
       });
       setBuyers(bs => applyRescanToBuyers(bs, result));
       setMarket(result.market);
@@ -200,6 +203,7 @@ export default function App() {
         fileIds,
         priorMarket: market,
         buyerId,
+        globalIntel,
       });
       const trigger = opts.triggerNoteId
         ? { buyerId, noteId: opts.triggerNoteId }
@@ -319,6 +323,21 @@ export default function App() {
   };
   const openBuyer = (id, intent = null) => { setOpenId(id); setOpenIntent(intent); };
 
+  // IntelBar handlers — buyer-specific intel goes into that buyer's noteLog
+  // (so it shows up in the modal timeline + feeds future rescans). General
+  // intel appends to workspace.globalIntel which the rescan endpoint splices
+  // into every prompt as a running market-context log (capped at 30 entries
+  // server-side, 50 client-side to leave headroom).
+  const routeIntelToBuyer = (buyerId, note) => {
+    appendBuyerNote(buyerId, note);
+  };
+  const appendGlobalIntel = (text) => {
+    setGlobalIntel(prev => {
+      const next = [...(Array.isArray(prev) ? prev : []), { ts: new Date().toISOString(), text }];
+      return next.slice(-50);
+    });
+  };
+
   const winnerData = winnerProbabilities(buyers, ebitda, caseMode);
   const ordered = [...buyers].sort((a, b) => {
     if (a.stage === 'dropped' && b.stage !== 'dropped') return 1;
@@ -350,8 +369,15 @@ export default function App() {
       <ProcessTracker process={process} onUpdate={setProcess} buyers={buyers} ebitda={ebitda} caseMode={caseMode} />
 
       <div className="pipeline">
+        <IntelBar
+          buyers={buyers}
+          fileIds={fileIds}
+          onRouteToBuyer={routeIntelToBuyer}
+          onAppendGlobal={appendGlobalIntel}
+          onRescanAll={rescanAll}
+        />
         <div className="pipeline-head">
-          <div className="pipeline-sub">{buyers.length} firms · ranked by win probability · click + to add intel and re-rank</div>
+          <div className="pipeline-sub">{buyers.length} firms · ranked by win probability · type intel above to update predictions</div>
         </div>
         <div className="rows">
           {ordered.map((b, i) => (
@@ -412,13 +438,6 @@ export default function App() {
         <AIHistoryModal onClose={() => setShowHistory(false)} buyers={buyers} />
       )}
 
-      <AIChat
-        buyers={buyers}
-        setBuyers={setBuyers}
-        fileIds={docs.map(d => d.id)}
-        open={aiOpen}
-        onToggle={() => setAiOpen(!aiOpen)}
-      />
     </div>
   );
 }

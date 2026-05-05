@@ -1183,6 +1183,108 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
   );
 }
 
+// ---------- Intel Bar ----------
+// Single-shot capture above the pipeline. User types any field intel — buyer-
+// specific or general market — and the engine routes it: buyer-specific notes
+// land in that buyer's noteLog, general intel appends to the workspace's
+// globalIntel log. Either way, a full pipeline rescan runs immediately so
+// every prediction reflects the new input. Inputs accumulate as ground-truth
+// context the AI sees on every subsequent rescan.
+export function IntelBar({ buyers, fileIds, onRouteToBuyer, onAppendGlobal, onRescanAll }) {
+  const [text, setText] = useState('');
+  const [pending, setPending] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const submit = async () => {
+    const q = text.trim();
+    if (!q || pending) return;
+    setPending(true);
+    setResult(null);
+
+    const buyerCtx = buyers
+      .filter(b => b.stage !== 'dropped')
+      .map(b => `${b.id}=${b.name}`)
+      .join(', ');
+
+    const tool = {
+      name: 'route_intel',
+      description: 'Route the user input to the right place: a specific buyer if it is about that buyer, or general/market intel if it applies pipeline-wide.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          buyer_id: {
+            type: ['string', 'null'],
+            description: 'Buyer id (lowercase short id) the input is about. Null if it is market-level / pipeline-wide intel not tied to one buyer.',
+          },
+          note: {
+            type: 'string',
+            description: 'The intel as it should be logged. Lightly clean grammar; do not paraphrase or add facts.',
+          },
+        },
+        required: ['buyer_id', 'note'],
+      },
+    };
+    const sys = `Route a single piece of field intel. Live buyers: ${buyerCtx}. If the input clearly references one buyer, set buyer_id to that buyer's id. Otherwise (market commentary, process notes, multi-buyer observations) set buyer_id to null. Always call route_intel exactly once. The note value should preserve the user's wording with minor cleanup only.`;
+
+    try {
+      const resp = await claudeChat({
+        messages: [{ role: 'user', content: [{ type: 'text', text: q }] }],
+        system: sys,
+        tools: [tool],
+      });
+      const tu = resp.content?.find(b => b.type === 'tool_use' && b.name === 'route_intel');
+      const buyerId = tu?.input?.buyer_id || null;
+      const note = (tu?.input?.note || q).trim();
+
+      if (buyerId && onRouteToBuyer) {
+        onRouteToBuyer(buyerId, note);
+      } else if (onAppendGlobal) {
+        onAppendGlobal(note);
+      }
+
+      // Always rescan so every buyer's score reflects the new input.
+      await onRescanAll(q);
+
+      const targetName = buyerId
+        ? (buyers.find(b => b.id === buyerId)?.name || buyerId)
+        : null;
+      setResult(targetName
+        ? `Logged to ${targetName} · pipeline updated`
+        : 'Logged as market intel · pipeline updated');
+      setText('');
+    } catch (e) {
+      setResult(`Error: ${e.message}`);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="intel-bar">
+      <form className="intel-bar-form" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+        <textarea
+          className="intel-bar-input"
+          rows={1}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+          placeholder="Log any intel — buyer feedback, market shifts, process updates, corrections… enter to submit"
+          disabled={pending}
+        />
+        <button
+          type="submit"
+          className="intel-bar-send"
+          disabled={pending || !text.trim()}
+          title="Submit · routes to the right buyer and re-scores the whole pipeline"
+        >
+          {pending ? 'Updating…' : 'Submit'}
+        </button>
+      </form>
+      {result && <div className="intel-bar-result">{result}</div>}
+    </div>
+  );
+}
+
 // ---------- AI Engine ----------
 const CHAT_STORAGE_KEY = "kennion.chat.v2";
 const VALID_STAGES = ["outreach", "nda", "chemistry", "loi", "closed", "dropped"];
