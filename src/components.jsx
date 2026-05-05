@@ -738,74 +738,107 @@ Be realistic. Match the format of existing peers in the pipeline.`;
 }
 
 // ---------- buyer row ----------
-export function BuyerRow({ buyer, selected, onSelect, onAdvance, onDrop, displayRank, winnerPct, rescanning }) {
-  const stageIdx = STAGE_INDEX[buyer.stage];
+// Single-line buyer row: name · stage · win% · [+]
+//   - Click anywhere (except [+]) → opens modal for full context
+//   - Click [+] → expands inline input panel: signal chips + textarea + Submit
+//   - Submit appends a tagged note + triggers a per-buyer rescan, which
+//     re-ranks the entire list (App.jsx re-sorts on every render).
+export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuyer, winnerPct, rescanning }) {
   const isDropped = buyer.stage === "dropped";
   const showProb = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
+  const stageLabel = STAGES.find(s => s.id === buyer.stage)?.label || buyer.stage;
+
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [signal, setSignal] = useState(null);
+  const [pending, setPending] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const submit = async (e) => {
+    e?.stopPropagation();
+    const text = draft.trim();
+    if (!text || pending) return;
+    setPending(true);
+    setErr(null);
+    const newNoteId = onAppendNote ? onAppendNote(buyer.id, text, signal) : null;
+    try {
+      if (onRescanBuyer) await onRescanBuyer(buyer.id, { triggerNoteId: newNoteId });
+      setDraft('');
+      setSignal(null);
+      setOpen(false);
+    } catch (ex) {
+      setErr(ex.message || 're-scan failed');
+    } finally {
+      setPending(false);
+    }
+  };
 
   return (
-    <div className={"row" + (selected ? " row-selected" : "") + (isDropped ? " row-passed" : "") + (rescanning ? " row-rescanning" : "")} onClick={onSelect}>
-      <div className="row-rank">{isDropped ? "—" : String(displayRank).padStart(2, "0")}</div>
-      <div className="row-name">
-        <div className="row-name-main">
-          {buyer.website ? (
-            <a
-              className="row-name-link"
-              href={buyer.website}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {buyer.name}
-            </a>
-          ) : buyer.name}
-          {rescanning && <span className="row-rescanning-tag">AI re-scoring…</span>}
-        </div>
-        {!isDropped && buyer.thesis && (
-          <div className="row-name-thesis">{quickThesis(buyer.thesis)}</div>
-        )}
+    <div
+      className={"row" + (selected ? " row-selected" : "") + (isDropped ? " row-passed" : "") + (rescanning ? " row-rescanning" : "")}
+      onClick={onSelect}
+    >
+      <div className="row-name-main">
+        {buyer.website ? (
+          <a
+            className="row-name-link"
+            href={buyer.website}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >{buyer.name}</a>
+        ) : buyer.name}
+        {rescanning && <span className="row-rescanning-tag" style={{ marginLeft: 10 }}>AI re-scoring…</span>}
       </div>
-      <div className="row-stages">
-        {STAGES.map((s, i) => (
-          <div key={s.id} className={"stage-pip" + (i <= stageIdx && !isDropped ? " stage-pip-on" : "")}>
-            <span className="stage-pip-label">{s.short}</span>
+      <div className="row-stage-tag">{isDropped ? 'dropped' : stageLabel}</div>
+      <div className="row-prob-num">{isDropped ? '—' : showProb}<span>{isDropped ? '' : '%'}</span></div>
+      <button
+        type="button"
+        className={"row-add-btn" + (open ? " row-add-btn-open" : "")}
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        title={open ? 'Close input' : 'Add field intel · re-rank'}
+        aria-label={open ? 'Close input' : 'Add input'}
+        disabled={isDropped}
+      >{open ? '×' : '+'}</button>
+
+      {open && (
+        <div className="row-input" onClick={(e) => e.stopPropagation()}>
+          <div className="row-input-signals">
+            <span className="row-input-sig-label">Signal:</span>
+            {NOTE_SIGNALS.map(sig => (
+              <button
+                key={sig}
+                type="button"
+                className="chip"
+                onClick={() => setSignal(s => s === sig ? null : sig)}
+                disabled={pending}
+                style={{
+                  borderColor: signal === sig ? SIGNAL_COLORS[sig] : undefined,
+                  background: signal === sig ? SIGNAL_COLORS[sig] + '22' : undefined,
+                  color: signal === sig ? SIGNAL_COLORS[sig] : undefined,
+                  fontSize: 11,
+                }}
+                title={SIGNAL_HINTS[sig]}
+              >{sig}</button>
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="row-prob">
-        <div className="prob-bar">
-          <div className="prob-bar-fill" style={{ width: showProb + "%" }}></div>
-        </div>
-        <div className="prob-stack">
-          <div className="prob-num">{isDropped ? "—" : showProb}<span>{isDropped ? "" : "%"}</span></div>
-          {!isDropped && (() => {
-            const last = (buyer.aiHistory || [])[ (buyer.aiHistory || []).length - 1 ];
-            const change = last?.changes?.probability;
-            const delta = Array.isArray(change) ? (change[1] - change[0]) : 0;
-            const stamp = buyer.lastAnalyzed ? relativeTime(buyer.lastAnalyzed) : null;
-            if (!stamp && delta === 0) return null;
-            return (
-              <div className="prob-foot" title={buyer.lastAnalyzed ? `Last AI re-score: ${new Date(buyer.lastAnalyzed).toLocaleString()}` : 'Not yet analyzed'}>
-                {stamp && <span className="prob-foot-time">{stamp}</span>}
-                {delta > 0 && <span className="prob-foot-delta prob-foot-up">↑{delta}</span>}
-                {delta < 0 && <span className="prob-foot-delta prob-foot-down">↓{Math.abs(delta)}</span>}
-              </div>
-            );
-          })()}
-        </div>
-      </div>
-      <div className="row-actions" onClick={(e) => e.stopPropagation()}>
-        {buyer.stage !== "closed" && !isDropped && (
-          <>
-            <button className="row-action row-action-advance" onClick={() => onAdvance(buyer.id)} title="Advance to next stage">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          <textarea
+            className="row-input-textarea"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="What's the latest? sponsor signal, chemistry takeaway, capacity pull, LOI hint…"
+            disabled={pending}
+            autoFocus
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(e); }}
+          />
+          <div className="row-input-actions">
+            {err && <span className="row-input-err">{err}</span>}
+            <button className="btn btn-submit" onClick={submit} disabled={pending || !draft.trim()}>
+              {pending ? 'Re-ranking…' : 'Submit & re-rank'}
             </button>
-            <button className="row-action row-action-drop" onClick={() => onDrop(buyer.id)} title="Drop from process">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

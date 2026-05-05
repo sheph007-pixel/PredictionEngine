@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { STAGES, STAGE_INDEX, PROCESS_DEFAULT, BUYERS } from './data.js';
 import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
-  AddBuyerForm, AIChat, winnerProbabilities, AIHistoryButton, AIHistoryModal,
+  AIChat, winnerProbabilities, AIHistoryButton, AIHistoryModal,
 } from './components.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
@@ -74,7 +74,6 @@ export default function App() {
   const [openId, setOpenId] = useState(null);
   const [openIntent, setOpenIntent] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [docs, setDocs] = useLibrary();
@@ -310,12 +309,6 @@ export default function App() {
     }));
     return newNoteId;
   };
-  const addBuyer = (newBuyer) => {
-    setBuyers(bs => [...bs, newBuyer]);
-    setShowAdd(false);
-    setOpenId(newBuyer.id);
-  };
-
   const deleteBuyer = (id) => {
     if (!window.confirm('Permanently delete this buyer from the pipeline? This cannot be undone.')) return;
     setBuyers(bs => bs.filter(b => b.id !== id));
@@ -356,50 +349,24 @@ export default function App() {
 
       <div className="pipeline">
         <div className="pipeline-head">
-          <div>
-            <div className="pipeline-title">Buyer pipeline</div>
-            <div className="pipeline-sub" style={{ marginTop: 4 }}>{buyers.length} firms · ranked by AI prediction of who closes</div>
-          </div>
-          <div className="pipeline-head-actions">
-            <div className="pipeline-sub">Sorted: likelihood ↓</div>
-            <button className="btn btn-add" onClick={() => setShowAdd(true)}>+ Add buyer</button>
-          </div>
-        </div>
-        <div className="pipeline-legend">
-          <div>RANK</div>
-          <div>FIRM</div>
-          <div>STAGE</div>
-          <div>P(WINNER)</div>
-          <div></div>
+          <div className="pipeline-sub">{buyers.length} firms · ranked by win probability · click + to add intel and re-rank</div>
         </div>
         <div className="rows">
-          {ordered.map((b, i) => (
+          {ordered.map((b) => (
             <BuyerRow
               key={b.id}
               buyer={b}
-              displayRank={i + 1}
               selected={b.id === openId}
               onSelect={() => openBuyer(b.id)}
-              onAdvance={advance}
-              onDrop={drop}
+              onAppendNote={appendBuyerNote}
+              onRescanBuyer={rescanOne}
               winnerPct={winnerData.winnerByBuyer[b.id] || 0}
               rescanning={!!rescanning[b.id]}
             />
           ))}
           <div className="row row-nodeal">
-            <div className="row-rank">—</div>
-            <div className="row-name">
-              <div className="row-name-main row-nodeal-name">No deal</div>
-              <div className="row-name-meta row-nodeal-meta">Process fails to clear · we walk</div>
-            </div>
-            <div></div>
-            <div className="row-prob">
-              <div className="prob-bar">
-                <div className="prob-bar-fill prob-bar-nodeal" style={{ width: winnerData.noDealPct + '%' }}></div>
-              </div>
-              <div className="prob-num row-nodeal-num">{winnerData.noDealPct}<span>%</span></div>
-            </div>
-            <div></div>
+            <div className="row-nodeal-name">No deal · process fails to clear</div>
+            <div className="row-nodeal-num">{winnerData.noDealPct}%</div>
           </div>
         </div>
       </div>
@@ -425,14 +392,6 @@ export default function App() {
           }}
           onRescanBuyer={rescanOne}
           winnerPct={winnerData.winnerByBuyer[open.id] || 0}
-        />
-      )}
-
-      {showAdd && (
-        <AddBuyerForm
-          onAdd={addBuyer}
-          onCancel={() => setShowAdd(false)}
-          existingBuyers={buyers}
         />
       )}
 
