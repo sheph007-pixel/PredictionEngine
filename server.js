@@ -878,12 +878,39 @@ function blendPredictions(claude, openai) {
 
   const blendedClose = blendCloseMonth(claude.close_estimate, openai.close_estimate);
 
+  // Claude wrote its dashboard rationales referencing its OWN raw buyer
+  // probabilities (e.g. "IMA's 22% odds") because at write time it can't see
+  // GPT's parallel output. After blending, those numbers shift (22 + 15 → 19),
+  // so the rationale text drifts from the displayed UI number. Walk each
+  // rationale and rewrite any "X%" where X exactly equals a Claude raw value
+  // that has since been averaged down — replace with the blended integer.
+  // Conservative: only changes integers that are an exact Claude probability.
+  const blendedById = Object.fromEntries(blendedBuyers.map(b => [b.id, b]));
+  const reconcile = (text) => {
+    if (!text || typeof text !== 'string') return text;
+    let out = text;
+    for (const cb of (claude.buyers || [])) {
+      const bb = blendedById[cb.id];
+      if (!bb || bb.probability === cb.probability || typeof cb.probability !== 'number') continue;
+      out = out.replace(new RegExp(`\\b${cb.probability}%`, 'g'), `${bb.probability}%`);
+    }
+    if (typeof claude.p_no_deal === 'number' && claude.p_no_deal !== blendedPNoDeal) {
+      out = out.replace(new RegExp(`\\b${claude.p_no_deal}%`, 'g'), `${blendedPNoDeal}%`);
+    }
+    return out;
+  };
+
   return {
     ...claude,
     market: blendedMarket,
     buyers: blendedBuyers,
     p_no_deal: blendedPNoDeal,
     close_estimate: blendedClose || claude.close_estimate || openai.close_estimate || null,
+    summary: reconcile(claude.summary),
+    close_date_rationale: reconcile(claude.close_date_rationale),
+    confidence_rationale: reconcile(claude.confidence_rationale),
+    clearing_price_rationale: reconcile(claude.clearing_price_rationale),
+    p_no_deal_rationale: reconcile(claude.p_no_deal_rationale),
     models: {
       claude: extractClaudeNumbers(claude),
       openai: {
