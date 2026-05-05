@@ -12,6 +12,25 @@ import { migrateNoteLog, appendNote, removeNote, latestNoteId, EVENT_SPECS } fro
 
 const STATE_KEY = 'kennion.state.v1';
 
+// Static identity fields backfilled from the BUYERS seed by id whenever a
+// persisted buyer is missing them. Older code paths pushed buyer JSON to
+// Postgres without `website` (and other identity bits), so the row UI was
+// missing the website link even though data.js has it. These fields are
+// firm-level facts that don't change — safe to fall back to seed when the
+// stored copy is missing them. We don't overwrite values that are already
+// present; user-edited identity (rare but possible) wins.
+const SEED_BY_ID = Object.fromEntries(BUYERS.map(b => [b.id, b]));
+const IDENTITY_FIELDS = ['name', 'website', 'hq', 'revenue', 'headcount', 'offices', 'type'];
+function backfillIdentity(buyer) {
+  const seed = SEED_BY_ID[buyer.id];
+  if (!seed) return buyer;
+  const patch = {};
+  for (const k of IDENTITY_FIELDS) {
+    if (buyer[k] == null || buyer[k] === '') patch[k] = seed[k];
+  }
+  return Object.keys(patch).length > 0 ? { ...buyer, ...patch } : buyer;
+}
+
 const DEFAULT_MARKET = {
   conservative: { low: 8.5,  high: 10.5, label: 'Conservative', note: 'Bear case · soft market' },
   mid:          { low: 11.0, high: 13.0, label: 'Realistic',     note: 'Base case · current signals' },
@@ -56,13 +75,15 @@ export default function App() {
   const setBuyers = (next) => {
     setBuyersRaw(prev => {
       const resolved = typeof next === 'function' ? next(prev) : next;
-      return Array.isArray(resolved) ? resolved.map(migrateNoteLog) : resolved;
+      return Array.isArray(resolved) ? resolved.map(b => backfillIdentity(migrateNoteLog(b))) : resolved;
     });
   };
   // One-shot migration of the initial state (covers BUYERS seed and persisted
-  // localStorage values that were saved before noteLog existed).
+  // localStorage values that were saved before noteLog existed). Also runs
+  // the identity backfill so persisted buyers missing website/hq/etc. pick
+  // them up from the seed.
   useEffect(() => {
-    setBuyersRaw(prev => Array.isArray(prev) ? prev.map(migrateNoteLog) : prev);
+    setBuyersRaw(prev => Array.isArray(prev) ? prev.map(b => backfillIdentity(migrateNoteLog(b))) : prev);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [process, setProcess] = usePersistedState('process', PROCESS_DEFAULT);
