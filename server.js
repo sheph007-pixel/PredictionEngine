@@ -161,20 +161,26 @@ Each buyer's \`notes_timeline\` field is a chronological log of field intel — 
 
 A buyer at the high end of their stage range should reflect strong corroborating evidence (active sponsor, recent precedent, distribution fit, momentum). A buyer at the low end should reflect specific drag (declined informally, capacity constraint, weak benefits mix, sponsor bandwidth issue). State the drivers in \`reasoning\`.
 
-# Dashboard rationales (PLAIN ENGLISH — short, direct, no jargon)
-Write three one-liners — close_date_rationale, confidence_rationale, clearing_price_rationale — that explain each top-line number in plain English. Hard rules:
+# Dashboard rationales (PLAIN ENGLISH — 8th-grade reading level, no jargon)
+Write three one-liners — close_date_rationale, confidence_rationale, clearing_price_rationale — that explain each top-line number to a non-banker. These render in fixed three-line cards on the dashboard; anything longer than 22 words gets truncated with "…" which looks broken. Same writing discipline as buyer thesis. Hard rules:
 
-- **Max 25 words** each. Count them. Brevity is more important than completeness.
-- **Two short sentences max** (one is fine).
-- **Plain English**. No banker jargon ("LOI cycle", "exclusivity", "bidding tension", "tuck-in math", "anchored on the bucket"). If a smart non-banker wouldn't get it, rewrite it.
-- **State the why directly**. Don't "defend" — just explain what's driving the number and the main risk.
-- **No first-person plural** ("we", "our process"). Just say what's happening.
+- **Max 22 words** each. Count them before submitting. If it doesn't fit, cut adjectives and qualifiers, not the substance.
+- **8th-grade reading level**. Words a smart 13-year-old would use. If you'd have to explain a phrase to a non-banker, rewrite it.
+- **One or two short sentences**. Plain subject-verb-object. No nested clauses.
+- **No banker jargon, ever**. Banned words and phrases include: "captive-niche", "captive reinsurance", "captive specialist", "buyer pool", "mid-market", "rater IP", "member-level", "integration playbook", "synergies", "synergy", "Reagan comps", "comps discipline", "anchors below", "anchored on", "bucket", "sub-mid-market", "tuck-in", "bidding tension", "exclusivity", "LOI cycle", "process tension", "thesis", "overhang", "leverage limits", "deployment cycle", "capital constraints", "PE smaller-fund", "public equity overhang".
+- **No acronyms** without spelling out (or just omit). Spell out "PE" as "private equity firm", "LOI" as "first written offer" or omit.
+- **No parenthetical lists**. "(Baldwin, Cason, Oakbridge)" — don't do this. If a buyer matters, name it in prose. If three matter, summarize.
+- **No em-dashes, no semicolons**. Use periods.
+- **No first-person plural** ("we", "our"). Say what's happening.
+- **Numbers must match this response**. If you cite a percentage or multiple, it must be a number you set in this rescan (see "Numerical self-consistency" below).
 
-Format examples (illustrative only — do NOT copy buyer names, dates, percentages, or specific facts from these examples; they are abstract format demos. Use ONLY information from the actual pipeline state, notes, and docs provided in this rescan call):
+Format examples (illustrative — write fresh based on the actual pipeline state, do NOT copy buyer names, dates, percentages, or facts):
 
-  close_date_rationale: "Targeting Q3 2026: most buyers are mid-stage and offers usually land 8–10 weeks out. The lead buyer's next milestone is the biggest swing factor."
-  confidence_rationale: "Multiple buyers above 15% give independent paths to close. Main no-deal risk is the top buyers walking on price."
-  clearing_price_rationale: "Sized at 6–7× EBITDA because the book is sub-$5M and concentrated. Higher only if a buyer puts real synergies in writing."
+  close_date_rationale: "Most top buyers are still early in talks. First written offers usually take three more months, so closing in late summer is realistic."
+  confidence_rationale: "Three different buyers each have a real shot, so even if one walks the deal can still close. Main risk is the top one passing on price."
+  clearing_price_rationale: "About six times yearly profit because the book is small and focused. Could go higher only if a buyer writes down a real cost-saving plan."
+
+Notice: no jargon, no acronyms, no parenthetical buyer lists, every sentence reads cleanly to a non-banker. Match this register exactly.
 
 **Strict rule**: do not invent specifics. If the examples reference a date, milestone, sponsor, or percentage that is NOT in the actual pipeline state below, do not include it. Reference only buyers, dates, notes, and documents that are present in this rescan's input.
 
@@ -200,7 +206,7 @@ For Kennion's profile (captive benefits, sub-mid-market) a healthy floor is 10�
 Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence. If evidence is insufficient to move a number, leave it stable and say so in reasoning.
 
 # Brevity is mandatory
-Reasoning per buyer: max 45 words, single dense paragraph, no preamble like "Based on" or "After reviewing". Cite the strongest single piece of evidence; skip background. Dashboard rationales: max 25 words each. Summary: 1 sentence, max 25 words. Do not pad. The user values speed — every extra paragraph adds latency they feel.
+Reasoning per buyer: max 45 words, single dense paragraph, no preamble like "Based on" or "After reviewing". Cite the strongest single piece of evidence; skip background. Dashboard rationales: max 22 words each, 8th-grade reading level, no jargon (see banned-word list above). Summary: 1 sentence, max 25 words. Do not pad. The user values speed — every extra paragraph adds latency they feel.
 
 # Numerical self-consistency (NON-NEGOTIABLE)
 Before submitting, verify: any percentage, multiple, or month cited in summary, close_date_rationale, confidence_rationale, clearing_price_rationale, or p_no_deal_rationale MUST match a number you set in this same response. Specifically:
