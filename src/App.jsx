@@ -455,6 +455,12 @@ export default function App() {
       <div className="pipeline">
         <Conversation
           buyers={buyers}
+          pinnedRules={pinnedRules}
+          globalIntel={globalIntel}
+          lessons={lessons}
+          market={market}
+          rationales={rationales}
+          ebitda={ebitda}
           onAddBuyerNote={routeIntelToBuyer}
           onAppendGlobal={appendGlobalIntel}
           onSetStage={setBuyerStage}

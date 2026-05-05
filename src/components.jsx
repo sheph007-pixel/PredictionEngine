@@ -1246,7 +1246,7 @@ const CONVO_TOOLS = [
   },
 ];
 
-export function Conversation({ buyers, onAddBuyerNote, onAppendGlobal, onSetStage, onOverrideProbability, onRescanAll }) {
+export function Conversation({ buyers, pinnedRules, globalIntel, lessons, market, rationales, ebitda, onAddBuyerNote, onAppendGlobal, onSetStage, onOverrideProbability, onRescanAll }) {
   const [messages, setMessages] = useState(() => {
     try {
       const saved = localStorage.getItem(CONVO_STORAGE_KEY);
@@ -1258,7 +1258,19 @@ export function Conversation({ buyers, onAddBuyerNote, onAppendGlobal, onSetStag
   const [expanded, setExpanded] = useState(false);
   const threadRef = useRef(null);
   const buyersRef = useRef(buyers);
+  const pinnedRulesRef = useRef(pinnedRules);
+  const globalIntelRef = useRef(globalIntel);
+  const lessonsRef = useRef(lessons);
+  const marketRef = useRef(market);
+  const rationalesRef = useRef(rationales);
+  const ebitdaRef = useRef(ebitda);
   buyersRef.current = buyers;
+  pinnedRulesRef.current = pinnedRules;
+  globalIntelRef.current = globalIntel;
+  lessonsRef.current = lessons;
+  marketRef.current = market;
+  rationalesRef.current = rationales;
+  ebitdaRef.current = ebitda;
 
   useEffect(() => {
     try { localStorage.setItem(CONVO_STORAGE_KEY, JSON.stringify(messages.slice(-40))); } catch {}
@@ -1270,25 +1282,71 @@ export function Conversation({ buyers, onAddBuyerNote, onAppendGlobal, onSetStag
     }
   }, [messages, pending, expanded]);
 
+  // Omniscient context: everything the rescan endpoint sees, the advisor sees
+  // too. Mirroring the brain into the system prompt is the whole point — when
+  // the user references buyer.thesis or buyer.aiNotes the advisor must be able
+  // to read them. Keep this generous; Sonnet's context handles it.
   const buildSystem = () => {
-    const ranked = [...buyersRef.current]
-      .filter(b => b.stage !== 'dropped')
-      .sort((a, b) => (b.probability || 0) - (a.probability || 0));
-    const ctx = ranked.map(b => `- id="${b.id}" · ${b.name} · stage=${b.stage} · p=${b.probability ?? '?'}%`).join('\n');
-    return `You are the user's senior M&A advisor inside the Kennion Prediction Engine — the sell-side process for Kennion's Benefits Program (Reagan Consulting · Spring 2026). Speak like a sharp banker who knows the deal cold: direct, conversational, no fluff. Replies under 60 words, no markdown, no headers.
+    const liveBuyers = (buyersRef.current || []).filter(b => b.stage !== 'dropped');
+    const ranked = [...liveBuyers].sort((a, b) => (b.probability || 0) - (a.probability || 0));
+    const buyerCtx = ranked.map(b => {
+      const recentNotes = (b.noteLog || []).slice(-4).map(n => `    [${(n.ts || '').slice(0,10)}] ${n.text}`).join('\n');
+      const overrides = (b.overrides || []).slice(-3).map(o => `    [${(o.ts || '').slice(0,10)}] ${o.kind} ${o.from}→${o.to}: ${o.reason}`).join('\n');
+      const reasoning = b.aiNotes ? `\n  Last AI reasoning: ${b.aiNotes}` : '';
+      const thesis = b.thesis ? `\n  Thesis: ${b.thesis}` : '';
+      return `- id="${b.id}" · ${b.name} · ${b.type || ''} · ${b.ownership || ''}${b.sponsor && b.sponsor !== '—' ? '/' + b.sponsor : ''} · stage=${b.stage} · p=${b.probability ?? '?'}%${thesis}${reasoning}${recentNotes ? `\n  Recent notes:\n${recentNotes}` : ''}${overrides ? `\n  Recent overrides:\n${overrides}` : ''}`;
+    }).join('\n');
+
+    const dropped = (buyersRef.current || []).filter(b => b.stage === 'dropped');
+    const droppedCtx = dropped.length > 0
+      ? `\n\nDropped buyers: ${dropped.map(b => `${b.name} (${b.id})`).join(', ')}`
+      : '';
+
+    const m = marketRef.current || {};
+    const r = rationalesRef.current || {};
+    const marketCtx = m.mid
+      ? `EBITDA $${ebitdaRef.current}M · realistic ${m.mid.low?.toFixed?.(1)}–${m.mid.high?.toFixed?.(1)}× · conservative ${m.conservative?.low?.toFixed?.(1)}–${m.conservative?.high?.toFixed?.(1)}× · aggressive ${m.aggressive?.low?.toFixed?.(1)}–${m.aggressive?.high?.toFixed?.(1)}×`
+      : `EBITDA $${ebitdaRef.current}M · market bands not yet set`;
+
+    const dashboardCtx = [
+      r.close_estimate ? `close estimate: ${r.close_estimate}` : null,
+      r.close_date ? `close-date rationale: ${r.close_date}` : null,
+      r.confidence ? `confidence: ${r.confidence}` : null,
+      r.clearing_price ? `clearing price: ${r.clearing_price}` : null,
+      typeof r.p_no_deal === 'number' ? `p_no_deal: ${r.p_no_deal}%${r.p_no_deal_rationale ? ` (${r.p_no_deal_rationale})` : ''}` : null,
+    ].filter(Boolean).join('\n  ');
+
+    const rulesCtx = (pinnedRulesRef.current || []).length > 0
+      ? `\n\nUser-pinned rules (always apply):\n${(pinnedRulesRef.current || []).map((r, i) => `${i + 1}. ${r.text}`).join('\n')}`
+      : '';
+
+    const lessonsCtx = (lessonsRef.current || []).length > 0
+      ? `\n\nLessons from prior outcomes:\n${(lessonsRef.current || []).slice(-10).map(l => `- ${l.buyer_name ? `${l.buyer_name}: ` : ''}predicted ${l.predicted ?? '?'}%, ${l.outcome || '?'}. ${l.text}`).join('\n')}`
+      : '';
+
+    const intelCtx = (globalIntelRef.current || []).length > 0
+      ? `\n\nPipeline-wide intel log (newest first):\n${(globalIntelRef.current || []).slice(-10).reverse().map(g => `- [${(g.ts || '').slice(0,10)}] ${g.text}`).join('\n')}`
+      : '';
+
+    return `You are the user's senior M&A advisor inside the Kennion Prediction Engine — the sell-side process for Kennion's Benefits Program (Reagan Consulting · Spring 2026). You have full visibility into the workspace state below — the same inputs the rescan engine sees on every Update. When the user references a buyer's thesis, reasoning, or any text they're seeing in the UI, you can read it from the context here. Do not deny knowledge of something that is in this context.
+
+Speak like a sharp banker who knows the deal cold: direct, conversational, no fluff. Replies under 80 words, no markdown, no headers.
 
 When the user gives you intel, apply it via tools — do not just acknowledge it:
 - buyer-specific facts → add_buyer_note
 - general market / process / sector intel → append_global_intel
-- explicit stage change requested → set_buyer_stage
-- explicit probability override requested → override_probability
+- explicit stage change requested → set_buyer_stage (always include reason)
+- explicit probability override requested → override_probability (always include reason)
 
 After tools run, a full pipeline rescan automatically rescores every buyer with the new input. In your reply, briefly state what you logged and one sharp implication. If the input is ambiguous (which buyer? which stage?), ask one clarifying question instead of guessing.
 
-If the user asks a question without giving new intel, just answer — no tools.
+If the user asks a question without giving new intel, answer from the context below — no tools.
 
-Live pipeline:
-${ctx}`;
+# Pipeline anchors
+${marketCtx}${dashboardCtx ? `\n  ${dashboardCtx}` : ''}
+
+# Live buyers (full state — thesis, last AI reasoning, recent notes, recent overrides)
+${buyerCtx || '(none)'}${droppedCtx}${rulesCtx}${lessonsCtx}${intelCtx}`;
   };
 
   const executeTool = (name, args) => {
