@@ -611,6 +611,19 @@ ${focusInstruction}`;
     // OpenAI returned null (unavailable / failed / parse error), the blend
     // gracefully falls back to Claude alone with `models.openai = null`.
     const blended = blendPredictions(toolUse.input, openaiPred);
+
+    // Per-model probability log so we can verify Claude and OpenAI are
+    // genuinely returning different numbers (not a wiring bug). Shows in
+    // Railway logs every rescan.
+    if (openaiPred) {
+      const claudeProbs = (toolUse.input.buyers || []).map(b => `${b.id}=${b.probability}`).join(', ');
+      const openaiProbs = (openaiPred.buyers || []).map(b => `${b.id}=${b.probability}`).join(', ');
+      console.log(`[rescan] claude probs: ${claudeProbs}`);
+      console.log(`[rescan] openai probs: ${openaiProbs}`);
+    } else {
+      console.log('[rescan] openai second-opinion unavailable (no key, parse error, or call failed)');
+    }
+
     const responsePayload = {
       ...blended,
       usage: message.usage,

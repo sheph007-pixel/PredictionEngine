@@ -1990,16 +1990,23 @@ export function AIHistoryModal({ onClose, buyers }) {
                   {Array.isArray(out.buyers) && out.buyers.length > 0 && (
                     <details style={{ marginTop: 4 }}>
                       <summary style={{ cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.06em', color: 'var(--ink-3)' }}>
-                        {out.buyers.length} buyer update{out.buyers.length === 1 ? '' : 's'}
+                        {out.buyers.length} buyer update{out.buyers.length === 1 ? '' : 's'}{out.models?.openai ? ' · two-model' : ' · claude only'}
                       </summary>
                       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12, borderLeft: '2px solid var(--rule)' }}>
-                        {out.buyers.map(b => (
-                          <div key={b.id} style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5 }}>
-                            <b style={{ color: 'var(--ink)' }}>{buyerById[b.id]?.name || b.id}</b>
-                            {' — p='}{b.probability}{'%'}
-                            {b.reasoning && <div style={{ marginTop: 2, fontSize: 11.5, color: 'var(--ink-3)' }}>{b.reasoning}</div>}
-                          </div>
-                        ))}
+                        {out.buyers.map(b => {
+                          const cb = (out.models?.claude?.buyers || []).find(x => x.id === b.id);
+                          const ob = (out.models?.openai?.buyers || []).find(x => x.id === b.id);
+                          return (
+                            <div key={b.id} style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5 }}>
+                              <b style={{ color: 'var(--ink)' }}>{buyerById[b.id]?.name || b.id}</b>
+                              {' — '}
+                              {cb && <span style={{ color: '#cc785c', fontFamily: 'var(--mono)', fontSize: 11, marginRight: 6 }}>C={cb.probability}%</span>}
+                              {ob && <span style={{ color: '#10a37f', fontFamily: 'var(--mono)', fontSize: 11, marginRight: 6 }}>G={ob.probability}%</span>}
+                              <span style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>avg={b.probability}%</span>
+                              {b.reasoning && <div style={{ marginTop: 2, fontSize: 11.5, color: 'var(--ink-3)' }}>{b.reasoning}</div>}
+                            </div>
+                          );
+                        })}
                       </div>
                     </details>
                   )}
