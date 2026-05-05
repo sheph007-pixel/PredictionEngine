@@ -331,7 +331,6 @@ export default function App() {
       <div className="topbar">
         <div className="brand">
           <div className="brand-mark">Prediction <span className="accent">Engine</span></div>
-          <div className="brand-tag">Kennion · Project Beacon · Confidential</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <AIHistoryButton onClick={() => setShowHistory(true)} syncStatus={syncStatus} />
