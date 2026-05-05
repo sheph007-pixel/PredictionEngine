@@ -999,27 +999,9 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
     if (h.triggered_by_note_id) aiHistoryByNoteId[h.triggered_by_note_id] = h;
   }
   const [draft, setDraft] = useState('');
-  const [draftSignal, setDraftSignal] = useState(null);
   const [pending, setPending] = useState(false);
   const [aiError, setAiError] = useState(null);
-  const [logEntry, setLogEntry] = useState(null);
-  const [logLoading, setLogLoading] = useState(false);
-  useEffect(() => { setDraft(''); setDraftSignal(null); setAiError(null); }, [buyer.id]);
-
-  // Lazy-load the most recent rescan log row for this buyer (live web intel
-  // text + cited URLs) so the Research card can show the actual evidence.
-  useEffect(() => {
-    let cancelled = false;
-    setLogEntry(null);
-    if (!hasAiRescan) return;
-    setLogLoading(true);
-    fetch(`/api/rescan-log/latest?buyer_id=${encodeURIComponent(buyer.id)}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (!cancelled) setLogEntry(data?.entry || null); })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLogLoading(false); });
-    return () => { cancelled = true; };
-  }, [buyer.id, hasAiRescan]);
+  useEffect(() => { setDraft(''); setAiError(null); }, [buyer.id]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -1037,9 +1019,8 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
     if (!text || pending) return;
     setPending(true);
     setAiError(null);
-    const newNoteId = onAppendNote ? onAppendNote(buyer.id, text, draftSignal) : null;
+    const newNoteId = onAppendNote ? onAppendNote(buyer.id, text, null) : null;
     setDraft('');
-    setDraftSignal(null);
     if (!onRescanBuyer) {
       setPending(false);
       return;
@@ -1128,207 +1109,89 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
           </div>
         </div>
 
-        <div className="modal-grid">
-          <div className="modal-card modal-card-prob">
-            <div className="modal-card-label">
-              <span>Chance of winning the deal</span>
-            </div>
-            <div className="modal-prob-row">
-              <div className="modal-prob-num">{prob}<span>%</span></div>
-              <div className="modal-prob-bar">
-                <div className="modal-prob-bar-fill" style={{ width: prob + "%" }}></div>
-              </div>
-            </div>
-            <div className="modal-prob-caption">Across all buyers + no-deal = 100%</div>
+        <div className="modal-summary">
+          <div className="modal-summary-head">
+            <span className="modal-summary-prob">{prob}<span>%</span></span>
+            <span className="modal-summary-prob-label">chance of winning</span>
             {buyer.lastAnalyzed && (
-              <div className="modal-prob-foot">
-                AI re-scored {new Date(buyer.lastAnalyzed).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-              </div>
+              <span className="modal-summary-meta">· AI re-scored {new Date(buyer.lastAnalyzed).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
             )}
           </div>
-
-          <div className="modal-col">
-            <div className="modal-card modal-card-research">
-              <div className="modal-card-label">Why this number</div>
-              <div className="research-row">
-                <div className="research-row-label">AI confidence</div>
-                <div className="research-row-value">
-                  {buyer.aiConfidence ? (
-                    <span className={"conf-chip conf-chip-" + buyer.aiConfidence} title="How grounded this prediction is in hard evidence">
-                      {buyer.aiConfidence}
-                    </span>
-                  ) : (
-                    <span className="research-empty">Re-scan to grade evidence quality.</span>
-                  )}
+          {aiReasoning ? (
+            <div className="modal-summary-text">{aiReasoning}</div>
+          ) : fallbackReasons.length > 0 ? (
+            <div className="reason-list">
+              {fallbackReasons.slice(0, 3).map((r, i) => (
+                <div key={i} className={"reason " + (r.kind === "+" ? "reason-pos" : "reason-neg")}>
+                  <span className="reason-mark">{r.kind}</span>
+                  <span>{r.text}</span>
                 </div>
-              </div>
-              <div className="research-row">
-                <div className="research-row-label">Reasoning</div>
-                <div className="research-row-value">
-                  {aiReasoning ? (
-                    <div className="research-reasoning">{aiReasoning}</div>
-                  ) : fallbackReasons.length > 0 ? (
-                    <div className="reason-list">
-                      {fallbackReasons.slice(0, 3).map((r, i) => (
-                        <div key={i} className={"reason " + (r.kind === "+" ? "reason-pos" : "reason-neg")}>
-                          <span className="reason-mark">{r.kind}</span>
-                          <span>{r.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="research-empty">No AI rescan yet — re-scan from the top bar to generate a grounded prediction.</span>
-                  )}
-                </div>
-              </div>
-              <div className="research-row">
-                <div className="research-row-label">Live web intel</div>
-                <div className="research-row-value">
-                  {logLoading && <span className="research-empty">Loading…</span>}
-                  {!logLoading && !logEntry && <span className="research-empty">None on file. Re-scan from the top bar to fetch live intel.</span>}
-                  {!logLoading && logEntry && !logEntry.live_intel && <span className="research-empty">Last rescan ran without live intel (web search unavailable).</span>}
-                  {!logLoading && logEntry?.live_intel && (
-                    <details className="research-intel">
-                      <summary>Snippet from {new Date(logEntry.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</summary>
-                      <div className="research-intel-body">{logEntry.live_intel}</div>
-                    </details>
-                  )}
-                </div>
-              </div>
+              ))}
             </div>
-
-            <div className="modal-card modal-card-stage">
-              <div className="modal-card-label">Stage</div>
-              <div className="stage-track">
-                {STAGES.map((s, i) => (
-                  <div key={s.id} className={"stage-track-step" + (!isDropped && i <= STAGE_INDEX[buyer.stage] ? " on" : "")}>
-                    <div className="stage-track-dot"></div>
-                    <div className="stage-track-label">{s.label}</div>
-                  </div>
-                ))}
-              </div>
-              {isDropped && <div className="dropped-banner">Dropped from process</div>}
-            </div>
-
-            <div className="modal-card modal-card-notes">
-              <div className="modal-card-label">
-                Field notes
-                <span className="modal-card-hint">Each note re-analyzes the buyer</span>
-              </div>
-              {!isDropped && onLogEvent && (
-                <div className="chip-row">
-                  {Object.entries(EVENT_SPECS).map(([key, spec]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className="chip"
-                      disabled={pending || buyer.stage === 'closed'}
-                      onClick={() => handleChip(key)}
-                      title={`Stamp "${spec.text}"${spec.field ? ` · sets ${spec.field} to today` : ''}${spec.stage ? ` · advances stage to ${spec.stage}` : ''}`}
-                    >{spec.label}</button>
-                  ))}
-                </div>
-              )}
-              <textarea
-                className="notes-area"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                rows={3}
-                placeholder="Log buyer feedback, market signals, chemistry takeaways…"
-                disabled={pending}
-              />
-              <div className="signal-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ink-3)', alignSelf: 'center', marginRight: 4 }}>Signal:</span>
-                {NOTE_SIGNALS.map(sig => (
-                  <button
-                    key={sig}
-                    type="button"
-                    className="chip"
-                    onClick={() => setDraftSignal(s => s === sig ? null : sig)}
-                    disabled={pending}
-                    style={{
-                      borderColor: draftSignal === sig ? SIGNAL_COLORS[sig] : undefined,
-                      background: draftSignal === sig ? SIGNAL_COLORS[sig] + '22' : undefined,
-                      color: draftSignal === sig ? SIGNAL_COLORS[sig] : undefined,
-                      fontSize: 11,
-                    }}
-                    title={SIGNAL_HINTS[sig]}
-                  >{sig}</button>
-                ))}
-              </div>
-              <div className="notes-actions">
-                <button
-                  className="btn btn-submit"
-                  onClick={submitNote}
-                  disabled={pending || !draft.trim()}
-                >
-                  {pending ? "Analyzing…" : "Add note & re-analyze"}
-                </button>
-              </div>
-              {aiError && (
-                <div className="notes-insight notes-insight-err">
-                  <div className="notes-insight-tag">Re-scan failed</div>
-                  <div className="notes-insight-text">{aiError}</div>
-                </div>
-              )}
-              {noteLog.length === 0 ? (
-                <div className="notes-empty">No field notes yet. Add the first one to start the timeline.</div>
-              ) : (
-                <ul className="notes-timeline">
-                  {noteLog.slice().reverse().map(entry => {
-                    const linkedAi = aiHistoryByNoteId[entry.id];
-                    return (
-                      <li key={entry.id} className="notes-entry">
-                        <div className="notes-entry-head">
-                          <span className="notes-entry-time" title={new Date(entry.ts).toLocaleString()}>{relativeTime(entry.ts)}</span>
-                          {entry.signal && (
-                            <span style={{
-                              fontFamily: 'var(--mono)',
-                              fontSize: 9.5,
-                              letterSpacing: '0.06em',
-                              textTransform: 'uppercase',
-                              color: SIGNAL_COLORS[entry.signal] || 'var(--ink-3)',
-                              border: `1px solid ${SIGNAL_COLORS[entry.signal] || 'var(--rule-2)'}`,
-                              borderRadius: 3,
-                              padding: '1px 5px',
-                              marginLeft: 6,
-                            }} title={SIGNAL_HINTS[entry.signal]}>{entry.signal}</span>
-                          )}
-                          {onRemoveNote && (
-                            <button
-                              className="notes-entry-delete"
-                              onClick={() => deleteNote(entry.id, entry.text)}
-                              disabled={pending}
-                              title="Delete this note (re-analyzes the buyer)"
-                              aria-label="Delete note"
-                            >×</button>
-                          )}
-                        </div>
-                        <div className="notes-entry-text">{entry.text}</div>
-                        {linkedAi && linkedAi.reasoning && (
-                          <div className="notes-entry-ai" title={linkedAi.reasoning}>
-                            <span className="notes-entry-ai-tag">AI</span>
-                            <span className="notes-entry-ai-text">{linkedAi.reasoning}</span>
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </div>
+          ) : (
+            <span className="research-empty">No AI rescan yet — click Update from the top bar.</span>
+          )}
         </div>
 
-        <div className="modal-foot">
-          <div className="modal-foot-thesis">
-            <span className="modal-foot-label">Fit thesis</span>
-            <span>{buyer.thesis}</span>
-          </div>
-          {buyer.flags?.length > 0 && (
-            <div className="modal-foot-flags">
-              {buyer.flags.map((f, i) => <div key={i} className="flag">{f}</div>)}
+        <div className="modal-notes-block">
+          <div className="modal-card-label">Field notes <span className="modal-card-hint">Each note re-analyzes the buyer</span></div>
+          {!isDropped && onLogEvent && (
+            <div className="chip-row">
+              {Object.entries(EVENT_SPECS).map(([key, spec]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="chip"
+                  disabled={pending || buyer.stage === 'closed'}
+                  onClick={() => handleChip(key)}
+                  title={`Stamp "${spec.text}"${spec.field ? ` · sets ${spec.field} to today` : ''}${spec.stage ? ` · advances stage to ${spec.stage}` : ''}`}
+                >{spec.label}</button>
+              ))}
             </div>
+          )}
+          <textarea
+            className="notes-area"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={2}
+            placeholder="Log buyer feedback, market signals, chemistry takeaways…"
+            disabled={pending}
+          />
+          <div className="notes-actions">
+            <button
+              className="btn btn-submit"
+              onClick={submitNote}
+              disabled={pending || !draft.trim()}
+            >
+              {pending ? "Analyzing…" : "Add note & re-analyze"}
+            </button>
+          </div>
+          {aiError && (
+            <div className="notes-insight notes-insight-err">
+              <div className="notes-insight-tag">Re-scan failed</div>
+              <div className="notes-insight-text">{aiError}</div>
+            </div>
+          )}
+          {noteLog.length > 0 && (
+            <ul className="notes-timeline">
+              {noteLog.slice().reverse().map(entry => (
+                <li key={entry.id} className="notes-entry">
+                  <div className="notes-entry-head">
+                    <span className="notes-entry-time" title={new Date(entry.ts).toLocaleString()}>{relativeTime(entry.ts)}</span>
+                    {onRemoveNote && (
+                      <button
+                        className="notes-entry-delete"
+                        onClick={() => deleteNote(entry.id, entry.text)}
+                        disabled={pending}
+                        title="Delete this note (re-analyzes the buyer)"
+                        aria-label="Delete note"
+                      >×</button>
+                    )}
+                  </div>
+                  <div className="notes-entry-text">{entry.text}</div>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>
