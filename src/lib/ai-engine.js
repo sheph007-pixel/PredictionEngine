@@ -125,6 +125,11 @@ async function callRescan({ buyers, ebitda, fileIds, onlyBuyerId, priorMarket, g
 export function applyRescanToBuyers(buyers, rescan, opts = {}) {
   const trigger = opts.trigger || null;
   const byId = Object.fromEntries(rescan.buyers.map(b => [b.id, b]));
+  // Per-buyer Claude vs OpenAI probabilities so each row can show the
+  // dual-model vote (same pattern as HeroKPIs ModelVote chips). The blended
+  // (averaged) value lands in upd.probability above; these are the raw votes.
+  const claudeById = Object.fromEntries(((rescan.models?.claude?.buyers) || []).map(b => [b.id, b]));
+  const openaiById = Object.fromEntries(((rescan.models?.openai?.buyers) || []).map(b => [b.id, b]));
   return buyers.map(b => {
     const upd = byId[b.id];
     if (!upd) return b;
@@ -138,6 +143,11 @@ export function applyRescanToBuyers(buyers, rescan, opts = {}) {
         : {}),
     };
     const aiHistory = [...(b.aiHistory || []), historyEntry].slice(-8);
+    const cp = claudeById[b.id]?.probability;
+    const op = openaiById[b.id]?.probability;
+    const modelVote = (typeof cp === 'number' || typeof op === 'number')
+      ? { claude: typeof cp === 'number' ? cp : null, openai: typeof op === 'number' ? op : null, avg: upd.probability }
+      : null;
     return {
       ...b,
       probability: upd.probability,
@@ -149,6 +159,7 @@ export function applyRescanToBuyers(buyers, rescan, opts = {}) {
       aiCitations: upd.citations || [],
       lastAnalyzed: rescan.ts || new Date().toISOString(),
       aiHistory,
+      modelVote,
     };
   });
 }

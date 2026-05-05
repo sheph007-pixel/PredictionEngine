@@ -858,6 +858,13 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
             <span className="row-prob-delta row-prob-delta-flat" title="No change since last re-rank">·</span>
           )}
         </div>
+        {!isDropped && buyer.modelVote && (
+          <ModelVote
+            claudeVal={typeof buyer.modelVote.claude === 'number' ? `${buyer.modelVote.claude}%` : null}
+            openaiVal={typeof buyer.modelVote.openai === 'number' ? `${buyer.modelVote.openai}%` : null}
+            avgVal={`${buyer.probability ?? '?'}%`}
+          />
+        )}
         {updatedAt && !isDropped && (
           <div className="row-prob-foot" title={`Last AI re-score: ${new Date(buyer.lastAnalyzed).toLocaleString()}`}>updated {updatedAt}</div>
         )}

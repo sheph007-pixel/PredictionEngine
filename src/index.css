@@ -372,6 +372,10 @@ body { font-size: 14px; }
 
 .row-stage-tag { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); padding: 3px 8px; border: 1px solid var(--rule-2); border-radius: 2px; align-self: start; margin-top: 4px; }
 .row-prob-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 70px; }
+.row-prob-stack .model-vote { margin-top: 4px; gap: 3px; }
+.row-prob-stack .model-chip { padding: 1px 6px; font-size: 9.5px; gap: 3px; }
+.row-prob-stack .model-chip-mark { width: 12px; height: 12px; font-size: 8px; }
+.row-prob-stack .model-chip-avg .model-chip-mark { padding: 0 3px; font-size: 7.5px; }
 .row-prob-num { font-family: var(--mono); font-size: 17px; font-weight: 600; color: var(--ink); display: inline-flex; align-items: baseline; gap: 4px; }
 .row-prob-num span { font-size: 11px; font-weight: 500; color: var(--ink-3); margin-left: 1px; }
 .row-prob-delta { font-family: var(--mono); font-size: 11px; font-weight: 600; }
