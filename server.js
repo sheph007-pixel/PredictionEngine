@@ -507,6 +507,25 @@ app.post('/api/ai/rescan', async (req, res) => {
     (!only_buyer_id || b.id === only_buyer_id) ? fullDetail(b) : compactSummary(b)
   );
 
+  // OpenAI second-opinion buyer state — same ground-truth data Claude sees,
+  // but with Claude's prior outputs (probability, aiNotes, aiHistory) stripped.
+  // Otherwise GPT-4o anchors hard on Claude's last number and just echoes it
+  // back, defeating the whole point of an independent second read.
+  const openaiBuyers = livePipeline
+    .filter(b => !only_buyer_id || b.id === only_buyer_id)
+    .map(b => ({
+      id: b.id, name: b.name, hq: b.hq, revenue: b.revenue, headcount: b.headcount,
+      offices: b.offices, ownership: b.ownership, sponsor: b.sponsor, type: b.type,
+      stage: b.stage,
+      nda_signed: b.nda_signed || null,
+      chemistry_date: b.chemistry_date || null,
+      notes_timeline: formatNoteTimeline(b),
+      flags: b.flags || [],
+      fit: b.fit,
+      multipleOverride: b.multipleOverride || null,
+      overrides: (b.overrides || []).slice(-5),
+    }));
+
   const docBlocks = (file_ids || []).map((id, j, arr) => ({
     type: 'document',
     source: { type: 'file', file_id: id },
@@ -588,7 +607,7 @@ ${focusInstruction}`;
         betas: [FILES_BETA],
       }),
       getOpenAIPredictions({
-        ebitda, groundedBuyers, liveIntel, sizeBucket, only_buyer_id,
+        ebitda, groundedBuyers: openaiBuyers, liveIntel, sizeBucket, only_buyer_id,
       }),
     ]);
 
@@ -739,7 +758,7 @@ async function getOpenAIPredictions({ ebitda, groundedBuyers, liveIntel, sizeBuc
   if (!openai) return null;
   const sys = `You are a senior M&A analyst providing an independent SECOND OPINION on the Kennion Benefits Program sale (captive-style benefits brokerage, advised by Reagan Consulting, Spring 2026 process).
 
-Claude is producing the primary analysis. Your job is to vote on the same numerical predictions so the system can average two independent reads.
+Claude is producing the primary analysis IN PARALLEL — you do not see its output and it does not see yours. The system averages your numbers with Claude's after both finish. The point is for you to reach a SECOND, INDEPENDENT view from the same ground-truth data. If you simply mirror what a typical analyst would say, you add no signal. Bring your own read on signal strength, momentum, and bidder discipline. Do not be surprised if your number differs from a hypothetical "consensus" — that's the value.
 
 # Size discipline (anchor the multiple band on this bucket FIRST)
 - EBITDA <$3M: realistic 4–6×, conservative 3–4.5×, aggressive 5.5–7.5×
