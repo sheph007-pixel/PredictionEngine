@@ -16,7 +16,7 @@ const app = express();
 app.use(express.json({ limit: '8mb' }));
 
 const client = new Anthropic();
-const MODEL = 'claude-sonnet-4-6';
+const MODEL = 'claude-haiku-4-5';
 const FILES_BETA = 'files-api-2025-04-14';
 
 // OpenAI is used ONLY for live web search before each rescan, feeding fresh
