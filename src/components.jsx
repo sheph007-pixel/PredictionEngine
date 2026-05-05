@@ -745,15 +745,22 @@ Be realistic. Match the format of existing peers in the pipeline.`;
 }
 
 // ---------- buyer row ----------
-// Single-line buyer row: name · stage · win% · [+]
+// Buyer row: rank · name · 8th-grade thesis blurb · stage · win% (with movement) · [+]
 //   - Click anywhere (except [+]) → opens modal for full context
 //   - Click [+] → expands inline input panel: signal chips + textarea + Submit
 //   - Submit appends a tagged note + triggers a per-buyer rescan, which
 //     re-ranks the entire list (App.jsx re-sorts on every render).
-export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuyer, winnerPct, rescanning }) {
+//   - Up/down arrow shows last AI re-score's probability change (from aiHistory).
+export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuyer, winnerPct, rescanning, displayRank }) {
   const isDropped = buyer.stage === "dropped";
   const showProb = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
   const stageLabel = STAGES.find(s => s.id === buyer.stage)?.label || buyer.stage;
+
+  // Derive the last per-buyer AI rescore: probability delta + relative timestamp.
+  const lastHistory = (buyer.aiHistory || [])[(buyer.aiHistory || []).length - 1];
+  const probChange = lastHistory?.changes?.probability;
+  const delta = Array.isArray(probChange) ? (probChange[1] - probChange[0]) : 0;
+  const updatedAt = buyer.lastAnalyzed ? relativeTime(buyer.lastAnalyzed) : null;
 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
@@ -785,20 +792,43 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
       className={"row" + (selected ? " row-selected" : "") + (isDropped ? " row-passed" : "") + (rescanning ? " row-rescanning" : "")}
       onClick={onSelect}
     >
-      <div className="row-name-main">
-        {buyer.website ? (
-          <a
-            className="row-name-link"
-            href={buyer.website}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-          >{buyer.name}</a>
-        ) : buyer.name}
-        {rescanning && <span className="row-rescanning-tag" style={{ marginLeft: 10 }}>AI re-scoring…</span>}
+      <div className="row-rank">{isDropped ? '—' : displayRank}</div>
+      <div className="row-name-block">
+        <div className="row-name-main">
+          {buyer.website ? (
+            <a
+              className="row-name-link"
+              href={buyer.website}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >{buyer.name}</a>
+          ) : buyer.name}
+          {rescanning && <span className="row-rescanning-tag" style={{ marginLeft: 10 }}>AI re-scoring…</span>}
+        </div>
+        {!isDropped && (
+          buyer.thesis
+            ? <div className="row-name-thesis">{buyer.thesis}</div>
+            : <div className="row-name-thesis row-name-thesis-empty">Re-scan to generate the AI's reason for this ranking.</div>
+        )}
       </div>
       <div className="row-stage-tag">{isDropped ? 'dropped' : stageLabel}</div>
-      <div className="row-prob-num">{isDropped ? '—' : showProb}<span>{isDropped ? '' : '%'}</span></div>
+      <div className="row-prob-stack">
+        <div className="row-prob-num">
+          {isDropped ? '—' : showProb}<span>{isDropped ? '' : '%'}</span>
+          {!isDropped && delta !== 0 && (
+            <span className={"row-prob-delta " + (delta > 0 ? "row-prob-delta-up" : "row-prob-delta-down")} title={`Last re-rank moved this buyer ${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)} points`}>
+              {delta > 0 ? `↑${delta}` : `↓${Math.abs(delta)}`}
+            </span>
+          )}
+          {!isDropped && delta === 0 && updatedAt && (
+            <span className="row-prob-delta row-prob-delta-flat" title="No change since last re-rank">·</span>
+          )}
+        </div>
+        {updatedAt && !isDropped && (
+          <div className="row-prob-foot" title={`Last AI re-score: ${new Date(buyer.lastAnalyzed).toLocaleString()}`}>updated {updatedAt}</div>
+        )}
+      </div>
       <button
         type="button"
         className={"row-add-btn" + (open ? " row-add-btn-open" : "")}

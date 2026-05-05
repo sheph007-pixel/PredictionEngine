@@ -354,10 +354,11 @@ export default function App() {
           <div className="pipeline-sub">{buyers.length} firms · ranked by win probability · click + to add intel and re-rank</div>
         </div>
         <div className="rows">
-          {ordered.map((b) => (
+          {ordered.map((b, i) => (
             <BuyerRow
               key={b.id}
               buyer={b}
+              displayRank={i + 1}
               selected={b.id === openId}
               onSelect={() => openBuyer(b.id)}
               onAppendNote={appendBuyerNote}
