@@ -883,13 +883,24 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
       <div className="row-name-block">
         <div className="row-name-main">
           {buyer.website ? (
-            <a
-              className="row-name-link"
-              href={buyer.website}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-            >{buyer.name}</a>
+            <>
+              <a
+                className="row-name-link"
+                href={buyer.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+              >{buyer.name}</a>
+              <a
+                className="row-name-ext"
+                href={buyer.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                title={`Open ${buyer.website}`}
+                aria-label={`Open ${buyer.name} website in a new tab`}
+              >↗</a>
+            </>
           ) : buyer.name}
           {rescanning && <span className="row-rescanning-tag" style={{ marginLeft: 10 }}>AI re-scoring…</span>}
         </div>
