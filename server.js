@@ -47,7 +47,7 @@ async function initDb() {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS workspace (
         id TEXT PRIMARY KEY,
-        ebitda NUMERIC NOT NULL DEFAULT 18,
+        ebitda NUMERIC NOT NULL DEFAULT 3.6,
         case_mode TEXT NOT NULL DEFAULT 'mid',
         market JSONB NOT NULL DEFAULT '{}',
         market_meta TEXT,
@@ -55,7 +55,6 @@ async function initDb() {
         process JSONB NOT NULL DEFAULT '{}',
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
-      ALTER TABLE workspace ADD COLUMN IF NOT EXISTS deal_profile JSONB NOT NULL DEFAULT '{}';
       CREATE TABLE IF NOT EXISTS buyers (
         workspace_id TEXT NOT NULL,
         id TEXT NOT NULL,
@@ -83,16 +82,6 @@ async function initDb() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (workspace_id, id)
       );
-      CREATE TABLE IF NOT EXISTS prediction_snapshots (
-        id BIGSERIAL PRIMARY KEY,
-        workspace_id TEXT NOT NULL,
-        ts TIMESTAMPTZ NOT NULL DEFAULT now(),
-        label TEXT,
-        p_no_deal INT,
-        market JSONB,
-        buyers JSONB
-      );
-      CREATE INDEX IF NOT EXISTS prediction_snapshots_ts_idx ON prediction_snapshots (workspace_id, ts DESC);
     `);
     console.log('DB schema ready');
   } catch (err) {
@@ -113,35 +102,6 @@ async function loadPrecedents() {
   }
 }
 
-async function loadDealProfile() {
-  if (!pool) return {};
-  try {
-    const r = await pool.query(`SELECT deal_profile FROM workspace WHERE id = $1`, [WORKSPACE_ID]);
-    return r.rows[0]?.deal_profile || {};
-  } catch (err) {
-    return {};
-  }
-}
-
-function dealProfileSummary(p = {}) {
-  const lines = ['# DEAL PROFILE (CIM-derived facts; treat as ground truth)'];
-  const fields = [
-    ['EBITDA (LTM, $M)', p.ebitda],
-    ['Recurring revenue %', p.recurring_rev_pct],
-    ['Top-10 customer concentration %', p.top10_concentration],
-    ['EBITDA margin %', p.ebitda_margin],
-    ['3-yr revenue CAGR %', p.growth_3yr],
-    ['Captive % of book', p.captive_pct],
-    ['Key-person risk', p.key_person_risk],
-  ];
-  let any = false;
-  for (const [k, v] of fields) {
-    if (v != null && v !== '') { lines.push(`- ${k}: ${v}`); any = true; }
-  }
-  if (p.business_description) { lines.push(`- Description: ${p.business_description}`); any = true; }
-  if (!any) lines.push('(empty — user has not entered structured CIM facts yet; fall back to attached docs and buyer profile inference)');
-  return lines.join('\n');
-}
 
 // Fire-and-forget audit log writer — does not block the rescan response.
 function logRescan({ scope, only_buyer_id, input, output, live_intel, duration_ms, error }) {
@@ -153,7 +113,7 @@ function logRescan({ scope, only_buyer_id, input, output, live_intel, duration_m
   ).catch(err => console.warn('rescan_log write failed:', err.message));
 }
 
-function buildRescanSystemPrompt({ precedents, dealProfile }) {
+function buildRescanSystemPrompt({ precedents }) {
   return `You are the Kennion Prediction Engine — a senior M&A advisor's AI co-pilot for the sell-side process of Kennion's Benefits Program (a captive-style benefits brokerage advised by Reagan Consulting, currently in the Spring 2026 sale process). The actual current LTM EBITDA for the asset is provided in every user message — read it from there, do not assume a size.
 
 # Core architecture (READ FIRST)
@@ -168,8 +128,6 @@ This means most buyers' rescores will leave multiple_override = null. That's cor
 Re-evaluate using ONLY the evidence provided: buyer profile data, attached documents (CIM, LOIs, buyer emails, redlines, models), user field intelligence in notes, your own prior reasoning, and the precedent table.
 
 ${precedentSummary({ precedents, publicComps: PUBLIC_COMP_BANDS })}
-
-${dealProfileSummary(dealProfile)}
 
 # Citation requirement
 Every buyer's reasoning MUST cite at least one precedent id from the table above (or a public comp ticker like "BRO"). The cited_precedents array lists which ids you anchored on. Do NOT invent deals not in the table — if a deal is missing, say so and the user will add it.
@@ -592,29 +550,22 @@ app.post('/api/ai/rescan', async (req, res) => {
     ? `SCOPE: Re-score ONLY buyer "${only_buyer_id}" based on their latest notes and any new documents. Return apply_rescan with that one buyer in the buyers array. Echo the prior market values unchanged in the market field. The other buyers are shown as compact summaries solely to give you context for the dashboard-level rationales — do NOT include them in your response.`
     : `SCOPE: Re-evaluate every non-dropped buyer in the pipeline. Update market multiple bands if evidence has shifted; otherwise echo prior values.`;
 
-  // Load DB-backed precedents + deal profile in parallel with the live web
-  // intel fetch. Both feed the system / user prompt below.
-  const [precedents, dealProfile, liveIntel] = await Promise.all([
+  // Load DB-backed precedents in parallel with the live web intel fetch.
+  // Both feed the system / user prompt below.
+  const [precedents, liveIntel] = await Promise.all([
     loadPrecedents(),
-    loadDealProfile(),
     fetchLiveMarketIntel({ buyers: livePipeline, scopedBuyerId: only_buyer_id }),
   ]);
 
-  // Profile EBITDA wins over the workspace-level number when populated. The
-  // workspace-level value is the editable hero KPI; deal_profile.ebitda is the
-  // CIM-anchored truth used to bucket the multiple.
-  const sizingEbitda = (dealProfile && typeof dealProfile.ebitda === 'number' && dealProfile.ebitda > 0)
-    ? dealProfile.ebitda
-    : ebitda;
   const sizeBucket =
-    sizingEbitda < 3 ? '<$3M (sub-scale, local strategics + small PE tuck-ins only)'
-    : sizingEbitda < 5 ? '$3–5M (captive-niche bucket, sub-mid-market multiples)'
-    : sizingEbitda < 10 ? '$5–10M (lower mid-market, limited PE platform interest)'
-    : sizingEbitda < 20 ? '$10–20M (mid-market PE band starts to apply)'
-    : sizingEbitda < 50 ? '$20–50M (full mid-market PE / strategic platform)'
+    ebitda < 3 ? '<$3M (sub-scale, local strategics + small PE tuck-ins only)'
+    : ebitda < 5 ? '$3–5M (captive-niche bucket, sub-mid-market multiples)'
+    : ebitda < 10 ? '$5–10M (lower mid-market, limited PE platform interest)'
+    : ebitda < 20 ? '$10–20M (mid-market PE band starts to apply)'
+    : ebitda < 50 ? '$20–50M (full mid-market PE / strategic platform)'
     : '>$50M (scaled-platform comps with private discount)';
   const userText = `# Pipeline state
-EBITDA: $${sizingEbitda}M (locked, set by Reagan — do not adjust)
+EBITDA: $${ebitda}M (locked, set by Reagan — do not adjust)
 Size bucket: ${sizeBucket}
 **Reminder: anchor the realistic multiple band on this bucket FIRST. Do not apply mid-market or scaled-broker multiples to a sub-$10M asset without explicit hard evidence (LOI, term sheet, written offer).**
 
@@ -641,7 +592,7 @@ ${focusInstruction}`;
     user_text: userText,
   };
   try {
-    const systemPrompt = buildRescanSystemPrompt({ precedents, dealProfile });
+    const systemPrompt = buildRescanSystemPrompt({ precedents });
     const message = await client.beta.messages.create({
       model: MODEL,
       max_tokens: 8192,
@@ -882,7 +833,6 @@ app.get('/api/workspace', async (_req, res) => {
         market_meta: ws.market_meta,
         rationales: ws.rationales,
         process: ws.process,
-        deal_profile: ws.deal_profile || {},
         updated_at: ws.updated_at,
       } : null,
       buyers: buyersRows.rows.map(r => ({ ...r.data, updated_at: r.updated_at })),
@@ -895,11 +845,11 @@ app.get('/api/workspace', async (_req, res) => {
 
 app.put('/api/workspace', async (req, res) => {
   if (!ensureDb(res)) return;
-  const { ebitda, case_mode, market, market_meta, rationales, process: proc, deal_profile } = req.body || {};
+  const { ebitda, case_mode, market, market_meta, rationales, process: proc } = req.body || {};
   try {
     await pool.query(`
-      INSERT INTO workspace (id, ebitda, case_mode, market, market_meta, rationales, process, deal_profile, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+      INSERT INTO workspace (id, ebitda, case_mode, market, market_meta, rationales, process, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, now())
       ON CONFLICT (id) DO UPDATE SET
         ebitda = COALESCE(EXCLUDED.ebitda, workspace.ebitda),
         case_mode = COALESCE(EXCLUDED.case_mode, workspace.case_mode),
@@ -907,9 +857,8 @@ app.put('/api/workspace', async (req, res) => {
         market_meta = COALESCE(EXCLUDED.market_meta, workspace.market_meta),
         rationales = COALESCE(EXCLUDED.rationales, workspace.rationales),
         process = COALESCE(EXCLUDED.process, workspace.process),
-        deal_profile = COALESCE(EXCLUDED.deal_profile, workspace.deal_profile),
         updated_at = now()
-    `, [WORKSPACE_ID, ebitda ?? null, case_mode ?? null, market ?? null, market_meta ?? null, rationales ?? null, proc ?? null, deal_profile ?? null]);
+    `, [WORKSPACE_ID, ebitda ?? null, case_mode ?? null, market ?? null, market_meta ?? null, rationales ?? null, proc ?? null]);
     res.json({ ok: true });
   } catch (err) {
     console.error('PUT /api/workspace error:', err.message);
@@ -955,37 +904,6 @@ app.put('/api/precedents', async (req, res) => {
   }
 });
 
-// Pipeline snapshots — captured manually so we can score predictions later.
-app.post('/api/snapshots', async (req, res) => {
-  if (!ensureDb(res)) return;
-  const { label, p_no_deal, market, buyers } = req.body || {};
-  try {
-    await pool.query(
-      `INSERT INTO prediction_snapshots (workspace_id, label, p_no_deal, market, buyers)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [WORKSPACE_ID, label || null, p_no_deal ?? null, market ?? null, buyers ?? null]
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('POST /api/snapshots error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/snapshots', async (_req, res) => {
-  if (!ensureDb(res)) return;
-  try {
-    const r = await pool.query(
-      `SELECT id, ts, label, p_no_deal, market, buyers FROM prediction_snapshots
-       WHERE workspace_id = $1 ORDER BY ts DESC LIMIT 50`,
-      [WORKSPACE_ID]
-    );
-    res.json({ snapshots: r.rows });
-  } catch (err) {
-    console.error('GET /api/snapshots error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // Bulk replace buyers (used after rescans + on initial migration from localStorage).
 app.put('/api/buyers', async (req, res) => {

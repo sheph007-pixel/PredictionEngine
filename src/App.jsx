@@ -3,16 +3,14 @@ import { STAGES, STAGE_INDEX, PROCESS_DEFAULT, BUYERS } from './data.js';
 import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
   AddBuyerForm, AIChat, winnerProbabilities, AIHistoryButton, AIHistoryModal,
-  PrecedentEditor,
+  PrecedentEditor, PrecedentButton,
 } from './components.jsx';
-import { TweaksPanel, TweakSection, TweakToggle, TweakAction, TweakNumber, useTweaks } from './TweaksPanel.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
-import { fetchWorkspace, pushWorkspace, pushBuyers, debouncedPush, fetchPrecedents, pushPrecedents, postSnapshot } from './lib/sync.js';
+import { fetchWorkspace, pushWorkspace, pushBuyers, debouncedPush, fetchPrecedents, pushPrecedents } from './lib/sync.js';
 import { PRECEDENTS as SEED_PRECEDENTS } from './data/precedents.js';
 import { migrateNoteLog, appendNote, removeNote, latestNoteId, EVENT_SPECS } from './lib/notes.js';
 
-const TWEAK_DEFAULTS = { darkMode: false };
 const STATE_KEY = 'kennion.state.v1';
 
 const DEFAULT_MARKET = {
@@ -52,7 +50,6 @@ function usePersistedState(key, initial) {
 }
 
 export default function App() {
-  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [buyers, setBuyersRaw] = usePersistedState('buyers', BUYERS);
   // Wrap setBuyers so any path that hydrates buyers (server fetch, persisted
   // state, AI rescan, manual edits) goes through the noteLog migration shim.
@@ -70,20 +67,15 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [process, setProcess] = usePersistedState('process', PROCESS_DEFAULT);
-  const [ebitda, setEbitda] = usePersistedState('ebitda', 18);
+  const [ebitda, setEbitda] = usePersistedState('ebitda', 3.6);
   const [caseMode, setCaseMode] = usePersistedState('caseMode', 'mid');
   const [market, setMarket] = usePersistedState('market', DEFAULT_MARKET);
   const [marketMeta, setMarketMeta] = usePersistedState('marketMeta', 'AI · sector deal flow + public comp drift · 2 min ago');
   const [rationales, setRationales] = usePersistedState('rationales', { close_date: null, confidence: null, clearing_price: null, p_no_deal: null, p_no_deal_rationale: null });
-  // CIM-derived structured deal facts. Empty by default; the user populates
-  // them in TweaksPanel → "Deal facts" once the CIM is finalized so the AI
-  // anchors the multiple bucket on real numbers instead of inferring per-call.
-  const [dealProfile, setDealProfile] = usePersistedState('dealProfile', {});
   // User-editable precedent comp table. Seeds from the file fallback; once the
   // server returns real rows, hydration replaces this in place.
   const [precedents, setPrecedents] = usePersistedState('precedents', SEED_PRECEDENTS);
   const [showPrecedents, setShowPrecedents] = useState(false);
-  const [snapshotStatus, setSnapshotStatus] = useState(null);
 
   const [openId, setOpenId] = useState(null);
   const [openIntent, setOpenIntent] = useState(null);
@@ -120,7 +112,6 @@ export default function App() {
         if (ws.market_meta) setMarketMeta(ws.market_meta);
         if (ws.rationales) setRationales(ws.rationales);
         if (ws.process) setProcess(ws.process);
-        if (ws.deal_profile && typeof ws.deal_profile === 'object') setDealProfile(ws.deal_profile);
       }
       if (Array.isArray(result.buyers) && result.buyers.length > 0) {
         setBuyers(result.buyers);
@@ -129,7 +120,7 @@ export default function App() {
         await pushBuyers(buyers);
         await pushWorkspace({
           ebitda, case_mode: caseMode, market, market_meta: marketMeta,
-          rationales, process, deal_profile: dealProfile,
+          rationales, process,
         });
       }
       // Pull the workspace's precedent table. Server returns the file seed
@@ -152,11 +143,11 @@ export default function App() {
     debouncedPush('workspace', async () => {
       const ok = await pushWorkspace({
         ebitda, case_mode: caseMode, market, market_meta: marketMeta,
-        rationales, process, deal_profile: dealProfile,
+        rationales, process,
       });
       setSyncStatus(ok ? 'synced' : 'offline');
     });
-  }, [ebitda, caseMode, market, marketMeta, rationales, process, dealProfile]);
+  }, [ebitda, caseMode, market, marketMeta, rationales, process]);
 
   // Precedents sync — bulk replace on every edit (small array, low frequency).
   useEffect(() => {
@@ -260,10 +251,6 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    document.body.classList.toggle('dark', !!tweaks.darkMode);
-  }, [tweaks.darkMode]);
-
   const open = buyers.find(b => b.id === openId);
 
   // Per-buyer "AI is re-scoring" flag, surfaced in the row + modal so users
@@ -349,48 +336,6 @@ export default function App() {
     setOpenId(newBuyer.id);
   };
 
-  // Wipe every opinion / AI-generated field from a buyer, leaving only the
-  // structural facts (identity, profile, stage, dates, flags). Used by the
-  // workspace reset; the AI re-derives everything from market + comps on the
-  // next rescan.
-  const cleanBuyer = (b) => ({
-    id: b.id,
-    rank: b.rank,
-    name: b.name,
-    website: b.website,
-    hq: b.hq,
-    revenue: b.revenue,
-    headcount: b.headcount,
-    offices: b.offices,
-    ownership: b.ownership,
-    sponsor: b.sponsor,
-    sources: b.sources,
-    type: b.type,
-    stage: b.stage,
-    nda_signed: b.nda_signed || null,
-    chemistry_date: b.chemistry_date || null,
-    flags: b.flags || [],
-    fit: { size: 0, benefits: 0, pe: 0, precedent: 0 },
-    thesis: '',
-    probability: 0,
-    noteLog: [],
-  });
-
-  const resetWorkspace = () => {
-    const ok = window.confirm(
-      'Reset the workspace?\n\n' +
-      'This clears every buyer\'s notes, AI scores, fit ratings, thesis, ' +
-      'and the market bands. Buyer profiles (name, sponsor, stage, dates) stay.\n\n' +
-      'Click Re-scan from the top bar afterward to regenerate AI predictions ' +
-      'from the precedents and market comps. This cannot be undone.'
-    );
-    if (!ok) return;
-    setBuyers(bs => bs.map(cleanBuyer));
-    setMarket(null);
-    setMarketMeta(null);
-    setRationales({});
-    setRescanError(null);
-  };
   const deleteBuyer = (id) => {
     if (!window.confirm('Permanently delete this buyer from the pipeline? This cannot be undone.')) return;
     setBuyers(bs => bs.filter(b => b.id !== id));
@@ -414,6 +359,7 @@ export default function App() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <AIHistoryButton onClick={() => setShowHistory(true)} syncStatus={syncStatus} />
+          <PrecedentButton precedents={precedents} onClick={() => setShowPrecedents(true)} />
           <LibraryButton count={docs.length} onClick={() => setShowLibrary(true)} />
           <SystemBar
             ebitda={ebitda} onEbitda={setEbitda}
@@ -425,7 +371,7 @@ export default function App() {
         </div>
       </div>
 
-      <HeroKPIs buyers={buyers} process={process} ebitda={ebitda} caseMode={caseMode} market={market} rationales={rationales} dealProfile={dealProfile} />
+      <HeroKPIs buyers={buyers} process={process} ebitda={ebitda} caseMode={caseMode} market={market} rationales={rationales} />
 
       <ProcessTracker process={process} onUpdate={setProcess} buyers={buyers} ebitda={ebitda} caseMode={caseMode} />
 
@@ -532,76 +478,6 @@ export default function App() {
         open={aiOpen}
         onToggle={() => setAiOpen(!aiOpen)}
       />
-
-      <TweaksPanel title="Tweaks">
-        <TweakSection label="Deal facts (CIM-derived)">
-          <TweakNumber
-            label="EBITDA ($M)"
-            value={dealProfile.ebitda}
-            onChange={(v) => setDealProfile(p => ({ ...p, ebitda: v }))}
-            hint="LTM EBITDA from CIM. Anchors the multiple bucket."
-            step={0.5}
-          />
-          <TweakNumber
-            label="Recurring rev %"
-            value={dealProfile.recurring_rev_pct}
-            onChange={(v) => setDealProfile(p => ({ ...p, recurring_rev_pct: v }))}
-          />
-          <TweakNumber
-            label="Top-10 concentration %"
-            value={dealProfile.top10_concentration}
-            onChange={(v) => setDealProfile(p => ({ ...p, top10_concentration: v }))}
-          />
-          <TweakNumber
-            label="EBITDA margin %"
-            value={dealProfile.ebitda_margin}
-            onChange={(v) => setDealProfile(p => ({ ...p, ebitda_margin: v }))}
-          />
-          <TweakNumber
-            label="3-yr CAGR %"
-            value={dealProfile.growth_3yr}
-            onChange={(v) => setDealProfile(p => ({ ...p, growth_3yr: v }))}
-          />
-          <TweakNumber
-            label="Captive % of book"
-            value={dealProfile.captive_pct}
-            onChange={(v) => setDealProfile(p => ({ ...p, captive_pct: v }))}
-          />
-        </TweakSection>
-        <TweakSection label="Calibration">
-          <TweakAction
-            label="Edit precedents"
-            hint="Update Reagan's comp table. AI cites these in every rescan."
-            onClick={() => setShowPrecedents(true)}
-          />
-          <TweakAction
-            label={snapshotStatus || "Snapshot pipeline now"}
-            hint="Save current probabilities + market for later Brier scoring."
-            onClick={async () => {
-              setSnapshotStatus('Saving snapshot…');
-              const ok = await postSnapshot({
-                label: `Manual · ${new Date().toLocaleString()}`,
-                p_no_deal: rationales?.p_no_deal ?? null,
-                market,
-                buyers: buyers.map(b => ({ id: b.id, name: b.name, stage: b.stage, probability: b.probability, multipleOverride: b.multipleOverride || null })),
-              });
-              setSnapshotStatus(ok ? 'Snapshot saved' : 'Snapshot failed (no DB?)');
-              setTimeout(() => setSnapshotStatus(null), 3000);
-            }}
-          />
-        </TweakSection>
-        <TweakSection label="Display">
-          <TweakToggle label="Dark mode" value={tweaks.darkMode} onChange={(v) => setTweak('darkMode', v)} />
-        </TweakSection>
-        <TweakSection label="Workspace">
-          <TweakAction
-            label="Reset to clean slate"
-            hint="Wipes notes, AI scores, and market bands on every buyer. Keeps profile facts (name, sponsor, stage, dates). Click Re-scan after to regenerate."
-            danger
-            onClick={resetWorkspace}
-          />
-        </TweakSection>
-      </TweaksPanel>
 
       {showPrecedents && (
         <PrecedentEditor

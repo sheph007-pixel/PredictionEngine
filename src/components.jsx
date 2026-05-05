@@ -196,7 +196,7 @@ function HeroRationale({ text }) {
   );
 }
 
-export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales, dealProfile }) {
+export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales }) {
   const currentIdx = PROCESS_TASKS.findIndex(t => t.id === process.currentTaskId);
   const currentTask = PROCESS_TASKS[currentIdx];
   const closeTask = PROCESS_TASKS[PROCESS_TASKS.length - 1];
@@ -217,15 +217,10 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
     ? (rationales?.p_no_deal_rationale || rationales?.confidence)
     : rationales?.confidence;
 
-  // Size the clearing-price headline on the CIM-derived EBITDA when present,
-  // so the displayed bucket matches what the AI is anchoring on.
-  const sizingEbitda = (dealProfile && typeof dealProfile.ebitda === 'number' && dealProfile.ebitda > 0)
-    ? dealProfile.ebitda
-    : ebitda;
-  const m = (market && market[caseMode]) || marketMultiplesSeed(sizingEbitda)[caseMode] || marketMultiplesSeed(sizingEbitda).mid;
-  const clearLow = sizingEbitda * m.low;
-  const clearHigh = sizingEbitda * m.high;
-  const clearMid = sizingEbitda * ((m.low + m.high) / 2);
+  const m = (market && market[caseMode]) || marketMultiplesSeed(ebitda)[caseMode] || marketMultiplesSeed(ebitda).mid;
+  const clearLow = ebitda * m.low;
+  const clearHigh = ebitda * m.high;
+  const clearMid = ebitda * ((m.low + m.high) / 2);
 
   return (
     <div className="hero">
@@ -248,7 +243,7 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
           <span className="hero-range-sep">to</span>
           <span className="hero-range-high">{fmtMoney(clearHigh)}</span>
         </div>
-        <div className="hero-kpi-foot">${sizingEbitda}M EBITDA × <b>{m.low.toFixed(1)}–{m.high.toFixed(1)}×</b> · midpoint <b>{fmtMoney(clearMid)}</b></div>
+        <div className="hero-kpi-foot">${ebitda}M EBITDA × <b>{m.low.toFixed(1)}–{m.high.toFixed(1)}×</b> · midpoint <b>{fmtMoney(clearMid)}</b></div>
         <HeroRationale text={rationales?.clearing_price} />
       </div>
     </div>
@@ -1868,3 +1863,41 @@ const precedentInputStyle = {
   font: 'inherit',
   fontSize: 12,
 };
+
+export function PrecedentButton({ precedents, onClick }) {
+  const placeholderCount = (precedents || []).filter(p => p.confidence === 'estimate').length;
+  return (
+    <button
+      onClick={onClick}
+      title={placeholderCount > 0
+        ? `${placeholderCount} precedent${placeholderCount === 1 ? '' : 's'} still using placeholder multiples — replace with Reagan's comps for accurate pricing.`
+        : 'Edit Reagan precedent comp table — AI cites these on every rescan'}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        background: 'transparent',
+        border: '1px solid var(--rule-2)',
+        borderRadius: 4,
+        padding: '6px 12px',
+        cursor: 'pointer',
+        fontFamily: 'var(--mono)',
+        fontSize: 11,
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+        color: 'var(--ink-2)',
+        transition: 'all 0.12s',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--ink)'; e.currentTarget.style.color = 'var(--bg)'; e.currentTarget.style.borderColor = 'var(--ink)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ink-2)'; e.currentTarget.style.borderColor = 'var(--rule-2)'; }}
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 3h18v4H3z"/>
+        <path d="M3 11h18v4H3z"/>
+        <path d="M3 19h18v2H3z"/>
+      </svg>
+      Precedents
+      {placeholderCount > 0 && <span style={{ color: '#d4a72c' }}>· ⚠ {placeholderCount}</span>}
+    </button>
+  );
+}
