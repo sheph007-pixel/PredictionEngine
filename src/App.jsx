@@ -112,7 +112,28 @@ export default function App() {
         if (Array.isArray(ws.pinned_rules)) setPinnedRules(ws.pinned_rules);
       }
       if (Array.isArray(result.buyers) && result.buyers.length > 0) {
-        setBuyers(result.buyers);
+        // One-shot scrub of legacy demo seed fields (planted nda_signed,
+        // chemistry_date, the legacy `notes` string, AI history, AI reasoning,
+        // overrides). Runs once per browser, gated by a localStorage flag.
+        // Identity fields and noteLog timeline entries are preserved.
+        const SCRUB_KEY = 'kennion.demoScrub.v1';
+        let cleaned = result.buyers;
+        if (!localStorage.getItem(SCRUB_KEY)) {
+          cleaned = result.buyers.map(b => ({
+            ...b,
+            nda_signed: null,
+            chemistry_date: null,
+            notes: '',
+            aiHistory: [],
+            aiNotes: null,
+            aiCitations: [],
+            overrides: [],
+          }));
+          try { localStorage.setItem(SCRUB_KEY, new Date().toISOString()); } catch {}
+          // Push cleaned state back to Postgres so other devices see the scrub.
+          pushBuyers(cleaned).catch(() => {});
+        }
+        setBuyers(cleaned);
       } else {
         // Server is empty — push our local state up as the seed.
         await pushBuyers(buyers);
