@@ -467,7 +467,7 @@ Cite every fact with a source URL inline. If a topic has no material updates, sa
 // Re-evaluate the buyer pipeline with full context (buyers + docs + notes + prior reasoning).
 // Used by the top-bar Re-scan, per-buyer note submission, and post-classify doc upload.
 app.post('/api/ai/rescan', async (req, res) => {
-  const { buyers, ebitda, file_ids, only_buyer_id, prior_market, global_intel, extra_intel, pinned_rules, lessons } = req.body;
+  const { buyers, ebitda, file_ids, only_buyer_id, prior_market, global_intel, extra_intel, pinned_rules } = req.body;
   if (!Array.isArray(buyers) || buyers.length === 0) {
     return res.status(400).json({ error: 'buyers array required' });
   }
@@ -518,7 +518,11 @@ app.post('/api/ai/rescan', async (req, res) => {
     : `SCOPE: Re-evaluate every non-dropped buyer in the pipeline. Update market multiple bands if evidence has shifted; otherwise echo prior values.`;
 
   // Live web intel fetch — non-blocking on the rest of the request setup.
-  const liveIntel = await fetchLiveMarketIntel({ buyers: livePipeline, scopedBuyerId: only_buyer_id });
+  // Live web intel disabled — Update should reflect internal state changes
+  // (notes, comments, group moves, pinned rules, etc.) without a 5–15s web-
+  // search wait. fetchLiveMarketIntel + runWebSearch remain defined for an
+  // easy re-enable if a market-refresh button gets added later.
+  const liveIntel = null;
 
   const sizeBucket =
     ebitda < 3 ? '<$3M (sub-scale, local strategics + small PE tuck-ins only)'
@@ -542,13 +546,10 @@ ${docBlocks.length > 0 ? `# Documents attached: ${docBlocks.length} (CIM, LOIs, 
 
 ${liveIntel ? `# Live web intel (fetched ${new Date().toISOString().slice(0,10)} via OpenAI web search — may contain summarization errors, treat as a hint not ground truth; cite source URLs verbatim when used)
 ${liveIntel}
-` : '# Live web intel: unavailable for this rescan.'}
+` : '# Live web intel: disabled (Update reflects internal pipeline state only)'}
 
 ${Array.isArray(pinned_rules) && pinned_rules.length > 0 ? `# User-pinned rules (always apply — these are guardrails the user has explicitly told you to follow, on top of the system prompt)
 ${pinned_rules.map((r, i) => `${i + 1}. ${r.text}`).join('\n')}
-` : ''}
-${Array.isArray(lessons) && lessons.length > 0 ? `# Lessons from prior outcomes (deals that closed or dropped — apply these patterns to similar buyers)
-${lessons.slice(-20).map(l => `- ${l.buyer_name ? `${l.buyer_name}: ` : ''}predicted ${l.predicted ?? '?'}%, outcome ${l.outcome || '?'}. Lesson: ${l.text}`).join('\n')}
 ` : ''}
 ${Array.isArray(global_intel) && global_intel.length > 0 ? `# Pipeline-level intel log (free-text user inputs, newest first — running record of process-wide observations not tied to a single buyer)
 ${global_intel.slice(-20).reverse().map(g => `[${(g.ts || '').slice(0,10)}] ${g.text}`).join('\n')}
