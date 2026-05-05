@@ -990,14 +990,7 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
   // still constrains the AI in the prompt but doesn't appear as a competing UI
   // number.
   const prob = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
-  const hasAiRescan = !!buyer.lastAnalyzed;
-  const aiReasoning = buyer.aiNotes;
-  const fallbackReasons = !hasAiRescan ? heuristicReasonsFor(buyer) : [];
   const noteLog = Array.isArray(buyer.noteLog) ? buyer.noteLog : [];
-  const aiHistoryByNoteId = {};
-  for (const h of (buyer.aiHistory || [])) {
-    if (h.triggered_by_note_id) aiHistoryByNoteId[h.triggered_by_note_id] = h;
-  }
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
   const [aiError, setAiError] = useState(null);
@@ -1114,20 +1107,11 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
             <span className="modal-summary-prob">{prob}<span>%</span></span>
             <span className="modal-summary-prob-label">chance of winning</span>
             {buyer.lastAnalyzed && (
-              <span className="modal-summary-meta">· AI re-scored {new Date(buyer.lastAnalyzed).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+              <span className="modal-summary-meta">· updated {new Date(buyer.lastAnalyzed).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
             )}
           </div>
-          {aiReasoning ? (
-            <div className="modal-summary-text">{aiReasoning}</div>
-          ) : fallbackReasons.length > 0 ? (
-            <div className="reason-list">
-              {fallbackReasons.slice(0, 3).map((r, i) => (
-                <div key={i} className={"reason " + (r.kind === "+" ? "reason-pos" : "reason-neg")}>
-                  <span className="reason-mark">{r.kind}</span>
-                  <span>{r.text}</span>
-                </div>
-              ))}
-            </div>
+          {buyer.thesis ? (
+            <div className="modal-summary-text">{buyer.thesis}</div>
           ) : (
             <span className="research-empty">No AI rescan yet — click Update from the top bar.</span>
           )}
