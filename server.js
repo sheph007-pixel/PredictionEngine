@@ -197,7 +197,10 @@ This is the probability that the asset does NOT sell within the planned process 
 For Kennion's profile (captive benefits, sub-mid-market) a healthy floor is 10–20% even with strong buyers. Do not let it go below 5% absent firm-evidence LOIs from multiple buyers. \`p_no_deal_rationale\`: max 25 words, plain English, name the single biggest no-deal risk.
 
 # Output discipline
-Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence. If evidence is insufficient to move a number, leave it stable and say so in reasoning.`;
+Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence. If evidence is insufficient to move a number, leave it stable and say so in reasoning.
+
+# Brevity is mandatory
+Reasoning per buyer: max 45 words, single dense paragraph, no preamble like "Based on" or "After reviewing". Cite the strongest single piece of evidence; skip background. Dashboard rationales: max 25 words each. Summary: 1 sentence, max 25 words. Do not pad. The user values speed — every extra paragraph adds latency they feel.`;
 }
 
 const RESCAN_TOOL = {
@@ -264,7 +267,7 @@ const RESCAN_TOOL = {
               },
             },
             thesis: { type: 'string', description: 'ONE plain-English sentence, max 15 words. Why this buyer wins. No jargon, no acronyms, no em-dash run-ons.' },
-            reasoning: { type: 'string', description: 'Why this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving. Shown verbatim in the UI.' },
+            reasoning: { type: 'string', description: 'Why this probability and fit. **MAX 45 WORDS** — single short paragraph, dense, no preamble. Reference the single strongest piece of evidence (a note, doc, comp, or override). Skip background. Shown in audit log only, not the headline UI.' },
             confidence: {
               type: 'string',
               enum: ['low', 'medium', 'high'],
@@ -279,18 +282,13 @@ const RESCAN_TOOL = {
                 mid: { type: 'number' },
                 high: { type: 'number' },
                 source: { type: 'string', enum: ['LOI', 'term-sheet', 'verbal-offer', 'written-offer'] },
-                evidence: { type: 'string', description: 'Doc filename or short note quote that establishes the firm number' },
+                evidence: { type: 'string', description: 'Doc filename or short note quote that establishes the firm number — max 20 words.' },
               },
-            },
-            citations: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Additional evidence: doc filenames or short note quotes.',
             },
           },
         },
       },
-      summary: { type: 'string', description: '1–2 sentences on how the overall pipeline view shifted vs prior state' },
+      summary: { type: 'string', description: 'ONE sentence, max 25 words, on how the overall pipeline view shifted vs prior state.' },
       close_date_rationale: {
         type: 'string',
         description: 'Plain-English one-liner explaining the projected close date. Max 25 words, two short sentences max. State what is driving the timing and the biggest risk. No jargon ("LOI cycle", "exclusivity", "process phase").',
@@ -494,7 +492,7 @@ app.post('/api/ai/rescan', async (req, res) => {
     probability: b.probability, thesis: b.thesis,
     multipleOverride: b.multipleOverride || null,
     aiNotes: b.aiNotes || null,
-    aiHistory: (b.aiHistory || []).slice(-3),
+    aiHistory: (b.aiHistory || []).slice(-1),
     overrides: (b.overrides || []).slice(-5),
   });
   const compactSummary = (b) => ({
