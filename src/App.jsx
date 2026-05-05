@@ -421,6 +421,7 @@ export default function App() {
             market={market} marketMeta={marketMeta} onRescan={rescanAll}
             rescanError={rescanError}
             clearingRationale={rationales?.clearing_price}
+            lastRescanTs={rationales?.ts}
           />
         </div>
       </div>

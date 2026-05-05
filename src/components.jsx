@@ -445,13 +445,38 @@ export function marketMultiplesSeed(ebitda) {
 }
 
 // ---------- system bar ----------
-export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMeta, onRescan, rescanError, clearingRationale }) {
+export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMeta, onRescan, rescanError, clearingRationale, lastRescanTs }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(ebitda));
   const [refreshing, setRefreshing] = useState(false);
   const [localErr, setLocalErr] = useState(null);
+  // Elapsed ms since rescan started — drives the in-button progress bar +
+  // "Updating… 4s" counter so the user knows it's not stuck.
+  const [elapsed, setElapsed] = useState(0);
+  // Tick once per second when idle so the "updated 30s ago" label stays
+  // current without an explicit re-render trigger.
+  const [, setTick] = useState(0);
   const lastClickRef = useRef(0);
+  const startedAtRef = useRef(0);
   useEffect(() => setDraft(String(ebitda)), [ebitda]);
+
+  // Most rescans land in 3–8s now that live web intel is off; the bar reaches
+  // ~95% at 9s and holds there until the response arrives, then snaps to 100.
+  const EXPECTED_MS = 9000;
+
+  useEffect(() => {
+    if (!refreshing) return;
+    const id = setInterval(() => {
+      setElapsed(Date.now() - startedAtRef.current);
+    }, 200);
+    return () => clearInterval(id);
+  }, [refreshing]);
+
+  useEffect(() => {
+    if (refreshing || !lastRescanTs) return;
+    const id = setInterval(() => setTick(t => t + 1), 30000);
+    return () => clearInterval(id);
+  }, [refreshing, lastRescanTs]);
 
   const mult = market || marketMultiplesSeed(ebitda);
   const cases = ["conservative", "mid", "aggressive"];
@@ -469,6 +494,8 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
     const now = Date.now();
     if (refreshing || !onRescan || now - lastClickRef.current < 1500) return;
     lastClickRef.current = now;
+    startedAtRef.current = now;
+    setElapsed(0);
     setRefreshing(true);
     setLocalErr(null);
     try {
@@ -477,10 +504,16 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
       setLocalErr(e.message || 'Re-scan failed');
     } finally {
       setRefreshing(false);
+      setElapsed(0);
     }
   };
 
   const errorMsg = localErr || rescanError;
+  const elapsedSec = Math.floor(elapsed / 1000);
+  // Cap at 95% so the bar never claims completion — when the response lands,
+  // setRefreshing(false) clears the bar entirely (visually a snap to done).
+  const progressPct = refreshing ? Math.min(95, Math.round((elapsed / EXPECTED_MS) * 100)) : 0;
+  const lastUpdatedRel = lastRescanTs ? relativeTime(lastRescanTs) : null;
 
   return (
     <div className="sysbar">
@@ -511,13 +544,25 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
         disabled={refreshing}
         title={errorMsg ? `Update failed: ${errorMsg}` : (marketMeta || "Re-score every buyer + market bands using AI on full evidence (notes, docs, prior reasoning)")}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="23 4 23 10 17 10"/>
-          <polyline points="1 20 1 14 7 14"/>
-          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-        </svg>
-        {refreshing ? "Updating…" : errorMsg ? "Retry" : "Update"}
+        {refreshing && (
+          <span className="sysbar-update-progress" style={{ width: progressPct + '%' }} aria-hidden="true"></span>
+        )}
+        <span className="sysbar-update-content">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          {refreshing
+            ? <>Updating… <span className="sysbar-update-elapsed">{elapsedSec}s</span></>
+            : errorMsg ? "Retry" : "Update"}
+        </span>
       </button>
+      {lastUpdatedRel && !refreshing && !errorMsg && (
+        <div className="sysbar-last" title={`Last AI rescan: ${new Date(lastRescanTs).toLocaleString()}`}>
+          updated {lastUpdatedRel}
+        </div>
+      )}
       <div className="sysbar-live" title={marketMeta || "Last AI re-scan"}>
         <span className={"live-dot" + (errorMsg ? " live-dot-err" : "")}></span>
       </div>
