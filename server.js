@@ -16,7 +16,7 @@ const app = express();
 app.use(express.json({ limit: '8mb' }));
 
 const client = new Anthropic();
-const MODEL = 'claude-opus-4-7';
+const MODEL = 'claude-sonnet-4-6';
 const FILES_BETA = 'files-api-2025-04-14';
 
 // OpenAI is used ONLY for live web search before each rescan, feeding fresh
@@ -437,13 +437,10 @@ async function runWebSearch(query, label) {
 // 30 min so successive rescans don't re-hit the web.
 async function fetchLiveMarketIntel({ buyers, scopedBuyerId }) {
   if (!openai) return null;
-  const live = (buyers || []).filter(b => b.stage !== 'dropped');
   const today = new Date().toISOString().slice(0, 10);
 
-  const targets = scopedBuyerId
-    ? live.filter(b => b.id === scopedBuyerId)
-    : [...live].sort((a, b) => (b.probability || 0) - (a.probability || 0)).slice(0, 4);
-
+  // Single market-wide query keeps the rescan fast. Per-buyer web research
+  // moved to background sweeps (out of the synchronous Update path).
   const marketQuery = `Today is ${today}. Search the web and report concrete, recent facts only:
 
 1. U.S. insurance / benefits brokerage M&A transactions closed or announced in the last 6 months. For each, give target, acquirer, EV, and EBITDA multiple if disclosed.
@@ -451,20 +448,7 @@ async function fetchLiveMarketIntel({ buyers, scopedBuyerId }) {
 
 Cite every fact with a source URL inline. If a topic has no material updates, say "no material updates" — do not pad. Be terse. Skip generic background.`;
 
-  const buyerQueryFor = (b) => `Today is ${today}. Find concrete, recent (last 6 months) facts about ${b.name}${b.sponsor && b.sponsor !== '—' ? ` (sponsor: ${b.sponsor})` : ''} relevant to a U.S. benefits-brokerage M&A bid. Specifically:
-- Acquisitions they made in 2025-2026 (target, EV/multiple if disclosed)
-- Sponsor capital deployment status, fund vintage, dry powder commentary
-- Capacity / leadership / strategy changes that affect their willingness to bid
-- Any public statements about benefits-brokerage M&A appetite
-
-Cite every fact with a source URL inline. If nothing material, say "no material updates" — do not pad.`;
-
-  const tasks = [
-    { label: 'market', query: marketQuery },
-    ...targets.map(b => ({ label: b.name, query: buyerQueryFor(b), buyerId: b.id })),
-  ];
-
-  // Cap parallel OpenAI calls at 5. 1 market + up to 4 buyers fits naturally.
+  const tasks = [{ label: 'market', query: marketQuery }];
   const results = await Promise.allSettled(tasks.map(t => runWebSearch(t.query, t.label)));
 
   const sections = [];

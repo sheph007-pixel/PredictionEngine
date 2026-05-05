@@ -484,22 +484,6 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
 
   return (
     <div className="sysbar">
-      <div className="sysbar-cases" role="group" aria-label="Case">
-        {cases.map(c => {
-          const m = mult[c];
-          return (
-            <button
-              key={c}
-              className={"sysbar-case" + (caseMode === c ? " on" : "")}
-              onClick={() => onCase(c)}
-              title={`${m.note} · ${m.low.toFixed(1)}–${m.high.toFixed(1)}× · ${fmtMoney(m.low * ebitda)}–${fmtMoney(m.high * ebitda)}${clearingRationale ? `\n\nAI rationale: ${clearingRationale}` : market ? '' : '\n\n(Pre-rescan default — click Re-scan to ground this in evidence.)'}`}
-            >
-              {m.label}
-            </button>
-          );
-        })}
-      </div>
-      <div className="sysbar-divider"></div>
       <div className="sysbar-ebitda">
         <span className="sysbar-key">EBITDA</span>
         {editing ? (
@@ -522,17 +506,17 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
       </div>
       <div className="sysbar-divider"></div>
       <button
-        className={"sysbar-rescan" + (refreshing ? " refreshing" : "") + (errorMsg ? " err" : "")}
+        className={"sysbar-update" + (refreshing ? " refreshing" : "") + (errorMsg ? " err" : "")}
         onClick={rescan}
         disabled={refreshing}
-        title={errorMsg ? `Re-scan failed: ${errorMsg}` : (marketMeta || "Re-score every buyer + market bands using AI on full evidence (notes, docs, prior reasoning)")}
+        title={errorMsg ? `Update failed: ${errorMsg}` : (marketMeta || "Re-score every buyer + market bands using AI on full evidence (notes, docs, prior reasoning)")}
       >
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="23 4 23 10 17 10"/>
           <polyline points="1 20 1 14 7 14"/>
           <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
         </svg>
-        {refreshing ? "Re-scanning…" : errorMsg ? "Retry re-scan" : "Re-scan"}
+        {refreshing ? "Updating…" : errorMsg ? "Retry" : "Update"}
       </button>
       <div className="sysbar-live" title={marketMeta || "Last AI re-scan"}>
         <span className={"live-dot" + (errorMsg ? " live-dot-err" : "")}></span>
