@@ -398,25 +398,16 @@ export default function App() {
     setBuyers(bs => bs.map(b => b.id === id ? { ...b, aiHistory: [], aiNotes: null, aiCitations: [] } : b));
   };
 
+  // winnerData is still used for the bottom "no deal · process fails to clear"
+  // line and for the headline P(any deal closes) shown on Hero KPIs. Per-row
+  // numbers are now the AI's standalone P(close with THIS group), not winner-
+  // allocated — that's the question the user actually asks at row scope.
   const winnerData = winnerProbabilities(buyers, ebitda, caseMode);
-
-  // Per-model winner-allocations so the per-row chips speak the same language
-  // as the big headline number. Each model's raw probability array gets merged
-  // with the live buyers' stage state, then run through winnerProbabilities so
-  // its values are normalized the same way. Avg in the chip = headline number.
-  const computeModelWinner = (modelBuyers) => {
-    if (!Array.isArray(modelBuyers) || modelBuyers.length === 0) return null;
-    const byId = Object.fromEntries(modelBuyers.map(m => [m.id, m]));
-    const merged = buyers.map(b => byId[b.id] ? { ...b, probability: byId[b.id].probability } : b);
-    return winnerProbabilities(merged, ebitda, caseMode).winnerByBuyer;
-  };
-  const claudeWinnerByBuyer = computeModelWinner(rationales?.models?.claude?.buyers);
-  const openaiWinnerByBuyer = computeModelWinner(rationales?.models?.openai?.buyers);
 
   const ordered = [...buyers].sort((a, b) => {
     if (a.stage === 'dropped' && b.stage !== 'dropped') return 1;
     if (b.stage === 'dropped' && a.stage !== 'dropped') return -1;
-    return (winnerData.winnerByBuyer[b.id] || 0) - (winnerData.winnerByBuyer[a.id] || 0);
+    return (b.probability || 0) - (a.probability || 0);
   });
 
   return (
@@ -471,9 +462,6 @@ export default function App() {
               onSelect={() => openBuyer(b.id)}
               onAppendNote={appendBuyerNote}
               onRescanBuyer={rescanOne}
-              winnerPct={winnerData.winnerByBuyer[b.id] || 0}
-              claudeWinnerPct={claudeWinnerByBuyer ? claudeWinnerByBuyer[b.id] : null}
-              openaiWinnerPct={openaiWinnerByBuyer ? openaiWinnerByBuyer[b.id] : null}
               rescanning={!!rescanning[b.id]}
             />
           ))}
@@ -504,7 +492,7 @@ export default function App() {
             return rescanOne(id, { triggerNoteId: nid });
           }}
           onRescanBuyer={rescanOne}
-          winnerPct={winnerData.winnerByBuyer[open.id] || 0}
+          winnerPct={open.probability || 0}
         />
       )}
 

@@ -829,9 +829,11 @@ Be realistic. Match the format of existing peers in the pipeline.`;
 //   - Submit appends a tagged note + triggers a per-buyer rescan, which
 //     re-ranks the entire list (App.jsx re-sorts on every render).
 //   - Up/down arrow shows last AI re-score's probability change (from aiHistory).
-export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuyer, winnerPct, claudeWinnerPct, openaiWinnerPct, rescanning, displayRank }) {
+export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuyer, rescanning, displayRank }) {
   const isDropped = buyer.stage === "dropped";
-  const showProb = isDropped ? 0 : (winnerPct ?? probabilityFor(buyer));
+  // Standalone P(close with this group) — what the user actually wants per
+  // row. Headline "Deal confidence" KPI handles the pipeline-wide P(any deal).
+  const showProb = isDropped ? 0 : probabilityFor(buyer);
   const stageLabel = STAGES.find(s => s.id === buyer.stage)?.label || buyer.stage;
 
   // Derive the last per-buyer AI rescore: probability delta + relative timestamp.
@@ -903,11 +905,11 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
             <span className="row-prob-delta row-prob-delta-flat" title="No change since last re-rank">·</span>
           )}
         </div>
-        {!isDropped && (typeof claudeWinnerPct === 'number' || typeof openaiWinnerPct === 'number') && (
+        {!isDropped && buyer.modelVote && (typeof buyer.modelVote.claude === 'number' || typeof buyer.modelVote.openai === 'number') && (
           <ModelVote
-            claudeVal={typeof claudeWinnerPct === 'number' ? `${claudeWinnerPct}%` : null}
-            openaiVal={typeof openaiWinnerPct === 'number' ? `${openaiWinnerPct}%` : null}
-            avgVal={`${winnerPct ?? buyer.probability ?? '?'}%`}
+            claudeVal={typeof buyer.modelVote.claude === 'number' ? `${buyer.modelVote.claude}%` : null}
+            openaiVal={typeof buyer.modelVote.openai === 'number' ? `${buyer.modelVote.openai}%` : null}
+            avgVal={`${buyer.probability ?? '?'}%`}
           />
         )}
         {updatedAt && !isDropped && (
