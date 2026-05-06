@@ -541,7 +541,16 @@ app.post('/api/ai/rescan', async (req, res) => {
     probability: b.probability, thesis: b.thesis,
     multipleOverride: b.multipleOverride || null,
     aiNotes: b.aiNotes || null,
-    aiHistory: (b.aiHistory || []).slice(-1),
+    // Strip volatile fields (ts, changes diff) from the prior aiHistory entry
+    // before sending to the AI. Each rescan replaces these even when the
+    // underlying state hasn't changed, which makes the prompt bytes drift
+    // and the model output a different answer despite temperature: 0 and the
+    // STABILITY RULE. Keep only reasoning + the trigger flag the model
+    // genuinely needs.
+    aiHistory: (b.aiHistory || []).slice(-1).map(h => ({
+      reasoning: h.reasoning || null,
+      triggered_by_note_id: h.triggered_by_note_id || null,
+    })),
     overrides: (b.overrides || []).slice(-5),
   });
   const compactSummary = (b) => ({
