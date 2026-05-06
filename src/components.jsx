@@ -2150,6 +2150,27 @@ export function AIHistoryModal({ onClose, buyers }) {
 // "editable, your changes hit the next Update" or "defined in code".
 // The user sees exactly what Claude is being fed and can curate the
 // editable parts.
+export function PrintButton() {
+  return (
+    <button
+      className="print-btn"
+      onClick={() => window.print()}
+      title="Save dashboard as PDF (use the Save as PDF option in the print dialog)"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 8,
+        background: 'transparent', border: '1px solid var(--rule-2)', borderRadius: 4,
+        padding: '6px 12px', cursor: 'pointer',
+        fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em',
+        textTransform: 'uppercase', color: 'var(--ink-2)', transition: 'all 0.12s',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--ink)'; e.currentTarget.style.color = 'var(--bg)'; e.currentTarget.style.borderColor = 'var(--ink)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ink-2)'; e.currentTarget.style.borderColor = 'var(--rule-2)'; }}
+    >
+      PDF
+    </button>
+  );
+}
+
 export function BrainButton({ onClick }) {
   return (
     <button

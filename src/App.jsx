@@ -3,7 +3,7 @@ import { STAGES, STAGE_INDEX, PROCESS_DEFAULT, BUYERS } from './data.js';
 import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
   Conversation, winnerProbabilities, AIHistoryButton, AIHistoryModal,
-  BrainButton, BrainModal, AddBuyerForm,
+  BrainButton, BrainModal, AddBuyerForm, PrintButton,
 } from './components.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
@@ -543,6 +543,7 @@ export default function App() {
           <div className="brand-mark">Prediction <span className="accent">Engine</span></div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <PrintButton />
           <BrainButton onClick={() => setShowBrain(true)} />
           <AIHistoryButton onClick={() => setShowHistory(true)} syncStatus={syncStatus} />
           <LibraryButton count={docs.length} onClick={() => setShowLibrary(true)} />
@@ -555,6 +556,11 @@ export default function App() {
             lastRescanTs={rationales?.ts}
           />
         </div>
+      </div>
+
+      <div className="print-header">
+        <div className="print-header-title">Kennion Benefits Program · Buyer Pipeline</div>
+        <div className="print-header-meta">Reagan Consulting · {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
       </div>
 
       <HeroKPIs buyers={buyers} process={process} ebitda={ebitda} caseMode={caseMode} market={market} rationales={rationales} />
