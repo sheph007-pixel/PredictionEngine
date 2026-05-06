@@ -1063,24 +1063,28 @@ function validateRescanShape(p, onlyBuyerId) {
     if (!b.fit) return { ok: false, error: `buyer ${b.id} missing fit` };
   }
   if (typeof p.summary !== 'string') return { ok: false, error: 'missing summary' };
-  if (typeof p.close_date_rationale !== 'string') return { ok: false, error: 'missing close_date_rationale' };
-  if (typeof p.confidence_rationale !== 'string') return { ok: false, error: 'missing confidence_rationale' };
-  if (typeof p.clearing_price_rationale !== 'string') return { ok: false, error: 'missing clearing_price_rationale' };
-  // p_no_deal + close_estimate are required for pipeline rescans; per-buyer
-  // rescans may legitimately omit them (the AI focuses on one buyer + echoes
-  // prior dashboard values).
+  // Rationale strings are still required by the AI tool schema (so Claude
+  // tries hard to produce them) but not enforced here — they no longer drive
+  // any visible UI element after the HeroRationale block was removed, and
+  // captureRationales falls back to the prior value when a field is missing.
+  // Treating them as fatal would block legitimate rescans whenever the AI
+  // truncates one rationale paragraph.
+  for (const k of ['close_date_rationale', 'confidence_rationale', 'clearing_price_rationale', 'offer_date_rationale', 'p_no_deal_rationale']) {
+    if (p[k] != null && typeof p[k] !== 'string') return { ok: false, error: `${k} not a string` };
+  }
+  // p_no_deal + close_estimate + offer_estimate are required for pipeline
+  // rescans (per-buyer rescans may legitimately omit them — the AI focuses on
+  // one buyer + echoes prior dashboard values).
   if (!onlyBuyerId) {
     if (typeof p.p_no_deal !== 'number' || p.p_no_deal < 0 || p.p_no_deal > 100) {
       return { ok: false, error: 'p_no_deal missing or out of range' };
     }
-    if (typeof p.p_no_deal_rationale !== 'string') return { ok: false, error: 'missing p_no_deal_rationale' };
     if (typeof p.close_estimate !== 'string' || !/^\d{4}-\d{1,2}$/.test(p.close_estimate)) {
       return { ok: false, error: 'close_estimate missing or not YYYY-MM' };
     }
-    if (typeof p.offer_estimate !== 'string' || !/^\d{4}-\d{1,2}$/.test(p.offer_estimate)) {
-      return { ok: false, error: 'offer_estimate missing or not YYYY-MM' };
+    if (p.offer_estimate != null && !/^\d{4}-\d{1,2}$/.test(String(p.offer_estimate))) {
+      return { ok: false, error: 'offer_estimate not in YYYY-MM format' };
     }
-    if (typeof p.offer_date_rationale !== 'string') return { ok: false, error: 'missing offer_date_rationale' };
   }
   return { ok: true };
 }

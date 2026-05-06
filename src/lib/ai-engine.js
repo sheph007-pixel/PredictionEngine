@@ -52,9 +52,13 @@ function validateRescan(payload) {
     if (!validateBuyer(b)) return { ok: false, error: `invalid buyer: ${b?.id || '<unknown>'}` };
   }
   if (!isStr(payload.summary)) return { ok: false, error: 'missing summary' };
-  if (!isStr(payload.close_date_rationale)) return { ok: false, error: 'missing close_date_rationale' };
-  if (!isStr(payload.confidence_rationale)) return { ok: false, error: 'missing confidence_rationale' };
-  if (!isStr(payload.clearing_price_rationale)) return { ok: false, error: 'missing clearing_price_rationale' };
+  // Rationale strings are no longer surfaced in the UI (HeroRationale block
+  // removed). Treat missing rationales as non-fatal so a single truncated
+  // paragraph doesn't block the entire rescan; captureRationales keeps the
+  // prior value via ?? prev.X ?? null.
+  for (const k of ['close_date_rationale', 'confidence_rationale', 'clearing_price_rationale', 'offer_date_rationale', 'p_no_deal_rationale']) {
+    if (payload[k] != null && !isStr(payload[k])) return { ok: false, error: `${k} not a string` };
+  }
   // p_no_deal + close_estimate are optional on per-buyer rescans (server only
   // requires them on pipeline-wide calls); when present they must be valid.
   if (payload.p_no_deal != null && !isInt(payload.p_no_deal, 0, 100)) {
