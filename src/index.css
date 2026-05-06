@@ -121,7 +121,10 @@ body { font-size: 14px; }
 .hero-kpi-pipeline { color: var(--ink); }
 .hero-kpi-foot { font-family: var(--sans); font-size: 13px; color: var(--ink-3); margin-top: 10px; line-height: 1.5; }
 .hero-kpi-foot b { color: var(--ink); font-weight: 500; }
-.hero-kpi > .model-vote { margin-top: auto; }
+.hero-kpi > .model-vote { margin-top: 12px; flex-wrap: nowrap; gap: 4px; }
+.hero-kpi > .model-vote .model-chip { padding: 3px 7px; font-size: 10.5px; gap: 4px; }
+.hero-kpi > .model-vote .model-chip-mark { width: 14px; height: 14px; font-size: 8.5px; }
+.hero-kpi > .model-vote .model-chip-avg .model-chip-mark { width: auto; height: auto; padding: 0 3px; font-size: 7.5px; }
 
 /* Two-model voting strip on each KPI card */
 .model-vote {
