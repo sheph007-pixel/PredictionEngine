@@ -255,6 +255,18 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
   const aiCloseMonth = rationales?.close_estimate ? fmtCloseMonth(rationales.close_estimate) : null;
   const headlineClose = aiCloseMonth || fmtMonthYear(projectedClose);
 
+  // Keep "weeks remaining" honest to the headline date. When the AI overrides
+  // the close month, recompute weeks from today to mid-month of that estimate.
+  const aiCloseDate = (() => {
+    if (!rationales?.close_estimate || typeof rationales.close_estimate !== 'string') return null;
+    const m = rationales.close_estimate.match(/^(\d{4})-(\d{1,2})$/);
+    if (!m) return null;
+    return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, 15);
+  })();
+  const weeksRemaining = aiCloseDate
+    ? Math.max(0, Math.round((aiCloseDate - today) / (7 * 86400000)))
+    : weeksToClose;
+
   // Per-card chip values — Claude vs GPT vs avg.
   const closeChips = models?.claude?.close_estimate || models?.openai?.close_estimate ? {
     claude: models?.claude?.close_estimate ? fmtCloseMonth(models.claude.close_estimate) : null,
@@ -285,7 +297,7 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
       <div className="hero-kpi">
         <div className="hero-kpi-label">Projected close</div>
         <div className="hero-kpi-value hero-kpi-close">{headlineClose}</div>
-        <div className="hero-kpi-foot"><b>{weeksToClose}</b> weeks remaining · currently in <b>{currentTask.phase}</b></div>
+        <div className="hero-kpi-foot"><b>{weeksRemaining}</b> weeks remaining · currently in <b>{currentTask.phase}</b></div>
         {closeChips && <ModelVote claudeVal={closeChips.claude} openaiVal={closeChips.openai} avgVal={closeChips.avg} />}
         <HeroRationale text={rationales?.close_date} />
       </div>
