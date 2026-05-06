@@ -737,7 +737,7 @@ body.dark .ai { background: #0a0907; }
 .print-header { display: none; }
 
 @media print {
-  @page { size: letter portrait; margin: 0.45in 0.5in; }
+  @page { size: letter portrait; margin: 0.4in 0.45in; }
 
   /* Force colors so the dashboard looks like the screen, not stripped grey. */
   *, *::before, *::after {
@@ -749,14 +749,14 @@ body.dark .ai { background: #0a0907; }
     cursor: default !important;
   }
 
-  html, body { background: var(--bg) !important; }
+  html, body { background: var(--bg) !important; font-size: 11px; }
   .shell { max-width: none; padding: 0; }
 
-  /* Hide everything that's interactive chrome rather than content. */
+  /* Hide every interactive / editorial element that's not data content. */
   .topbar,
   .sysbar,
-  .pipeline-head .btn-add,
   .pipeline-head,
+  .pipeline-head .btn-add,
   .row-add-btn,
   .row-input,
   .convo, .conversation, .convo-fab,
@@ -764,41 +764,47 @@ body.dark .ai { background: #0a0907; }
   .live, .live-dot,
   .row-prob-foot,
   .model-vote,
-  .row-rescanning-tag {
-    display: none !important;
-  }
+  .row-rescanning-tag,
+  .process, .process-thin,
+  .row-name-ext,
+  .row-name-link::after { display: none !important; }
 
-  /* Show the print-only header. */
+  /* Make the whole page sit on a single sheet by removing any overflow scroll
+     and trimming external-link markup that breaks layout. */
+  body, .shell, .pipeline, .rows { overflow: visible !important; height: auto !important; }
+
+  /* Print-only header. */
   .print-header {
     display: flex !important;
     justify-content: space-between;
     align-items: baseline;
     border-bottom: 1px solid var(--ink);
-    padding-bottom: 8px;
-    margin-bottom: 12px;
+    padding-bottom: 6px;
+    margin-bottom: 8px;
   }
-  .print-header-title { font-family: var(--serif); font-size: 18px; color: var(--ink); }
-  .print-header-meta { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+  .print-header-title { font-family: var(--serif); font-size: 16px; color: var(--ink); }
+  .print-header-meta { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
 
-  /* Hero KPIs: keep 4-column tile look but compact for fit. */
-  .hero { grid-template-columns: repeat(4, 1fr) !important; margin-bottom: 10px; page-break-inside: avoid; }
-  .hero-kpi { padding: 12px 14px 10px !important; }
-  .hero-kpi-label { font-size: 8.5px; margin-bottom: 6px; }
-  .hero-kpi-value { font-size: 26px !important; }
-  .hero-kpi-foot { font-size: 9.5px; margin-top: 4px; }
+  /* Hero KPIs: 4 across, very compact. */
+  .hero { grid-template-columns: repeat(4, 1fr) !important; margin-bottom: 8px; page-break-inside: avoid; }
+  .hero-kpi { padding: 8px 10px 8px !important; }
+  .hero-kpi-label { font-size: 7.5px; margin-bottom: 3px; }
+  .hero-kpi-value { font-size: 22px !important; }
+  .hero-kpi-foot { font-size: 8.5px; margin-top: 2px; }
 
-  /* Process tracker: compact. */
-  .process-thin, .process { margin-bottom: 10px; page-break-inside: avoid; }
-  .process-thin-head { padding: 8px 14px; }
+  /* Pipeline rows: dense 1-line treatment so all buyers fit. */
+  .pipeline { border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; }
+  .row { padding: 5px 12px !important; page-break-inside: avoid; }
+  .row-rank { font-size: 10px; color: var(--ink-3); }
+  .row-name-main { font-size: 11.5px; line-height: 1.2; }
+  .row-name-thesis { font-size: 9.5px; line-height: 1.25; color: var(--ink-2); margin-top: 1px; }
+  .row-stage { gap: 3px !important; }
+  .row-stage-pip { width: 7px !important; height: 7px !important; margin-right: 10px !important; border-width: 1px !important; }
+  .row-stage-pips::before { left: 4px; right: 4px; height: 1px; }
+  .row-stage-label { font-size: 8px !important; letter-spacing: 0.06em !important; }
+  .row-prob-num { font-size: 14px; }
+  .row-prob-num span { font-size: 10px; }
 
-  /* Pipeline rows: tighter so more buyers fit on one page. */
-  .pipeline { border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
-  .row { padding: 8px 14px !important; page-break-inside: avoid; }
-  .row-name-main { font-size: 13px; }
-  .row-name-thesis { font-size: 10.5px; line-height: 1.35; color: var(--ink-2); }
-  .row-name-ext { display: none; } /* hide the ↗ external-link marker */
-  .row-rank { font-size: 11px; color: var(--ink-3); }
-  .row-stage-pip { width: 9px !important; height: 9px !important; margin-right: 14px !important; }
-  .row-stage-label { font-size: 9px !important; }
-  .row-prob-num { font-size: 16px; }
+  /* Hide the no-deal footer row in print: it's not user-actionable on paper. */
+  .row-nodeal { display: none !important; }
 }

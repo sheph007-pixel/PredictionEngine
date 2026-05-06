@@ -102,6 +102,13 @@ function buildRescanSystemPrompt() {
 # GLOBAL OUTPUT RULE (applies to EVERY text field you write, no exceptions)
 **Never use the em-dash character "—" (Unicode U+2014) anywhere in your output.** Not in summary, not in thesis, not in any rationale, not in reasoning, not in any string field. Use a period, comma, colon, or parenthesis instead. If you would write "X — Y", write "X. Y" or "X, Y" or "X (Y)". The en-dash "–" (used in numeric ranges like "5.0–7.0×") is allowed. Em-dashes in your output are a hard failure.
 
+# STABILITY RULE (READ FIRST, applies to every per-buyer probability and every dashboard number)
+**If no new evidence has arrived for a buyer since their most recent aiHistory entry, echo the prior probability and prior thesis unchanged.** New evidence means: (a) a new dated note in notes_timeline that wasn't already in the prior aiHistory's input, (b) a new doc in the library that mentions the buyer, (c) a new global_intel entry, (d) a new pinned rule, or (e) the user explicitly invalidated priors. Stage moving forward (e.g. outreach -> nda) is also new evidence.
+
+A 1 to 2 percentage point random reshuffle on every rescan, with no actual new input, is a critical failure mode. The user clicks Update expecting the engine to incorporate fresh facts; if the list reorders without fresh facts, they correctly conclude the engine is guessing. Walk every buyer: if you can't point to a specific new dated note, doc, intel entry, or stage change since their last aiHistory entry, return the SAME probability number you returned last time (visible in aiHistory's most recent entry) and reuse the SAME thesis text. Only adjust when you can cite the new evidence in your reasoning field.
+
+Same rule for the four dashboard numbers (close_estimate, offer_estimate, p_no_deal, market bands). If the pipeline state is unchanged from the prior rescan, echo the prior values from the AI-prior context block.
+
 # Core architecture (READ FIRST)
 There is ONE asset for sale (Kennion). The market clearing multiple for that asset is set by INDUSTRY DATA, not by individual buyers, every credible buyer pays roughly within the industry band for assets of this profile. Your output has two layers:
 
@@ -635,6 +642,12 @@ ${focusInstruction}`;
       client.beta.messages.create({
         model: MODEL,
         max_tokens: 8192,
+        // Default temperature is 1.0 which re-rolls probabilities by 5-10%
+        // on every rescan with identical inputs and reorders the buyer list,
+        // destroying user trust. Pin to 0 so identical inputs yield
+        // ~identical outputs; the only intentional drift comes from new
+        // notes / docs / intel actually changing the input.
+        temperature: 0,
         system: [
           { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
         ],
@@ -855,6 +868,11 @@ Return JSON matching the provided schema.`;
   try {
     const response = await openai.responses.create({
       model: 'gpt-4o',
+      // Pin temperature to 0 for the same reason Claude is pinned: stable
+      // numerical second opinion across identical inputs. Otherwise the
+      // GPT side of the blend re-rolls and shifts the averaged probability
+      // even when nothing in the pipeline changed.
+      temperature: 0,
       input: [
         { role: 'system', content: sys },
         { role: 'user', content: userMsg },
