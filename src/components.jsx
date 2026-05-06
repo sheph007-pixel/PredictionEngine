@@ -15,7 +15,7 @@ const SIGNAL_HINTS = {
   warming: 'Buyer trajectory is heating up (engagement, follow-ups, sponsor signals)',
   cooling: 'Buyer is going quiet, pulling back, or signaling lower priority',
   firm: 'Hard evidence of price/terms (LOI, term sheet, written or explicit verbal offer)',
-  stalling: 'Process is stuck — meetings keep getting moved, decisions deferred',
+  stalling: 'Process is stuck, meetings keep getting moved, decisions deferred',
   passed: 'Buyer formally passed on the process',
 };
 
@@ -44,7 +44,7 @@ function projectTaskDates(process) {
 // The AI's stage-aware probability is the ground truth. The system prompt
 // (see server.js) enforces stage discipline ranges (outreach 8–22%, nda
 // 12–28%, chemistry 18–38%, loi 28–58%, closed 90+%), so we display what
-// the AI returned without post-processing — no hand-rolled stage lift.
+// the AI returned without post-processing, no hand-rolled stage lift.
 export function probabilityFor(buyer) {
   const p = buyer.probability;
   if (typeof p !== 'number' || !Number.isFinite(p)) return 0;
@@ -53,7 +53,7 @@ export function probabilityFor(buyer) {
 
 // Winner allocation: deal-closes probability is the union over independent
 // buyers (1 − ∏(1 − pᵢ)). The slice each buyer wins is proportional to
-// their AI probability — no extra stage re-weighting (the AI already bakes
+// their AI probability, no extra stage re-weighting (the AI already bakes
 // stage into the number).
 export function winnerProbabilities(buyers /*, ebitda, caseMode */) {
   const live = buyers.filter(b => b.stage !== "dropped");
@@ -115,7 +115,7 @@ export function valuationFor(buyer, ebitda = 0, caseMode = "mid", market) {
     baseMid = (seed.low + seed.high) / 2;
   }
 
-  // Stage tightening — only applies when no override (override is already firm).
+  // Stage tightening, only applies when no override (override is already firm).
   const lo = override ? baseLow : baseMid - (baseMid - baseLow) * (1 - tighten);
   const hi = override ? baseHigh : baseMid + (baseHigh - baseMid) * (1 - tighten);
 
@@ -179,7 +179,7 @@ export const STAGE_PROB_RANGE = {
 };
 
 // ---------- hero KPIs ----------
-// Two-model voting strip — shows Claude's and GPT's individual predictions
+// Two-model voting strip, shows Claude's and GPT's individual predictions
 // side by side with an "avg" pill, letting the user see both reads at once
 // instead of just the blended number.
 function ModelVote({ claudeVal, openaiVal, avgVal, claudeReasoning, openaiReasoning }) {
@@ -187,20 +187,20 @@ function ModelVote({ claudeVal, openaiVal, avgVal, claudeReasoning, openaiReason
   if (!has) return null;
   const claudeTitle = claudeReasoning
     ? `Claude said ${claudeVal}: ${claudeReasoning}`
-    : `Claude (Anthropic) prediction: ${claudeVal ?? '—'}`;
+    : `Claude (Anthropic) prediction: ${claudeVal ?? '-'}`;
   const openaiTitle = openaiReasoning
     ? `GPT-4o said ${openaiVal}: ${openaiReasoning}`
-    : `GPT-4o (OpenAI) prediction: ${openaiVal ?? '—'}`;
-  const avgTitle = `Averaged: Claude ${claudeVal ?? '—'} + GPT ${openaiVal ?? '—'} → ${avgVal}. Drives the headline number.`;
+    : `GPT-4o (OpenAI) prediction: ${openaiVal ?? '-'}`;
+  const avgTitle = `Averaged: Claude ${claudeVal ?? '-'} + GPT ${openaiVal ?? '-'} → ${avgVal}. Drives the headline number.`;
   return (
     <div className="model-vote">
       <span className="model-chip model-chip-claude" title={claudeTitle}>
         <span className="model-chip-mark">C</span>
-        <span className="model-chip-val">{claudeVal ?? '—'}</span>
+        <span className="model-chip-val">{claudeVal ?? '-'}</span>
       </span>
       <span className="model-chip model-chip-openai" title={openaiTitle}>
         <span className="model-chip-mark">G</span>
-        <span className="model-chip-val">{openaiVal ?? '—'}</span>
+        <span className="model-chip-val">{openaiVal ?? '-'}</span>
       </span>
       <span className="model-chip model-chip-avg" title={avgTitle}>
         <span className="model-chip-mark">avg</span>
@@ -269,7 +269,7 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
     avg: aiOfferMonth || fmtMonthYear(projectedOffer),
   } : null;
 
-  // Per-card chip values — Claude vs GPT vs avg.
+  // Per-card chip values, Claude vs GPT vs avg.
   const closeChips = models?.claude?.close_estimate || models?.openai?.close_estimate ? {
     claude: models?.claude?.close_estimate ? fmtCloseMonth(models.claude.close_estimate) : null,
     openai: models?.openai?.close_estimate ? fmtCloseMonth(models.openai.close_estimate) : null,
@@ -446,7 +446,7 @@ export function ProcessTracker({ process, onUpdate, buyers = [], ebitda = 18, ca
 }
 
 // Pre-rescan defaults. Insurance/benefits brokerage multiples scale strongly
-// with EBITDA — a sub-$5M book does not clear at mid-market multiples. Keep
+// with EBITDA, a sub-$5M book does not clear at mid-market multiples. Keep
 // the seed conservative; the AI rescan tightens the band with real evidence.
 export function marketMultiplesSeed(ebitda) {
   const e = Number(ebitda) || 0;
@@ -470,7 +470,7 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
   const [draft, setDraft] = useState(String(ebitda));
   const [refreshing, setRefreshing] = useState(false);
   const [localErr, setLocalErr] = useState(null);
-  // Elapsed ms since rescan started — drives the in-button progress bar +
+  // Elapsed ms since rescan started, drives the in-button progress bar +
   // "Updating… 4s" counter so the user knows it's not stuck.
   const [elapsed, setElapsed] = useState(0);
   // Tick once per second when idle so the "updated 30s ago" label stays
@@ -530,7 +530,7 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
 
   const errorMsg = localErr || rescanError;
   const elapsedSec = Math.floor(elapsed / 1000);
-  // Cap at 95% so the bar never claims completion — when the response lands,
+  // Cap at 95% so the bar never claims completion, when the response lands,
   // setRefreshing(false) clears the bar entirely (visually a snap to done).
   const progressPct = refreshing ? Math.min(95, Math.round((elapsed / EXPECTED_MS) * 100)) : 0;
   const lastUpdatedRel = lastRescanTs ? relativeTime(lastRescanTs) : null;
@@ -719,9 +719,9 @@ export function PipelineStats({ buyers, ebitda, caseMode, market, process }) {
       </div>
       <div className="stat">
         <div className="stat-label">AI lead</div>
-        <div className="stat-value stat-value-sm">{top ? top.name : "—"}</div>
+        <div className="stat-value stat-value-sm">{top ? top.name : "-"}</div>
         <div className="stat-sub2">{top ? probabilityFor(top) : 0}% probability</div>
-        <div className="stat-sub2-muted">{topV ? fmtMoney(topV.headlineDollar) : "—"} expected value</div>
+        <div className="stat-sub2-muted">{topV ? fmtMoney(topV.headlineDollar) : "-"} expected value</div>
       </div>
       <div className="stat stat-emphasis">
         <div className="stat-label">Pipeline expected value</div>
@@ -751,11 +751,11 @@ export function AddBuyerForm({ onAdd, onCancel, existingBuyers }) {
     setPending(true);
     setError(null);
 
-    const sys = `You are an M&A analyst building a buyer profile for the Kennion Benefits Program sale (advised by Reagan Consulting). The user is adding a new prospective acquirer to the pipeline. Pricing comes from the global industry band — DO NOT generate a per-buyer multiple. Return ONLY a JSON object — no markdown, no commentary — with this exact shape:
+    const sys = `You are an M&A analyst building a buyer profile for the Kennion Benefits Program sale (advised by Reagan Consulting). The user is adding a new prospective acquirer to the pipeline. Pricing comes from the global industry band, DO NOT generate a per-buyer multiple. Return ONLY a JSON object, no markdown, no commentary, with this exact shape:
 {
   "headcount": "string e.g. 5,000-7,000",
-  "offices": "string e.g. 200+ or —",
-  "sponsor": "string PE sponsor name OR — if not PE-backed",
+  "offices": "string e.g. 200+ or -",
+  "sponsor": "string PE sponsor name OR, if not PE-backed",
   "type": "string e.g. National consolidator | Regional broker | Specialty",
   "thesis": "1-2 sentence fit thesis specific to a benefits-program acquisition",
   "fit": { "size": 1-5, "benefits": 1-5, "pe": 0 or 1, "precedent": 1-5 }
@@ -773,12 +773,12 @@ Be realistic. Match the format of existing peers in the pipeline.`;
         id,
         rank: 99,
         name: name.trim(),
-        hq: hq.trim() || "—",
-        revenue: revenue.trim() || "—",
-        headcount: data.headcount || "—",
-        offices: data.offices || "—",
+        hq: hq.trim() || "-",
+        revenue: revenue.trim() || "-",
+        headcount: data.headcount || "-",
+        offices: data.offices || "-",
         ownership,
-        sponsor: data.sponsor || "—",
+        sponsor: data.sponsor || "-",
         type: data.type || "Buyer",
         stage: "outreach",
         notes: "",
@@ -801,7 +801,7 @@ Be realistic. Match the format of existing peers in the pipeline.`;
         <button className="modal-close" onClick={onCancel}>×</button>
         <div className="modal-eyebrow">Add to pipeline</div>
         <div className="modal-title" style={{ fontSize: 32, marginBottom: 6 }}>New buyer group</div>
-        <div className="modal-sub" style={{ marginBottom: 20 }}>AI builds the full profile — fit thesis, scores, multiple range — so the new entry matches every other row.</div>
+        <div className="modal-sub" style={{ marginBottom: 20 }}>AI builds the full profile, fit thesis, scores, multiple range, so the new entry matches every other row.</div>
 
         <div className="add-form">
           <div className="add-field">
@@ -851,7 +851,7 @@ Be realistic. Match the format of existing peers in the pipeline.`;
 //   - Up/down arrow shows last AI re-score's probability change (from aiHistory).
 export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuyer, rescanning, displayRank }) {
   const isDropped = buyer.stage === "dropped";
-  // Standalone P(close with this group) — what the user actually wants per
+  // Standalone P(close with this group), what the user actually wants per
   // row. Headline "Deal confidence" KPI handles the pipeline-wide P(any deal).
   const showProb = isDropped ? 0 : probabilityFor(buyer);
   const stageLabel = STAGES.find(s => s.id === buyer.stage)?.label || buyer.stage;
@@ -892,7 +892,7 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
       className={"row" + (selected ? " row-selected" : "") + (isDropped ? " row-passed" : "") + (rescanning ? " row-rescanning" : "")}
       onClick={onSelect}
     >
-      <div className="row-rank">{isDropped ? '—' : displayRank}</div>
+      <div className="row-rank">{isDropped ? '-' : displayRank}</div>
       <div className="row-name-block">
         <div className="row-name-main">
           {buyer.website ? (
@@ -926,7 +926,7 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
       <div className="row-stage-tag">{isDropped ? 'dropped' : stageLabel}</div>
       <div className="row-prob-stack">
         <div className="row-prob-num">
-          {isDropped ? '—' : showProb}<span>{isDropped ? '' : '%'}</span>
+          {isDropped ? '-' : showProb}<span>{isDropped ? '' : '%'}</span>
           {!isDropped && delta !== 0 && (
             <span className={"row-prob-delta " + (delta > 0 ? "row-prob-delta-up" : "row-prob-delta-down")} title={`Last re-rank moved this buyer ${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)} points`}>
               {delta > 0 ? `↑${delta}` : `↓${Math.abs(delta)}`}
@@ -1002,7 +1002,7 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
 
 // ---------- source verification ----------
 function SourceChip({ source, docs }) {
-  if (!source) return <span className="src-chip src-chip-unverified">Unverified — no source on file</span>;
+  if (!source) return <span className="src-chip src-chip-unverified">Unverified, no source on file</span>;
   if (source.kind === 'url') return (
     <a className="src-chip src-chip-url" href={source.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
       {source.label || source.url} ↗
@@ -1013,7 +1013,7 @@ function SourceChip({ source, docs }) {
     return <span className="src-chip src-chip-file" title={doc?.classification?.title || ''}>{doc?.filename || source.label}</span>;
   }
   if (source.kind === 'manual') return <span className="src-chip src-chip-manual" title={source.note || ''}>{source.label}</span>;
-  if (source.kind === 'ai_inferred') return <span className="src-chip src-chip-unverified">AI inferred — verify</span>;
+  if (source.kind === 'ai_inferred') return <span className="src-chip src-chip-unverified">AI inferred, verify</span>;
   return null;
 }
 
@@ -1071,7 +1071,7 @@ function SourceRow({ field, value, source, docs, onAddSource }) {
 export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppendNote, onRemoveNote, onLogEvent, onRescanBuyer, winnerPct }) {
   if (!buyer) return null;
   const isDropped = buyer.stage === "dropped";
-  // Single displayed probability — winner-allocated share (P this buyer wins
+  // Single displayed probability, winner-allocated share (P this buyer wins
   // the deal). Across all live buyers + no-deal pct = 100%. We no longer surface
   // the AI's standalone stage-aware probability separately; stage discipline
   // still constrains the AI in the prompt but doesn't appear as a competing UI
@@ -1091,7 +1091,7 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
 
   // Append a new note entry, persist it, then trigger a per-buyer rescan that
   // is tagged with the new note's id. The note survives even if the rescan
-  // fails — persistence happens before the AI call. The aiHistory entry that
+  // fails, persistence happens before the AI call. The aiHistory entry that
   // comes back is matched to this note via triggered_by_note_id so the
   // timeline can show "AI re-scored after this note" inline.
   const submitNote = async () => {
@@ -1200,7 +1200,7 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
           {buyer.thesis ? (
             <div className="modal-summary-text">{buyer.thesis}</div>
           ) : (
-            <span className="research-empty">No AI rescan yet — click Update from the top bar.</span>
+            <span className="research-empty">No AI rescan yet, click Update from the top bar.</span>
           )}
         </div>
 
@@ -1276,7 +1276,7 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
 // probability overrides, global intel). After any state-changing tool call,
 // a full rescan runs automatically so every score reflects the new input.
 // The thread is persistent (localStorage) so the running advisor relationship
-// survives page reloads. Compact by default — last message preview + input;
+// survives page reloads. Compact by default, last message preview + input;
 // click to expand the full thread.
 const CONVO_STORAGE_KEY = 'kennion.convo.v1';
 const CONVO_VALID_STAGES = ['outreach', 'nda', 'chemistry', 'loi', 'closed', 'dropped'];
@@ -1284,7 +1284,7 @@ const CONVO_VALID_STAGES = ['outreach', 'nda', 'chemistry', 'loi', 'closed', 'dr
 const CONVO_TOOLS = [
   {
     name: 'add_buyer_note',
-    description: 'Append a piece of field intel to a specific buyer\'s timeline. Use when the user is telling you something about that buyer — feedback, signals, calls, document references.',
+    description: 'Append a piece of field intel to a specific buyer\'s timeline. Use when the user is telling you something about that buyer, feedback, signals, calls, document references.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1296,7 +1296,7 @@ const CONVO_TOOLS = [
   },
   {
     name: 'append_global_intel',
-    description: 'Log pipeline-wide intel that does not belong to any single buyer — market commentary, process observations, sector multiples shifting, corrections to global assumptions. Persists across rescans as running market context.',
+    description: 'Log pipeline-wide intel that does not belong to any single buyer, market commentary, process observations, sector multiples shifting, corrections to global assumptions. Persists across rescans as running market context.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1307,7 +1307,7 @@ const CONVO_TOOLS = [
   },
   {
     name: 'set_buyer_stage',
-    description: 'Move a buyer to a new stage. Only call when the user is explicit ("advance Hub to NDA", "drop Marsh"). Stages: outreach → nda → chemistry → loi → closed. "dropped" is the kill state. Always include a short reason capturing why the user changed it — this becomes durable training context for future rescans.',
+    description: 'Move a buyer to a new stage. Only call when the user is explicit ("advance Hub to NDA", "drop Marsh"). Stages: outreach → nda → chemistry → loi → closed. "dropped" is the kill state. Always include a short reason capturing why the user changed it, this becomes durable training context for future rescans.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1320,7 +1320,7 @@ const CONVO_TOOLS = [
   },
   {
     name: 'override_probability',
-    description: 'Manually override a buyer\'s probability. Only call when the user explicitly asks ("set OneDigital to 40", "Hub should be lower, like 18"). Otherwise let the rescan reprice naturally based on the note you logged. Always include a short reason — this becomes durable training context for future rescans.',
+    description: 'Manually override a buyer\'s probability. Only call when the user explicitly asks ("set OneDigital to 40", "Hub should be lower, like 18"). Otherwise let the rescan reprice naturally based on the note you logged. Always include a short reason, this becomes durable training context for future rescans.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1333,7 +1333,7 @@ const CONVO_TOOLS = [
   },
   {
     name: 'correct_buyer_website',
-    description: 'Update a buyer\'s website URL when the user tells you the stored one is wrong ("Cason Group should be thecasongroup.com, not casongroup.com"). Always include a short reason so the change is logged as a durable override. Do NOT use this for general intel — only when the user is specifically correcting the website link.',
+    description: 'Update a buyer\'s website URL when the user tells you the stored one is wrong ("Cason Group should be thecasongroup.com, not casongroup.com"). Always include a short reason so the change is logged as a durable override. Do NOT use this for general intel, only when the user is specifically correcting the website link.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1357,7 +1357,7 @@ const CONVO_TOOLS = [
   },
   {
     name: 'invalidate_buyer_priors',
-    description: 'Wipe stale AI-derived fields (thesis + last AI reasoning) on one or more buyers when the user pushes back on a claim that came from those fields ("you say OneDigital is pure-benefits, not true" / "you\'re wrong about X"). The thesis and last AI reasoning shown to you below are YOUR OWN prior conclusions, not user-verified facts — when the user disputes them, do NOT defend or apologize, call this tool. It logs the user\'s correction as pipeline-wide intel and forces the auto-rescan that follows to re-derive thesis + reasoning from clean state. Pass every buyer whose stale reasoning depends on the disputed claim.',
+    description: 'Wipe stale AI-derived fields (thesis + last AI reasoning) on one or more buyers when the user pushes back on a claim that came from those fields ("you say OneDigital is pure-benefits, not true" / "you\'re wrong about X"). The thesis and last AI reasoning shown to you below are YOUR OWN prior conclusions, not user-verified facts, when the user disputes them, do NOT defend or apologize, call this tool. It logs the user\'s correction as pipeline-wide intel and forces the auto-rescan that follows to re-derive thesis + reasoning from clean state. Pass every buyer whose stale reasoning depends on the disputed claim.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1408,7 +1408,7 @@ export function Conversation({ buyers, pinnedRules, globalIntel, market, rationa
   }, [messages, pending, expanded]);
 
   // Omniscient context: everything the rescan endpoint sees, the advisor sees
-  // too. Mirroring the brain into the system prompt is the whole point — when
+  // too. Mirroring the brain into the system prompt is the whole point, when
   // the user references buyer.thesis or buyer.aiNotes the advisor must be able
   // to read them. Keep this generous; Sonnet's context handles it.
   const buildSystem = () => {
@@ -1424,7 +1424,7 @@ export function Conversation({ buyers, pinnedRules, globalIntel, market, rationa
       const reasoning = b.aiNotes ? `\n  AI-prior · last reasoning: ${b.aiNotes}` : '';
       const thesis = b.thesis ? `\n  AI-prior · thesis: ${b.thesis}` : '';
       const site = b.website ? `\n  website: ${b.website}` : '';
-      return `- id="${b.id}" · ${b.name} · ${b.type || ''} · ${b.ownership || ''}${b.sponsor && b.sponsor !== '—' ? '/' + b.sponsor : ''} · stage=${b.stage} · p=${b.probability ?? '?'}%${site}${thesis}${reasoning}${recentNotes ? `\n  Recent notes:\n${recentNotes}` : ''}${overrides ? `\n  Recent overrides:\n${overrides}` : ''}`;
+      return `- id="${b.id}" · ${b.name} · ${b.type || ''} · ${b.ownership || ''}${b.sponsor && b.sponsor !== '-' ? '/' + b.sponsor : ''} · stage=${b.stage} · p=${b.probability ?? '?'}%${site}${thesis}${reasoning}${recentNotes ? `\n  Recent notes:\n${recentNotes}` : ''}${overrides ? `\n  Recent overrides:\n${overrides}` : ''}`;
     }).join('\n');
 
     const dropped = (buyersRef.current || []).filter(b => b.stage === 'dropped');
@@ -1460,31 +1460,31 @@ export function Conversation({ buyers, pinnedRules, globalIntel, market, rationa
       ? `\n\nPipeline-wide intel log (newest first):\n${(globalIntelRef.current || []).slice(-10).reverse().map(g => `- [${(g.ts || '').slice(0,10)}] ${g.text}`).join('\n')}`
       : '';
 
-    return `You are the user's senior M&A advisor inside the Kennion Prediction Engine — the sell-side process for Kennion's Benefits Program (Reagan Consulting · Spring 2026). You have full visibility into the workspace state below — the same inputs the rescan engine sees on every Update. When the user references something they're seeing in the UI, read it from the context. Do not deny knowledge of user-provided facts (recent notes, overrides, pinned rules, pipeline intel) that appear below.
+    return `You are the user's senior M&A advisor inside the Kennion Prediction Engine, the sell-side process for Kennion's Benefits Program (Reagan Consulting · Spring 2026). You have full visibility into the workspace state below, the same inputs the rescan engine sees on every Update. When the user references something they're seeing in the UI, read it from the context. Do not deny knowledge of user-provided facts (recent notes, overrides, pinned rules, pipeline intel) that appear below.
 
 Speak like a sharp banker who knows the deal cold: direct, conversational, no fluff. Replies under 80 words, no markdown, no headers.
 
-# Two kinds of context — treat them differently
+# Two kinds of context, treat them differently
 - **User-provided** (recent notes, overrides, pinned rules, pipeline intel): authoritative. The user logged these; trust them.
-- **AI-prior** (any line tagged \`AI-prior · …\` — buyer thesis, last reasoning, close month, close-date rationale, confidence rationale, clearing-price rationale, p_no_deal rationale): YOUR OWN prior conclusions from earlier rescans. These are drafts, not facts. The seed pipeline contained planted text that may not be true; older rescans may have anchored on stale data. When the user pushes back on one of these lines ("you say X is pure-benefits, not true" / "no chemistry meeting set" / "close date doesn't match"), do NOT defend the claim and do NOT just apologize — call the right invalidate tool with the user's correction as \`reason\`. The auto-rescan that follows re-derives from clean state.
+- **AI-prior** (any line tagged \`AI-prior · …\`, buyer thesis, last reasoning, close month, close-date rationale, confidence rationale, clearing-price rationale, p_no_deal rationale): YOUR OWN prior conclusions from earlier rescans. These are drafts, not facts. The seed pipeline contained planted text that may not be true; older rescans may have anchored on stale data. When the user pushes back on one of these lines ("you say X is pure-benefits, not true" / "no chemistry meeting set" / "close date doesn't match"), do NOT defend the claim and do NOT just apologize, call the right invalidate tool with the user's correction as \`reason\`. The auto-rescan that follows re-derives from clean state.
 
-When the user gives you intel, apply it via tools — do not just acknowledge it:
+When the user gives you intel, apply it via tools, do not just acknowledge it:
 - buyer-specific facts → add_buyer_note
 - general market / process / sector intel → append_global_intel
 - explicit stage change requested → set_buyer_stage (always include reason)
 - explicit probability override requested → override_probability (always include reason)
-- user corrects a buyer's website URL → correct_buyer_website (buyer_id + corrected URL + reason). Always actually call the tool — don't just say you'll update it.
+- user corrects a buyer's website URL → correct_buyer_website (buyer_id + corrected URL + reason). Always actually call the tool, don't just say you'll update it.
 - user disputes a buyer-level AI-prior (thesis / last reasoning) → invalidate_buyer_priors (every affected buyer + the correction as reason)
 - user disputes a workspace-level AI-prior (close month, close-date / confidence / clearing-price / no-deal rationale) → invalidate_pipeline_priors (the correction as reason)
 
-After tools run, a full pipeline rescan automatically rescores every buyer with the new input. In your reply, briefly state what you did and one sharp implication. If the input is genuinely ambiguous (which buyer? which stage?), ask one clarifying question instead of guessing — but if the user is pushing back on an AI-prior line, invalidating is rarely ambiguous: clear the priors and let the rescan re-derive, even if the user hasn't given you the corrected fact yet.
+After tools run, a full pipeline rescan automatically rescores every buyer with the new input. In your reply, briefly state what you did and one sharp implication. If the input is genuinely ambiguous (which buyer? which stage?), ask one clarifying question instead of guessing, but if the user is pushing back on an AI-prior line, invalidating is rarely ambiguous: clear the priors and let the rescan re-derive, even if the user hasn't given you the corrected fact yet.
 
-If the user asks a question without giving new intel, answer from the context below — no tools.
+If the user asks a question without giving new intel, answer from the context below, no tools.
 
 # Pipeline anchors
 ${marketCtx}${dashboardCtx ? `\n  ${dashboardCtx}` : ''}
 
-# Live buyers (state — AI-prior lines are your own drafts, not user-verified facts)
+# Live buyers (state, AI-prior lines are your own drafts, not user-verified facts)
 ${buyerCtx || '(none)'}${droppedCtx}${rulesCtx}${intelCtx}`;
   };
 
@@ -1492,7 +1492,7 @@ ${buyerCtx || '(none)'}${droppedCtx}${rulesCtx}${intelCtx}`;
     const cur = buyersRef.current;
     if (name === 'add_buyer_note') {
       const target = cur.find(b => b.id === args.buyer_id);
-      if (!target) return `error: no buyer "${args.buyer_id}" — valid: ${cur.map(b => b.id).join(', ')}`;
+      if (!target) return `error: no buyer "${args.buyer_id}", valid: ${cur.map(b => b.id).join(', ')}`;
       onAddBuyerNote(args.buyer_id, args.note);
       return `ok: logged to ${target.name}`;
     }
@@ -1520,16 +1520,16 @@ ${buyerCtx || '(none)'}${droppedCtx}${rulesCtx}${intelCtx}`;
     }
     if (name === 'correct_buyer_website') {
       const target = cur.find(b => b.id === args.buyer_id);
-      if (!target) return `error: no buyer "${args.buyer_id}" — valid: ${cur.map(b => b.id).join(', ')}`;
+      if (!target) return `error: no buyer "${args.buyer_id}", valid: ${cur.map(b => b.id).join(', ')}`;
       const url = String(args.website || '').trim();
-      if (!/^https?:\/\//i.test(url)) return `error: website must start with http:// or https:// — got "${url}"`;
+      if (!/^https?:\/\//i.test(url)) return `error: website must start with http:// or https://, got "${url}"`;
       onCorrectWebsite(args.buyer_id, url, args.reason);
       return `ok: ${target.name} website → ${url}`;
     }
     if (name === 'invalidate_buyer_priors') {
       const ids = Array.isArray(args.buyer_ids) ? args.buyer_ids : [];
       const valid = ids.filter(id => cur.some(b => b.id === id));
-      if (valid.length === 0) return `error: no valid buyer ids — valid: ${cur.map(b => b.id).join(', ')}`;
+      if (valid.length === 0) return `error: no valid buyer ids, valid: ${cur.map(b => b.id).join(', ')}`;
       onInvalidatePriors(valid, args.reason);
       const names = valid.map(id => cur.find(b => b.id === id)?.name || id).join(', ');
       return `ok: cleared stale thesis + AI reasoning on ${names}; logged correction as pipeline intel`;
@@ -1607,7 +1607,7 @@ ${buyerCtx || '(none)'}${droppedCtx}${rulesCtx}${intelCtx}`;
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder="Talk to the advisor — log intel, ask questions, correct anything. Enter to send."
+          placeholder="Talk to the advisor, log intel, ask questions, correct anything. Enter to send."
           disabled={pending}
         />
         <button type="submit" className="convo-send" disabled={pending || !input.trim()}>
@@ -1796,13 +1796,13 @@ export function AIChat({ buyers, setBuyers, fileIds, open, onToggle, alwaysOpen 
 
   const buildSystem = () => {
     const ranked = [...buyersRef.current].sort((a, b) => probabilityFor(b) - probabilityFor(a));
-    const ctx = ranked.map(b => `- id="${b.id}" · ${b.name} (${b.hq}, ${b.revenue}, ${b.ownership}${b.sponsor !== "—" ? "/" + b.sponsor : ""}, stage=${b.stage}, p=${probabilityFor(b)}%) — ${b.thesis}`).join("\n");
+    const ctx = ranked.map(b => `- id="${b.id}" · ${b.name} (${b.hq}, ${b.revenue}, ${b.ownership}${b.sponsor !== "-" ? "/" + b.sponsor : ""}, stage=${b.stage}, p=${probabilityFor(b)}%), ${b.thesis}`).join("\n");
     const docNote = fileIds && fileIds.length > 0
-      ? `\n\nThe user has uploaded ${fileIds.length} document${fileIds.length === 1 ? '' : 's'} to the library (CIM, LOIs, buyer emails, analysis, etc.) which are attached to this conversation. Reference them when relevant — quote specifics, cite which doc.`
+      ? `\n\nThe user has uploaded ${fileIds.length} document${fileIds.length === 1 ? '' : 's'} to the library (CIM, LOIs, buyer emails, analysis, etc.) which are attached to this conversation. Reference them when relevant, quote specifics, cite which doc.`
       : '';
-    return `You are the AI analyst inside the Kennion Prediction Engine — a private deal-tracking workspace for Kennion's sale of its Benefits Program, advised by Reagan Consulting. Be concise, opinionated, and specific. Reference buyers by name. Keep text responses under 90 words. No headers, no markdown.
+    return `You are the AI analyst inside the Kennion Prediction Engine, a private deal-tracking workspace for Kennion's sale of its Benefits Program, advised by Reagan Consulting. Be concise, opinionated, and specific. Reference buyers by name. Keep text responses under 90 words. No headers, no markdown.
 
-You have tools to mutate the pipeline state. When the user asks you to update, advance, drop, set stages, log notes, or change probabilities — actually call the tools instead of just describing what you would do. After tool calls succeed, briefly confirm what changed.
+You have tools to mutate the pipeline state. When the user asks you to update, advance, drop, set stages, log notes, or change probabilities, actually call the tools instead of just describing what you would do. After tool calls succeed, briefly confirm what changed.
 
 Stages, in order: outreach → nda → chemistry → loi → closed. "dropped" is the kill state.
 
@@ -1980,7 +1980,7 @@ export function AIHistoryButton({ onClick, syncStatus }) {
     : 'var(--ink-3)';
   const tip = syncStatus === 'synced' ? 'Synced to Postgres'
     : syncStatus === 'syncing' ? 'Saving to Postgres…'
-    : syncStatus === 'offline' ? 'Server unavailable — using local only'
+    : syncStatus === 'offline' ? 'Server unavailable, using local only'
     : 'Loading';
   return (
     <button
@@ -2021,7 +2021,7 @@ export function AIHistoryModal({ onClose, buyers }) {
         const res = await fetch('/api/rescans?limit=50');
         if (!res.ok) {
           if (res.status === 503) {
-            setError('Persistence unavailable — connect Postgres on Railway to enable audit history.');
+            setError('Persistence unavailable, connect Postgres on Railway to enable audit history.');
           } else {
             setError(`Server returned ${res.status}`);
           }
@@ -2043,7 +2043,7 @@ export function AIHistoryModal({ onClose, buyers }) {
         <div className="modal-eyebrow">AI Audit Log</div>
         <div className="modal-title" style={{ fontSize: 30, marginBottom: 6 }}>Every rescan, recorded</div>
         <div className="modal-sub" style={{ marginBottom: 18 }}>
-          Server-side log of every AI rescan call — inputs sent, outputs returned, web intel fetched, duration. Newest first.
+          Server-side log of every AI rescan call, inputs sent, outputs returned, web intel fetched, duration. Newest first.
         </div>
 
         {error && <div className="add-error" style={{ marginBottom: 12 }}>{error}</div>}
@@ -2110,7 +2110,7 @@ export function AIHistoryModal({ onClose, buyers }) {
                           return (
                             <div key={b.id} style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5 }}>
                               <b style={{ color: 'var(--ink)' }}>{buyerById[b.id]?.name || b.id}</b>
-                              {' — '}
+                              {', '}
                               {cb && <span style={{ color: '#cc785c', fontFamily: 'var(--mono)', fontSize: 11, marginRight: 6 }}>C={cb.probability}%</span>}
                               {ob && <span style={{ color: '#10a37f', fontFamily: 'var(--mono)', fontSize: 11, marginRight: 6 }}>G={ob.probability}%</span>}
                               <span style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>avg={b.probability}%</span>
@@ -2143,7 +2143,7 @@ export function AIHistoryModal({ onClose, buyers }) {
 
 // ---------- Brain (audit + training cockpit) ----------
 // Mirrors the rescan prompt in prompt order. Each section says either
-// "editable — your changes hit the next Update" or "defined in code".
+// "editable, your changes hit the next Update" or "defined in code".
 // The user sees exactly what Claude is being fed and can curate the
 // editable parts.
 export function BrainButton({ onClick }) {
@@ -2151,7 +2151,7 @@ export function BrainButton({ onClick }) {
     <button
       className="brain-btn"
       onClick={onClick}
-      title="AI Brain — see and edit what Claude uses to score every prediction"
+      title="AI Brain, see and edit what Claude uses to score every prediction"
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 8,
         background: 'transparent', border: '1px solid var(--rule-2)', borderRadius: 4,
@@ -2314,10 +2314,10 @@ export function BrainModal({
           <div className="brain-grid">
             <div><b>EBITDA</b><br/>${ebitda}M</div>
             <div><b>Case mode</b><br/>{caseMode}</div>
-            <div><b>Process step</b><br/>{process?.currentTaskId || '—'}</div>
-            <div><b>Conservative</b><br/>{market?.conservative ? `${market.conservative.low.toFixed(1)}–${market.conservative.high.toFixed(1)}×` : '—'}</div>
-            <div><b>Realistic</b><br/>{market?.mid ? `${market.mid.low.toFixed(1)}–${market.mid.high.toFixed(1)}×` : '—'}</div>
-            <div><b>Aggressive</b><br/>{market?.aggressive ? `${market.aggressive.low.toFixed(1)}–${market.aggressive.high.toFixed(1)}×` : '—'}</div>
+            <div><b>Process step</b><br/>{process?.currentTaskId || '-'}</div>
+            <div><b>Conservative</b><br/>{market?.conservative ? `${market.conservative.low.toFixed(1)}–${market.conservative.high.toFixed(1)}×` : '-'}</div>
+            <div><b>Realistic</b><br/>{market?.mid ? `${market.mid.low.toFixed(1)}–${market.mid.high.toFixed(1)}×` : '-'}</div>
+            <div><b>Aggressive</b><br/>{market?.aggressive ? `${market.aggressive.low.toFixed(1)}–${market.aggressive.high.toFixed(1)}×` : '-'}</div>
           </div>
           <div className="brain-footnote">Public broker comps (BRO, AON, MMC, AJG, WTW, BWIN) injected from <code>src/data/precedents.js</code>.</div>
         </BrainSection>
@@ -2438,7 +2438,7 @@ export function BrainModal({
           num={7}
           title="Documents"
           badge="editable in Library"
-          caption="PDFs, CIMs, LOIs, term sheets attached via the Library. The model reads these as evidence on every rescan — hard documents (LOIs, term sheets) directly anchor multiple_override and confidence."
+          caption="PDFs, CIMs, LOIs, term sheets attached via the Library. The model reads these as evidence on every rescan, hard documents (LOIs, term sheets) directly anchor multiple_override and confidence."
           count={(docs || []).length}
         >
           {(!docs || docs.length === 0) ? (

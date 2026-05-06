@@ -1,4 +1,4 @@
-// AI engine — single source of truth for all AI-driven evaluation calls.
+// AI engine, single source of truth for all AI-driven evaluation calls.
 //
 // Three trigger points all share /api/ai/rescan:
 //   - rescanPipeline()  → top-bar "Re-scan" button (full pipeline + market bands)
@@ -127,7 +127,7 @@ async function callRescan({ buyers, ebitda, fileIds, onlyBuyerId, priorMarket, g
 //   - aiCitations (evidence list)
 //   - lastAnalyzed (timestamp)
 //   - aiHistory entry appended (capped at 8 entries, oldest dropped)
-// opts.trigger: { buyerId, noteId } — when present, the aiHistory entry for
+// opts.trigger: { buyerId, noteId }, when present, the aiHistory entry for
 // that buyer is tagged so the timeline UI can show "AI re-scored after this note".
 export function applyRescanToBuyers(buyers, rescan, opts = {}) {
   const trigger = opts.trigger || null;

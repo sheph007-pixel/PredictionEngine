@@ -20,13 +20,13 @@ const MODEL = 'claude-haiku-4-5';
 const FILES_BETA = 'files-api-2025-04-14';
 
 // OpenAI is used ONLY for live web search before each rescan, feeding fresh
-// market intel into Claude's context. Optional — if OPENAI_API_KEY is missing
+// market intel into Claude's context. Optional, if OPENAI_API_KEY is missing
 // or the call fails, rescan still runs without live intel (graceful fallback).
 const openai = process.env.OPENAI_API_KEY ? new OpenAI() : null;
 const LIVE_INTEL_MODEL = 'gpt-4o';
 
 // Postgres for cross-device state sync + permanent audit log of every AI call.
-// Optional — without DATABASE_URL the app falls back to localStorage-only mode.
+// Optional, without DATABASE_URL the app falls back to localStorage-only mode.
 const dbUrl = process.env.DATABASE_URL;
 const pool = dbUrl
   ? new pg.Pool({
@@ -40,7 +40,7 @@ const WORKSPACE_ID = 'default';
 
 async function initDb() {
   if (!pool) {
-    console.log('No DATABASE_URL — running without persistence layer');
+    console.log('No DATABASE_URL, running without persistence layer');
     return;
   }
   try {
@@ -81,12 +81,12 @@ async function initDb() {
     `);
     console.log('DB schema ready');
   } catch (err) {
-    console.error('DB init failed — continuing without persistence:', err.message);
+    console.error('DB init failed, continuing without persistence:', err.message);
   }
 }
 
 
-// Fire-and-forget audit log writer — does not block the rescan response.
+// Fire-and-forget audit log writer, does not block the rescan response.
 function logRescan({ scope, only_buyer_id, input, output, live_intel, duration_ms, error }) {
   if (!pool) return;
   pool.query(
@@ -97,32 +97,35 @@ function logRescan({ scope, only_buyer_id, input, output, live_intel, duration_m
 }
 
 function buildRescanSystemPrompt() {
-  return `You are the Kennion Prediction Engine — a senior M&A advisor's AI co-pilot for the sell-side process of Kennion's Benefits Program (a captive-style benefits brokerage advised by Reagan Consulting, currently in the Spring 2026 sale process). The actual current LTM EBITDA for the asset is provided in every user message — read it from there, do not assume a size.
+  return `You are the Kennion Prediction Engine, a senior M&A advisor's AI co-pilot for the sell-side process of Kennion's Benefits Program (a captive-style benefits brokerage advised by Reagan Consulting, currently in the Spring 2026 sale process). The actual current LTM EBITDA for the asset is provided in every user message, read it from there, do not assume a size.
+
+# GLOBAL OUTPUT RULE (applies to EVERY text field you write, no exceptions)
+**Never use the em-dash character "—" (Unicode U+2014) anywhere in your output.** Not in summary, not in thesis, not in any rationale, not in reasoning, not in any string field. Use a period, comma, colon, or parenthesis instead. If you would write "X — Y", write "X. Y" or "X, Y" or "X (Y)". The en-dash "–" (used in numeric ranges like "5.0–7.0×") is allowed. Em-dashes in your output are a hard failure.
 
 # Core architecture (READ FIRST)
-There is ONE asset for sale (Kennion). The market clearing multiple for that asset is set by INDUSTRY DATA, not by individual buyers — every credible buyer pays roughly within the industry band for assets of this profile. Your output has two layers:
+There is ONE asset for sale (Kennion). The market clearing multiple for that asset is set by INDUSTRY DATA, not by individual buyers, every credible buyer pays roughly within the industry band for assets of this profile. Your output has two layers:
 
-1. GLOBAL market bands (conservative / realistic / aggressive) — these come from the EBITDA size bucket below + public broker comps. You set them ONCE per rescan. Bands apply to every buyer by default.
+1. GLOBAL market bands (conservative / realistic / aggressive), these come from the EBITDA size bucket below + public broker comps. You set them ONCE per rescan. Bands apply to every buyer by default.
 
-2. PER-BUYER scoring — for each buyer your job is mostly probability of close, fit, and thesis. DO NOT generate per-buyer multiples by default — buyers inherit the global band. The ONLY exception: if you have hard evidence (an LOI document with a firm price, a written term sheet, an explicit verbal offer logged in notes), set multiple_override on that buyer with the firm number and cite the source.
+2. PER-BUYER scoring, for each buyer your job is mostly probability of close, fit, and thesis. DO NOT generate per-buyer multiples by default, buyers inherit the global band. The ONLY exception: if you have hard evidence (an LOI document with a firm price, a written term sheet, an explicit verbal offer logged in notes), set multiple_override on that buyer with the firm number and cite the source.
 
-This means most buyers' rescores will leave multiple_override = null. That's correct — we don't pretend to know per-buyer pricing without evidence.
+This means most buyers' rescores will leave multiple_override = null. That's correct, we don't pretend to know per-buyer pricing without evidence.
 
 Re-evaluate using ONLY the evidence provided: buyer profile data, attached documents (CIM, LOIs, buyer emails, redlines, models), user field intelligence in notes, your own prior reasoning, and the public comps below.
 
 ${publicCompsSummary(PUBLIC_COMP_BANDS)}
 
 # Live web intel (when present)
-If the user message includes a "Live web intel" section, that's fresh data fetched via OpenAI web search at the time of this rescan. It may contain summarization errors — treat it as a HINT to investigate further, not as ground truth.
+If the user message includes a "Live web intel" section, that's fresh data fetched via OpenAI web search at the time of this rescan. It may contain summarization errors, treat it as a HINT to investigate further, not as ground truth.
 - When you cite a fact from live intel, quote the source URL verbatim ("per <url>"). Do not paraphrase URLs.
 - If live intel is absent or empty, rely on the size-bucket discipline + public comps + buyer profile + notes.
 
 # Global market band setting
-**Size discipline (READ FIRST — this is the single biggest driver of the multiple):**
-Insurance/benefits brokerage M&A multiples scale strongly with EBITDA. A sub-$5M business does NOT trade at mid-market multiples — the buyer pool is smaller, integration drag is higher, and key-person risk is real. Anchor the realistic band on the actual EBITDA bucket FIRST, then adjust for captive/niche profile, then for any deal-specific evidence:
+**Size discipline (READ FIRST, this is the single biggest driver of the multiple):**
+Insurance/benefits brokerage M&A multiples scale strongly with EBITDA. A sub-$5M business does NOT trade at mid-market multiples, the buyer pool is smaller, integration drag is higher, and key-person risk is real. Anchor the realistic band on the actual EBITDA bucket FIRST, then adjust for captive/niche profile, then for any deal-specific evidence:
 
   - **EBITDA < $3M**: realistic 4.0–6.0×, conservative 3.0–4.5×, aggressive 5.5–7.5×. Buyer universe = local strategic + small PE platforms doing tuck-ins. Treat anything above 7× as requiring hard evidence.
-  - **EBITDA $3–5M**: realistic 5.0–7.0×, conservative 4.0–5.5×, aggressive 6.5–8.5×. Captive-niche profile pushes toward the lower half. This is Kennion's likely bucket if EBITDA is in this range — DO NOT use mid-market multiples here.
+  - **EBITDA $3–5M**: realistic 5.0–7.0×, conservative 4.0–5.5×, aggressive 6.5–8.5×. Captive-niche profile pushes toward the lower half. This is Kennion's likely bucket if EBITDA is in this range, DO NOT use mid-market multiples here.
   - **EBITDA $5–10M**: realistic 6.5–8.5×, conservative 5.0–7.0×, aggressive 8.0–10.5×. Some PE platform interest opens up; tuck-in premium possible.
   - **EBITDA $10–20M**: realistic 8.0–10.5×, conservative 6.5–8.5×, aggressive 10.0–13.0×. Mid-market PE band starts to apply if the book is clean.
   - **EBITDA $20–50M**: realistic 10.0–12.5×, conservative 8.5–10.5×, aggressive 12.0–14.5×. Full mid-market PE / strategic platform multiples.
@@ -130,51 +133,51 @@ Insurance/benefits brokerage M&A multiples scale strongly with EBITDA. A sub-$5M
 
 After picking the size bucket, apply these adjustments:
 - **Captive / niche profile** (concentrated benefits book, smaller buyer pool): pull realistic to the lower half of the bucket band, not the upper half.
-- **Public broker comps** (BRO 16×, AON 14×, etc.) are forward-EBITDA on scaled liquid platforms — apply a **3–5× discount** for private mid-market + another **1–2×** for captive/niche before using them as anchors. Do not anchor a sub-$10M private band on these directly.
+- **Public broker comps** (BRO 16×, AON 14×, etc.) are forward-EBITDA on scaled liquid platforms, apply a **3–5× discount** for private mid-market + another **1–2×** for captive/niche before using them as anchors. Do not anchor a sub-$10M private band on these directly.
 
 Bands ~2× wide; bands may overlap (conservative.high may equal realistic.low). Update bands only if new evidence shifts them; otherwise echo prior_market values.
 
 **Conservatism bias**: when evidence is thin, lean to the lower half of the bucket. It is better to surface a credible $22–29M valuation that holds up under LP scrutiny than a wishful $40M+ that collapses at LOI. Every band note must include the size bucket you used (e.g. "$3–5M EBITDA bucket · captive-niche").
 
 # Notes timeline (treat as field intelligence over time, not as a static brief)
-Each buyer's \`notes_timeline\` field is a chronological log of field intel — one line per entry, prefixed with \`[YYYY-MM-DD]\` and optionally a user-tagged signal classification \`[warming|cooling|firm|stalling|passed]\`. Signal-tagged notes carry direct user judgment about the trajectory — weight them more heavily than untagged free-text notes (\`firm\` is hardest evidence, then \`passed\`, then \`warming\`/\`cooling\`/\`stalling\`). Read it as a story, not a list:
+Each buyer's \`notes_timeline\` field is a chronological log of field intel, one line per entry, prefixed with \`[YYYY-MM-DD]\` and optionally a user-tagged signal classification \`[warming|cooling|firm|stalling|passed]\`. Signal-tagged notes carry direct user judgment about the trajectory, weight them more heavily than untagged free-text notes (\`firm\` is hardest evidence, then \`passed\`, then \`warming\`/\`cooling\`/\`stalling\`). Read it as a story, not a list:
 - **Recent entries weigh more than older ones.** Look for momentum (warming, cooling, stalling), not average sentiment. A single recent strong signal (LOI hint, cooling chemistry, sponsor change, capacity pull) can override a stack of older neutral notes.
-- **Reference dates** when you anchor on a specific note (e.g., "the 2026-05-22 chemistry note"). Do not invent dates — only use ones present in the timeline.
+- **Reference dates** when you anchor on a specific note (e.g., "the 2026-05-22 chemistry note"). Do not invent dates, only use ones present in the timeline.
 - **Trajectory matters**: a buyer with three warming notes in two weeks is materially different from a buyer with three warming notes spread over six months. Reflect that in probability and confidence.
 - If the timeline is empty, say so in reasoning and rely on profile + comps. Do not invent notes.
 
 # Per-buyer outputs
-- probability (0–100): THIS buyer's independent odds of being the winning bidder. **The number you return IS what the UI shows — there is no post-processing, no stage multiplier applied downstream.** Bake stage, momentum, fit, evidence quality, and no-deal risk into this single number. Probabilities across buyers are independent and may sum to >100 (multiple paths to close) or <100 (significant no-deal risk). Be honest about no-deal risk.
+- probability (0–100): THIS buyer's independent odds of being the winning bidder. **The number you return IS what the UI shows, there is no post-processing, no stage multiplier applied downstream.** Bake stage, momentum, fit, evidence quality, and no-deal risk into this single number. Probabilities across buyers are independent and may sum to >100 (multiple paths to close) or <100 (significant no-deal risk). Be honest about no-deal risk.
 - fit (size, benefits, precedent each 0–5; pe is 0 or 1): size capacity, benefits-vertical alignment, PE capital available, 2025–26 M&A activity in this segment.
-- thesis: ONE plain-English sentence at an **8th-grade reading level**, max 18 words. Explain WHY this buyer is ranked where they are based on the latest data — what's pushing them up or down. Use words a non-banker would say. NO jargon, NO acronyms (spell out "PE", "LOI", "M&A" or just omit them), NO em-dashes, NO semicolons, NO words like "thesis", "synergy", "anchored", "tuck-in", "bidding tension". Format examples (illustrative only — write fresh based on each buyer's actual profile + recent notes): "Strong fit because they already buy benefits books like ours and their recent calls have been positive." / "Sponsor just spent big on another deal, so they have less money to spend on us." / "Good size match but they passed on us twice before, so this is unlikely to change." / "Has the cash but a benefits book is not what they normally buy."
-- reasoning: WHY this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving. This text is shown verbatim in the UI as the explanation for the number — write it for a smart LP, not for yourself.
+- thesis: ONE plain-English sentence at an **8th-grade reading level**, max 18 words. Explain WHY this buyer is ranked where they are based on the latest data, what's pushing them up or down. Use words a non-banker would say. NO jargon, NO acronyms (spell out "PE", "LOI", "M&A" or just omit them), NO em-dashes, NO semicolons, NO words like "thesis", "synergy", "anchored", "tuck-in", "bidding tension". Format examples (illustrative only, write fresh based on each buyer's actual profile + recent notes): "Strong fit because they already buy benefits books like ours and their recent calls have been positive." / "Sponsor just spent big on another deal, so they have less money to spend on us." / "Good size match but they passed on us twice before, so this is unlikely to change." / "Has the cash but a benefits book is not what they normally buy."
+- reasoning: WHY this probability and fit. Reference specific notes, doc snippets, or comps. No hand-waving. This text is shown verbatim in the UI as the explanation for the number, write it for a smart LP, not for yourself.
 - confidence ("low" | "medium" | "high"): how grounded this prediction is in hard evidence. "high" = LOI/term-sheet/written-offer or multiple corroborating signals from CIM/notes/live intel; "medium" = consistent pattern across notes + comps but no firm number; "low" = mostly inference from buyer profile + sponsor pattern with thin evidence.
 - multiple_override: null OR { low, mid, high, source: "LOI"|"term-sheet"|"verbal-offer", evidence: "doc filename or note quote" }. Set ONLY when hard-evidence number exists. Most buyers should have null here.
 
-# Stage discipline (probability anchors — these are the FINAL displayed ranges, not a base to be lifted)
+# Stage discipline (probability anchors, these are the FINAL displayed ranges, not a base to be lifted)
 - outreach: prob 8–22%
 - nda: prob 12–28%
 - chemistry: prob 18–38%
 - loi: prob 28–58% (and almost always has multiple_override)
 - closed: prob 90+%
-- dropped: filter out — do not include in output
+- dropped: filter out, do not include in output
 
 A buyer at the high end of their stage range should reflect strong corroborating evidence (active sponsor, recent precedent, distribution fit, momentum). A buyer at the low end should reflect specific drag (declined informally, capacity constraint, weak benefits mix, sponsor bandwidth issue). State the drivers in \`reasoning\`.
 
-# Dashboard rationales (PLAIN ENGLISH — 8th-grade reading level, no jargon)
-Write three one-liners — close_date_rationale, confidence_rationale, clearing_price_rationale — that explain each top-line number to a non-banker. These render in fixed three-line cards on the dashboard; anything longer than 22 words gets truncated with "…" which looks broken. Same writing discipline as buyer thesis. Hard rules:
+# Dashboard rationales (PLAIN ENGLISH, 8th-grade reading level, no jargon)
+Write three one-liners, close_date_rationale, confidence_rationale, clearing_price_rationale, that explain each top-line number to a non-banker. These render in fixed three-line cards on the dashboard; anything longer than 22 words gets truncated with "…" which looks broken. Same writing discipline as buyer thesis. Hard rules:
 
 - **Max 22 words** each. Count them before submitting. If it doesn't fit, cut adjectives and qualifiers, not the substance.
 - **8th-grade reading level**. Words a smart 13-year-old would use. If you'd have to explain a phrase to a non-banker, rewrite it.
 - **One or two short sentences**. Plain subject-verb-object. No nested clauses.
 - **No banker jargon, ever**. Banned words and phrases include: "captive-niche", "captive reinsurance", "captive specialist", "buyer pool", "mid-market", "rater IP", "member-level", "integration playbook", "synergies", "synergy", "Reagan comps", "comps discipline", "anchors below", "anchored on", "bucket", "sub-mid-market", "tuck-in", "bidding tension", "exclusivity", "LOI cycle", "process tension", "thesis", "overhang", "leverage limits", "deployment cycle", "capital constraints", "PE smaller-fund", "public equity overhang".
 - **No acronyms** without spelling out (or just omit). Spell out "PE" as "private equity firm", "LOI" as "first written offer" or omit.
-- **No parenthetical lists**. "(Baldwin, Cason, Oakbridge)" — don't do this. If a buyer matters, name it in prose. If three matter, summarize.
+- **No parenthetical lists**. "(Baldwin, Cason, Oakbridge)", don't do this. If a buyer matters, name it in prose. If three matter, summarize.
 - **No em-dashes, no semicolons**. Use periods.
 - **No first-person plural** ("we", "our"). Say what's happening.
 - **Numbers must match this response**. If you cite a percentage or multiple, it must be a number you set in this rescan (see "Numerical self-consistency" below).
 
-Format examples (illustrative — write fresh based on the actual pipeline state, do NOT copy buyer names, dates, percentages, or facts):
+Format examples (illustrative, write fresh based on the actual pipeline state, do NOT copy buyer names, dates, percentages, or facts):
 
   close_date_rationale: "Most top buyers are still early in talks. First written offers usually take three more months, so closing in late summer is realistic."
   confidence_rationale: "Three different buyers each have a real shot, so even if one walks the deal can still close. Main risk is the top one passing on price."
@@ -195,7 +198,7 @@ Output strictly in "YYYY-MM" format. Example: "2026-09". Do NOT add quotes or ex
 
 # First-offer estimate (\`offer_estimate\`, strict YYYY-MM format)
 Predict the calendar month a first written offer (LOI / term sheet / written verbal) most likely lands. Anchor on Reagan's process step (Receive Letters of Intent step is week 12 from process start; Marketing Phase 1 → ~7 weeks to first offer, Marketing Phase 2 pre-LOI → ~3 weeks, Exclusivity onward → already past). Adjust:
-- If any top buyer already has firm-evidence pricing in notes/docs, the first offer is in hand — set to current month.
+- If any top buyer already has firm-evidence pricing in notes/docs, the first offer is in hand, set to current month.
 - If chemistry meetings are scheduled but not held, anchor at chemistry-date + ~3-5 weeks.
 - If top buyers are stalling in outreach/NDA, extend by 3-6 weeks.
 Must be ≤ \`close_estimate\`. Output strictly in "YYYY-MM". Write \`offer_date_rationale\` (max 22 words, plain English, same discipline as close_date_rationale) explaining what's driving the timing.
@@ -213,25 +216,25 @@ For Kennion's profile (captive benefits, sub-mid-market) a healthy floor is 10�
 Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence. If evidence is insufficient to move a number, leave it stable and say so in reasoning.
 
 # Brevity is mandatory
-Reasoning per buyer: max 45 words, single dense paragraph, no preamble like "Based on" or "After reviewing". Cite the strongest single piece of evidence; skip background. Dashboard rationales: max 22 words each, 8th-grade reading level, no jargon (see banned-word list above). Summary: 1 sentence, max 25 words. Do not pad. The user values speed — every extra paragraph adds latency they feel.
+Reasoning per buyer: max 45 words, single dense paragraph, no preamble like "Based on" or "After reviewing". Cite the strongest single piece of evidence; skip background. Dashboard rationales: max 22 words each, 8th-grade reading level, no jargon (see banned-word list above). Summary: 1 sentence, max 25 words. Do not pad. The user values speed, every extra paragraph adds latency they feel.
 
 # Numerical self-consistency (NON-NEGOTIABLE)
 Before submitting, verify: any percentage, multiple, or month cited in summary, close_date_rationale, confidence_rationale, clearing_price_rationale, or p_no_deal_rationale MUST match a number you set in this same response. Specifically:
 - If you write "X% odds" or "X% chance" in a rationale, X must be a buyer.probability you wrote in the buyers[] array, OR p_no_deal, OR (100 - p_no_deal).
 - If you write a multiple (e.g. "5×–7×"), it must match a market band you wrote.
-- **Close month consistency**: any month you assert as the close in close_date_rationale (or any other rationale) MUST match the month in \`close_estimate\`. If close_estimate is "2026-09", do not write "close August" or "close in October" anywhere — write "close September" or "close Q3". Pick close_estimate FIRST, then write the rationale to match.
+- **Close month consistency**: any month you assert as the close in close_date_rationale (or any other rationale) MUST match the month in \`close_estimate\`. If close_estimate is "2026-09", do not write "close August" or "close in October" anywhere, write "close September" or "close Q3". Pick close_estimate FIRST, then write the rationale to match.
 - **Offer month consistency**: any month you assert as the first-offer month in offer_date_rationale (or elsewhere) MUST match \`offer_estimate\`. \`offer_estimate\` MUST be ≤ \`close_estimate\` (an offer cannot land after close).
 - Do NOT reuse numbers from prior aiHistory entries or prior rationales without re-checking they match the values in THIS rescan's output.
 - If your top buyer this rescan is 15%, the rationale says "15% odds", not "20%+".
 The audit log shows both the rationale text and the buyers[] array side by side; mismatches are immediately visible to the user.
 
-# Evidence discipline — only assert events that have happened
+# Evidence discipline, only assert events that have happened
 Do NOT assert that buyer milestones (chemistry meetings, NDAs, LOIs, exclusivity, closes) HAVE happened, ARE scheduled, or are "set" / "on the calendar" / "next week" unless one of the following is true:
 - The buyer's current stage reflects it (a buyer at \`chemistry\` stage means a chemistry meeting was held; \`loi\` means an LOI is in hand; \`closed\` means closed).
 - The buyer's noteLog or notes_timeline contains a dated entry asserting the event.
 - A document in the library asserts it.
 
-If you are PROJECTING when an event will likely happen (which is what \`close_estimate\` and the timeline rationale are for), use forward-looking language: "projected", "expected", "likely", "estimated mid-July", "anchor on Reagan's ~17-week timeline". Never write "one chemistry meeting set for late May" unless the noteLog has a dated chemistry entry. Never write "NDAs signed" unless buyers are at \`nda\` stage or later. Hallucinated events (events you assert as fact when there is no evidence) are the single worst failure mode of this engine — when in doubt, omit the specific event and stick to stage-level language.`;
+If you are PROJECTING when an event will likely happen (which is what \`close_estimate\` and the timeline rationale are for), use forward-looking language: "projected", "expected", "likely", "estimated mid-July", "anchor on Reagan's ~17-week timeline". Never write "one chemistry meeting set for late May" unless the noteLog has a dated chemistry entry. Never write "NDAs signed" unless buyers are at \`nda\` stage or later. Hallucinated events (events you assert as fact when there is no evidence) are the single worst failure mode of this engine, when in doubt, omit the specific event and stick to stage-level language.`;
 }
 
 const RESCAN_TOOL = {
@@ -285,7 +288,7 @@ const RESCAN_TOOL = {
               type: 'integer',
               minimum: 0,
               maximum: 100,
-              description: 'Independent probability THIS buyer is the winning bidder (0-100). This is the final displayed number — no post-processing.',
+              description: 'Independent probability THIS buyer is the winning bidder (0-100). This is the final displayed number, no post-processing.',
             },
             fit: {
               type: 'object',
@@ -298,7 +301,7 @@ const RESCAN_TOOL = {
               },
             },
             thesis: { type: 'string', description: 'ONE plain-English sentence, max 15 words. Why this buyer wins. No jargon, no acronyms, no em-dash run-ons.' },
-            reasoning: { type: 'string', description: 'Why this probability and fit. **MAX 45 WORDS** — single short paragraph, dense, no preamble. Reference the single strongest piece of evidence (a note, doc, comp, or override). Skip background. Shown in audit log only, not the headline UI.' },
+            reasoning: { type: 'string', description: 'Why this probability and fit. **MAX 45 WORDS**, single short paragraph, dense, no preamble. Reference the single strongest piece of evidence (a note, doc, comp, or override). Skip background. Shown in audit log only, not the headline UI.' },
             confidence: {
               type: 'string',
               enum: ['low', 'medium', 'high'],
@@ -306,14 +309,14 @@ const RESCAN_TOOL = {
             },
             multiple_override: {
               type: ['object', 'null'],
-              description: 'OPTIONAL — set ONLY when there is hard evidence of a firm price for this buyer (LOI received, term sheet, explicit offer in notes). Otherwise null. Most buyers should be null.',
+              description: 'OPTIONAL, set ONLY when there is hard evidence of a firm price for this buyer (LOI received, term sheet, explicit offer in notes). Otherwise null. Most buyers should be null.',
               required: ['low', 'mid', 'high', 'source', 'evidence'],
               properties: {
                 low: { type: 'number' },
                 mid: { type: 'number' },
                 high: { type: 'number' },
                 source: { type: 'string', enum: ['LOI', 'term-sheet', 'verbal-offer', 'written-offer'] },
-                evidence: { type: 'string', description: 'Doc filename or short note quote that establishes the firm number — max 20 words.' },
+                evidence: { type: 'string', description: 'Doc filename or short note quote that establishes the firm number, max 20 words.' },
               },
             },
           },
@@ -326,7 +329,7 @@ const RESCAN_TOOL = {
       },
       confidence_rationale: {
         type: 'string',
-        description: 'Plain-English one-liner explaining the deal confidence percentage. Max 25 words, two short sentences max. State the paths to close and the main no-deal risk. **CRITICAL: any probability you cite (e.g. "carries 20% odds") MUST match a buyer probability you set in this same response. If your top buyer is 15%, do not write "20% odds" — write "15% odds". Do NOT echo numbers from prior rationales without re-verifying against the buyers[] array you just wrote.** No jargon.',
+        description: 'Plain-English one-liner explaining the deal confidence percentage. Max 25 words, two short sentences max. State the paths to close and the main no-deal risk. **CRITICAL: any probability you cite (e.g. "carries 20% odds") MUST match a buyer probability you set in this same response. If your top buyer is 15%, do not write "20% odds", write "15% odds". Do NOT echo numbers from prior rationales without re-verifying against the buyers[] array you just wrote.** No jargon.',
       },
       clearing_price_rationale: {
         type: 'string',
@@ -352,7 +355,7 @@ const RESCAN_TOOL = {
       },
       offer_date_rationale: {
         type: 'string',
-        description: 'Plain-English one-liner explaining the projected first-offer date. Max 22 words, two short sentences max. Same writing discipline as close_date_rationale (8th-grade, no jargon, no acronyms — say "first written offer" not "LOI"). State what is driving the timing.',
+        description: 'Plain-English one-liner explaining the projected first-offer date. Max 22 words, two short sentences max. Same writing discipline as close_date_rationale (8th-grade, no jargon, no acronyms, say "first written offer" not "LOI"). State what is driving the timing.',
       },
     },
   },
@@ -427,7 +430,7 @@ app.post('/api/ai/chat', async (req, res) => {
 
 // In-memory live-intel cache. Keyed by query string. TTL 30 min. On a single
 // Railway dyno this is sufficient; cross-process caching would need a DB-backed
-// table (deferred). Cache is best-effort — eviction on miss is fine.
+// table (deferred). Cache is best-effort, eviction on miss is fine.
 const liveIntelCache = new Map();
 const LIVE_INTEL_TTL_MS = 30 * 60 * 1000;
 
@@ -484,9 +487,9 @@ async function fetchLiveMarketIntel({ buyers, scopedBuyerId }) {
   const marketQuery = `Today is ${today}. Search the web and report concrete, recent facts only:
 
 1. U.S. insurance / benefits brokerage M&A transactions closed or announced in the last 6 months. For each, give target, acquirer, EV, and EBITDA multiple if disclosed.
-2. Current forward-EBITDA multiples for public broker comps (BRO, AON, MMC, AJG, WTW, BWIN) — most recent sell-side or earnings-call print.
+2. Current forward-EBITDA multiples for public broker comps (BRO, AON, MMC, AJG, WTW, BWIN), most recent sell-side or earnings-call print.
 
-Cite every fact with a source URL inline. If a topic has no material updates, say "no material updates" — do not pad. Be terse. Skip generic background.`;
+Cite every fact with a source URL inline. If a topic has no material updates, say "no material updates", do not pad. Be terse. Skip generic background.`;
 
   const tasks = [{ label: 'market', query: marketQuery }];
   const results = await Promise.allSettled(tasks.map(t => runWebSearch(t.query, t.label)));
@@ -544,7 +547,7 @@ app.post('/api/ai/rescan', async (req, res) => {
     (!only_buyer_id || b.id === only_buyer_id) ? fullDetail(b) : compactSummary(b)
   );
 
-  // OpenAI second-opinion buyer state — same ground-truth data Claude sees,
+  // OpenAI second-opinion buyer state, same ground-truth data Claude sees,
   // but with Claude's prior outputs (probability, aiNotes, aiHistory) stripped.
   // Otherwise GPT-4o anchors hard on Claude's last number and just echoes it
   // back, defeating the whole point of an independent second read.
@@ -570,11 +573,11 @@ app.post('/api/ai/rescan', async (req, res) => {
   }));
 
   const focusInstruction = only_buyer_id
-    ? `SCOPE: Re-score ONLY buyer "${only_buyer_id}" based on their latest notes and any new documents. Return apply_rescan with that one buyer in the buyers array. Echo the prior market values unchanged in the market field. The other buyers are shown as compact summaries solely to give you context for the dashboard-level rationales — do NOT include them in your response.`
+    ? `SCOPE: Re-score ONLY buyer "${only_buyer_id}" based on their latest notes and any new documents. Return apply_rescan with that one buyer in the buyers array. Echo the prior market values unchanged in the market field. The other buyers are shown as compact summaries solely to give you context for the dashboard-level rationales, do NOT include them in your response.`
     : `SCOPE: Re-evaluate every non-dropped buyer in the pipeline. Update market multiple bands if evidence has shifted; otherwise echo prior values.`;
 
-  // Live web intel fetch — non-blocking on the rest of the request setup.
-  // Live web intel disabled — Update should reflect internal state changes
+  // Live web intel fetch, non-blocking on the rest of the request setup.
+  // Live web intel disabled, Update should reflect internal state changes
   // (notes, comments, group moves, pinned rules, etc.) without a 5–15s web-
   // search wait. fetchLiveMarketIntel + runWebSearch remain defined for an
   // easy re-enable if a market-refresh button gets added later.
@@ -588,7 +591,7 @@ app.post('/api/ai/rescan', async (req, res) => {
     : ebitda < 50 ? '$20–50M (full mid-market PE / strategic platform)'
     : '>$50M (scaled-platform comps with private discount)';
   const userText = `# Pipeline state
-EBITDA: $${ebitda}M (locked, set by Reagan — do not adjust)
+EBITDA: $${ebitda}M (locked, set by Reagan, do not adjust)
 Size bucket: ${sizeBucket}
 **Reminder: anchor the realistic multiple band on this bucket FIRST. Do not apply mid-market or scaled-broker multiples to a sub-$10M asset without explicit hard evidence (LOI, term sheet, written offer).**
 
@@ -598,16 +601,16 @@ ${JSON.stringify(prior_market || {}, null, 2)}
 # Buyers in scope
 ${JSON.stringify(groundedBuyers, null, 2)}
 
-${docBlocks.length > 0 ? `# Documents attached: ${docBlocks.length} (CIM, LOIs, emails, etc. — read them as evidence)` : '# No documents attached yet.'}
+${docBlocks.length > 0 ? `# Documents attached: ${docBlocks.length} (CIM, LOIs, emails, etc., read them as evidence)` : '# No documents attached yet.'}
 
-${liveIntel ? `# Live web intel (fetched ${new Date().toISOString().slice(0,10)} via OpenAI web search — may contain summarization errors, treat as a hint not ground truth; cite source URLs verbatim when used)
+${liveIntel ? `# Live web intel (fetched ${new Date().toISOString().slice(0,10)} via OpenAI web search, may contain summarization errors, treat as a hint not ground truth; cite source URLs verbatim when used)
 ${liveIntel}
 ` : '# Live web intel: disabled (Update reflects internal pipeline state only)'}
 
-${Array.isArray(pinned_rules) && pinned_rules.length > 0 ? `# User-pinned rules (always apply — these are guardrails the user has explicitly told you to follow, on top of the system prompt)
+${Array.isArray(pinned_rules) && pinned_rules.length > 0 ? `# User-pinned rules (always apply, these are guardrails the user has explicitly told you to follow, on top of the system prompt)
 ${pinned_rules.map((r, i) => `${i + 1}. ${r.text}`).join('\n')}
 ` : ''}
-${Array.isArray(global_intel) && global_intel.length > 0 ? `# Pipeline-level intel log (free-text user inputs, newest first — running record of process-wide observations not tied to a single buyer)
+${Array.isArray(global_intel) && global_intel.length > 0 ? `# Pipeline-level intel log (free-text user inputs, newest first, running record of process-wide observations not tied to a single buyer)
 ${global_intel.slice(-20).reverse().map(g => `[${(g.ts || '').slice(0,10)}] ${g.text}`).join('\n')}
 ` : ''}
 ${extra_intel ? `# Just submitted (incorporate this into the rescan)
@@ -693,7 +696,7 @@ ${focusInstruction}`;
       const stopReason = message.stop_reason || 'unknown';
       const truncated = stopReason === 'max_tokens';
       console.error(
-        `Rescan: malformed AI output — ${validation.error} (stop_reason=${stopReason}${truncated ? ', LIKELY TRUNCATED — bump max_tokens' : ''})`,
+        `Rescan: malformed AI output, ${validation.error} (stop_reason=${stopReason}${truncated ? ', LIKELY TRUNCATED, bump max_tokens' : ''})`,
         JSON.stringify(toolUse.input).slice(0, 800)
       );
       logRescan({
@@ -706,7 +709,7 @@ ${focusInstruction}`;
         error: `malformed: ${validation.error} (stop_reason=${stopReason})`,
       });
       return res.status(502).json({
-        error: `AI returned incomplete output: ${validation.error}${truncated ? ' (response truncated — try again)' : ''}`,
+        error: `AI returned incomplete output: ${validation.error}${truncated ? ' (response truncated, try again)' : ''}`,
         type: 'malformed_output',
         stop_reason: stopReason,
       });
@@ -747,7 +750,7 @@ ${focusInstruction}`;
 // these with Claude's output so both models vote on the headline predictions.
 // If OpenAI fails or is unavailable, we silently fall back to Claude only.
 //
-// We intentionally do NOT ask GPT for per-buyer thesis/reasoning/fit — those
+// We intentionally do NOT ask GPT for per-buyer thesis/reasoning/fit, those
 // are Claude's domain (writing in Reagan's voice with grounded notes citation).
 // GPT just casts a numerical vote.
 
@@ -782,7 +785,7 @@ const OPENAI_PREDICTION_SCHEMA = {
         properties: {
           id: { type: 'string' },
           probability: { type: 'integer', minimum: 0, maximum: 100 },
-          reasoning: { type: 'string', description: 'ONE short sentence, max 25 words, citing the SINGLE strongest driver of the probability you assigned. The user hovers a chip to see this — make it the most useful one-line explanation possible.' },
+          reasoning: { type: 'string', description: 'ONE short sentence, max 25 words, citing the SINGLE strongest driver of the probability you assigned. The user hovers a chip to see this, make it the most useful one-line explanation possible.' },
         },
       },
     },
@@ -797,7 +800,10 @@ async function getOpenAIPredictions({ ebitda, groundedBuyers, liveIntel, sizeBuc
   if (!openai) return null;
   const sys = `You are a senior M&A analyst providing an independent SECOND OPINION on the Kennion Benefits Program sale (captive-style benefits brokerage, advised by Reagan Consulting, Spring 2026 process).
 
-Claude is producing the primary analysis IN PARALLEL — you do not see its output and it does not see yours. The system averages your numbers with Claude's after both finish. The point is for you to reach a SECOND, INDEPENDENT view from the same ground-truth data. If you simply mirror what a typical analyst would say, you add no signal. Bring your own read on signal strength, momentum, and bidder discipline. Do not be surprised if your number differs from a hypothetical "consensus" — that's the value.
+# GLOBAL OUTPUT RULE (applies to EVERY text field you write)
+**Never use the em-dash character "—" (Unicode U+2014) anywhere in your output.** Use a period, comma, colon, or parenthesis instead. If you would write "X — Y", write "X. Y" or "X, Y" or "X (Y)". The en-dash "–" (numeric ranges like "5.0–7.0×") is allowed.
+
+Claude is producing the primary analysis IN PARALLEL, you do not see its output and it does not see yours. The system averages your numbers with Claude's after both finish. The point is for you to reach a SECOND, INDEPENDENT view from the same ground-truth data. If you simply mirror what a typical analyst would say, you add no signal. Bring your own read on signal strength, momentum, and bidder discipline. Do not be surprised if your number differs from a hypothetical "consensus", that's the value.
 
 # Size discipline (anchor the multiple band on this bucket FIRST)
 - EBITDA <$3M: realistic 4–6×, conservative 3–4.5×, aggressive 5.5–7.5×
@@ -807,7 +813,7 @@ Claude is producing the primary analysis IN PARALLEL — you do not see its outp
 - EBITDA $20–50M: realistic 10–12.5×, conservative 8.5–10.5×, aggressive 12–14.5×
 - EBITDA >$50M: realistic 11–13.5×, conservative 9.5–11.5×, aggressive 13–16×
 
-# Stage discipline (probability ranges — final, no post-processing)
+# Stage discipline (probability ranges, final, no post-processing)
 - outreach: 8–22%
 - nda: 12–28%
 - chemistry: 18–38%
@@ -824,12 +830,12 @@ Predict the month a first written offer (LOI / term sheet / written verbal) most
 # No-deal probability
 For Kennion's profile (captive-niche, sub-mid-market) a healthy floor is 10–20% even with strong buyers. Reflect buyer-pool depth, sponsor capacity, note trajectory, captive illiquidity.
 
-Notes timeline format: \`[YYYY-MM-DD] text\` or \`[YYYY-MM-DD][signal] text\` where signal ∈ {warming, cooling, firm, stalling, passed}. Signal-tagged notes carry direct user judgment — weight them heavily (\`firm\` is hardest evidence).
+Notes timeline format: \`[YYYY-MM-DD] text\` or \`[YYYY-MM-DD][signal] text\` where signal ∈ {warming, cooling, firm, stalling, passed}. Signal-tagged notes carry direct user judgment, weight them heavily (\`firm\` is hardest evidence).
 
-# Public broker comps (for context — apply 3-5× discount for private mid-market, 1-2× more for captive/niche)
+# Public broker comps (for context, apply 3-5× discount for private mid-market, 1-2× more for captive/niche)
 BRO 16×, AON 14×, MMC 15.5×, AJG 15.5×, WTW 13.5×, BWIN 13× fwd EBITDA
 
-Return JSON only — no commentary. Per-buyer probability MUST respect the stage range. Conservatism bias when evidence is thin. Per-buyer reasoning: ONE sentence, max 25 words, citing the single strongest driver of the probability you set. The user sees this when they hover the chip — make it useful, not generic.`;
+Return JSON only, no commentary. Per-buyer probability MUST respect the stage range. Conservatism bias when evidence is thin. Per-buyer reasoning: ONE sentence, max 25 words, citing the single strongest driver of the probability you set. The user sees this when they hover the chip, make it useful, not generic.`;
 
   const userMsg = `# Pipeline state
 EBITDA: $${ebitda}M
@@ -838,7 +844,7 @@ Size bucket: ${sizeBucket}
 # Buyers in scope
 ${JSON.stringify(groundedBuyers, null, 2)}
 
-${liveIntel ? `# Live web intel (fetched today via web search — treat as hint, not ground truth)
+${liveIntel ? `# Live web intel (fetched today via web search, treat as hint, not ground truth)
 ${liveIntel}
 ` : '# Live web intel: unavailable.'}
 
@@ -876,7 +882,7 @@ Return JSON matching the provided schema.`;
 // Average Claude's full rescan with OpenAI's numerical second opinion. We
 // average market bands, per-buyer probability (matched by id), and p_no_deal.
 // Claude's per-buyer thesis/reasoning/fit/confidence/citations pass through
-// unchanged — GPT only votes on numbers.
+// unchanged, GPT only votes on numbers.
 function blendPredictions(claude, openai) {
   if (!openai) return { ...claude, models: { claude: extractClaudeNumbers(claude), openai: null } };
   const avg = (a, b) => Math.round(((a + b) / 2) * 10) / 10;
@@ -919,7 +925,7 @@ function blendPredictions(claude, openai) {
   // GPT's parallel output. After blending, those numbers shift (22 + 15 → 19),
   // so the rationale text drifts from the displayed UI number. Walk each
   // rationale and rewrite any "X%" where X exactly equals a Claude raw value
-  // that has since been averaged down — replace with the blended integer.
+  // that has since been averaged down, replace with the blended integer.
   // Conservative: only changes integers that are an exact Claude probability.
   const blendedById = Object.fromEntries(blendedBuyers.map(b => [b.id, b]));
   const reconcile = (text) => {
@@ -1064,7 +1070,7 @@ function validateRescanShape(p, onlyBuyerId) {
   }
   if (typeof p.summary !== 'string') return { ok: false, error: 'missing summary' };
   // Rationale strings are still required by the AI tool schema (so Claude
-  // tries hard to produce them) but not enforced here — they no longer drive
+  // tries hard to produce them) but not enforced here, they no longer drive
   // any visible UI element after the HeroRationale block was removed, and
   // captureRationales falls back to the prior value when a field is missing.
   // Treating them as fatal would block legitimate rescans whenever the AI
@@ -1073,7 +1079,7 @@ function validateRescanShape(p, onlyBuyerId) {
     if (p[k] != null && typeof p[k] !== 'string') return { ok: false, error: `${k} not a string` };
   }
   // p_no_deal + close_estimate + offer_estimate are required for pipeline
-  // rescans (per-buyer rescans may legitimately omit them — the AI focuses on
+  // rescans (per-buyer rescans may legitimately omit them, the AI focuses on
   // one buyer + echoes prior dashboard values).
   if (!onlyBuyerId) {
     if (typeof p.p_no_deal !== 'number' || p.p_no_deal < 0 || p.p_no_deal > 100) {
@@ -1219,7 +1225,7 @@ app.put('/api/buyers', async (req, res) => {
   }
 });
 
-// Paginated AI audit log — newest first. Each row is a single rescan call.
+// Paginated AI audit log, newest first. Each row is a single rescan call.
 app.get('/api/rescans', async (req, res) => {
   if (!ensureDb(res)) return;
   const limit = Math.min(parseInt(req.query.limit) || 25, 100);
@@ -1267,7 +1273,7 @@ app.post('/api/files/classify', async (req, res) => {
   const { file_id, filename, buyer_names } = req.body;
   if (!file_id) return res.status(400).json({ error: 'file_id required' });
 
-  const sys = `You are classifying documents in the Kennion Prediction Engine — a deal-tracking workspace for the sale of Kennion's Benefits Program. The user just uploaded a document. Read it and return ONLY a JSON object — no markdown, no commentary — with this exact shape:
+  const sys = `You are classifying documents in the Kennion Prediction Engine, a deal-tracking workspace for the sale of Kennion's Benefits Program. The user just uploaded a document. Read it and return ONLY a JSON object, no markdown, no commentary, with this exact shape:
 {
   "doc_type": "CIM" | "LOI" | "NDA" | "buyer_email" | "financial_model" | "market_analysis" | "due_diligence" | "redline" | "other",
   "title": "string · concise human-readable title",
