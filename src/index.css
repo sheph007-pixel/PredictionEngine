@@ -371,7 +371,23 @@ body { font-size: 14px; }
 .row-name-thesis { font-family: var(--sans); font-size: 13px; line-height: 1.45; color: var(--ink-2); max-width: 640px; }
 .row-name-thesis-empty { color: var(--ink-3); font-style: italic; opacity: 0.7; }
 
-.row-stage-tag { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); padding: 3px 8px; border: 1px solid var(--rule-2); border-radius: 2px; align-self: start; margin-top: 4px; }
+.row-stage { display: flex; flex-direction: column; gap: 5px; align-items: flex-start; align-self: start; margin-top: 4px; min-width: 96px; }
+.row-stage-pips { display: flex; align-items: center; gap: 0; position: relative; }
+.row-stage-pips::before {
+  content: ''; position: absolute; top: 50%; left: 5px; right: 5px;
+  height: 1.5px; background: var(--rule-2); transform: translateY(-50%); z-index: 0;
+}
+.row-stage-pip {
+  position: relative; z-index: 1;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--bg-card); border: 1.5px solid var(--rule-2);
+  margin-right: 14px;
+}
+.row-stage-pip:last-child { margin-right: 0; }
+.row-stage-pip-done { background: var(--ink-2); border-color: var(--ink-2); }
+.row-stage-pip-active { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.row-stage-label { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.row-stage-dropped { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); padding: 3px 8px; border: 1px solid var(--rule-2); border-radius: 2px; align-self: start; margin-top: 4px; }
 .row-prob-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 70px; }
 .row-prob-stack .model-vote { margin-top: 4px; gap: 3px; }
 .row-prob-stack .model-chip { padding: 1px 6px; font-size: 9.5px; gap: 3px; }

@@ -923,7 +923,23 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
             : <div className="row-name-thesis row-name-thesis-empty">Re-scan to generate the AI's reason for this ranking.</div>
         )}
       </div>
-      <div className="row-stage-tag">{isDropped ? 'dropped' : stageLabel}</div>
+      {isDropped ? (
+        <div className="row-stage row-stage-dropped">dropped</div>
+      ) : (
+        <div className="row-stage" title={`Stage: ${stageLabel}`}>
+          <div className="row-stage-pips">
+            {STAGES.filter(s => s.id !== 'dropped').map((s, i) => {
+              const idx = STAGE_INDEX[buyer.stage];
+              const cls =
+                i < idx ? 'row-stage-pip row-stage-pip-done' :
+                i === idx ? 'row-stage-pip row-stage-pip-active' :
+                'row-stage-pip';
+              return <span key={s.id} className={cls} title={s.label} />;
+            })}
+          </div>
+          <div className="row-stage-label">{stageLabel}</div>
+        </div>
+      )}
       <div className="row-prob-stack">
         <div className="row-prob-num">
           {isDropped ? '-' : showProb}<span>{isDropped ? '' : '%'}</span>
