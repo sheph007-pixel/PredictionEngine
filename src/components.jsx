@@ -856,10 +856,6 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
   const showProb = isDropped ? 0 : probabilityFor(buyer);
   const stageLabel = STAGES.find(s => s.id === buyer.stage)?.label || buyer.stage;
 
-  // Derive the last per-buyer AI rescore: probability delta + relative timestamp.
-  const lastHistory = (buyer.aiHistory || [])[(buyer.aiHistory || []).length - 1];
-  const probChange = lastHistory?.changes?.probability;
-  const delta = Array.isArray(probChange) ? (probChange[1] - probChange[0]) : 0;
   const updatedAt = buyer.lastAnalyzed ? relativeTime(buyer.lastAnalyzed) : null;
 
   const [open, setOpen] = useState(false);
@@ -943,14 +939,6 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
       <div className="row-prob-stack">
         <div className="row-prob-num">
           {isDropped ? '-' : showProb}<span>{isDropped ? '' : '%'}</span>
-          {!isDropped && delta !== 0 && (
-            <span className={"row-prob-delta " + (delta > 0 ? "row-prob-delta-up" : "row-prob-delta-down")} title={`Last re-rank moved this buyer ${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)} points`}>
-              {delta > 0 ? `↑${delta}` : `↓${Math.abs(delta)}`}
-            </span>
-          )}
-          {!isDropped && delta === 0 && updatedAt && (
-            <span className="row-prob-delta row-prob-delta-flat" title="No change since last re-rank">·</span>
-          )}
         </div>
         {!isDropped && buyer.modelVote && (typeof buyer.modelVote.claude === 'number' || typeof buyer.modelVote.openai === 'number') && (
           <ModelVote
