@@ -133,7 +133,18 @@ export default function App() {
         if (ws.case_mode) setCaseMode(ws.case_mode);
         if (ws.market) setMarket(ws.market);
         if (ws.market_meta) setMarketMeta(ws.market_meta);
-        if (ws.rationales) setRationales(ws.rationales);
+        // Race guard: if the user ran a rescan moments before refresh, the
+        // debounced workspace push (~1s) may not have hit the server yet,
+        // so ws.rationales would be the stale snapshot. captureRationales
+        // stamps every rationale update with `ts`; only let the server win
+        // when its ts is at-or-newer than the local one we hydrated from
+        // localStorage. Without this, model-vote chips for the most recent
+        // rescan blink away after a fast refresh.
+        if (ws.rationales) {
+          const localTs = rationales?.ts ? new Date(rationales.ts).getTime() : 0;
+          const serverTs = ws.rationales?.ts ? new Date(ws.rationales.ts).getTime() : 0;
+          if (serverTs >= localTs) setRationales(ws.rationales);
+        }
         // The v3 scrub of workspace rationales is hoisted up here so it runs
         // even before the buyers branch (the rationale wipe should still
         // apply on a workspace that has rationales but no buyers yet).
