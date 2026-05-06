@@ -179,19 +179,6 @@ export const STAGE_PROB_RANGE = {
 };
 
 // ---------- hero KPIs ----------
-function HeroRationale({ text }) {
-  if (!text) return (
-    <div className="hero-kpi-why hero-kpi-why-empty">
-      <span className="hero-kpi-why-text">Re-scan to generate the prediction for this number.</span>
-    </div>
-  );
-  return (
-    <div className="hero-kpi-why">
-      <span className="hero-kpi-why-text" title={text}>{text}</span>
-    </div>
-  );
-}
-
 // Two-model voting strip — shows Claude's and GPT's individual predictions
 // side by side with an "avg" pill, letting the user see both reads at once
 // instead of just the blended number.
@@ -249,9 +236,6 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
   const aiNoDeal = typeof rationales?.p_no_deal === 'number' ? rationales.p_no_deal : null;
   const dealClosesPct = aiNoDeal != null ? Math.max(0, 100 - aiNoDeal) : computed.dealClosesPct;
   const confLevel = dealClosesPct >= 85 ? "High" : dealClosesPct >= 65 ? "Solid" : dealClosesPct >= 40 ? "Moderate" : "Low";
-  const confidenceText = aiNoDeal != null
-    ? (rationales?.p_no_deal_rationale || rationales?.confidence)
-    : rationales?.confidence;
 
   const models = rationales?.models;
 
@@ -317,32 +301,24 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
         <div className="hero-kpi-value hero-kpi-close">{headlineOffer}</div>
         <div className="hero-kpi-foot"><b>{weeksToOfferDisplay}</b> weeks to first offer · currently in <b>{currentTask.phase}</b></div>
         {offerChips && <ModelVote claudeVal={offerChips.claude} openaiVal={offerChips.openai} avgVal={offerChips.avg} />}
-        <HeroRationale text={rationales?.offer_date} />
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Projected close</div>
         <div className="hero-kpi-value hero-kpi-close">{headlineClose}</div>
         <div className="hero-kpi-foot"><b>{weeksRemaining}</b> weeks remaining · currently in <b>{currentTask.phase}</b></div>
         {closeChips && <ModelVote claudeVal={closeChips.claude} openaiVal={closeChips.openai} avgVal={closeChips.avg} />}
-        <HeroRationale text={rationales?.close_date} />
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Deal confidence{aiNoDeal != null && <span className="hero-kpi-case"> · AI no-deal {aiNoDeal}%</span>}</div>
-        <div className="hero-kpi-value hero-kpi-confidence">{dealClosesPct}<span>%</span></div>
+        <div className="hero-kpi-value hero-kpi-confidence">{dealClosesPct}%</div>
         <div className="hero-kpi-foot"><b>{confLevel}</b> probability any deal closes{aiNoDeal == null && <> · <i style={{opacity:.6}}>computed (no AI rescan yet)</i></>}</div>
         {confChips && <ModelVote claudeVal={confChips.claude} openaiVal={confChips.openai} avgVal={confChips.avg} />}
-        <HeroRationale text={confidenceText} />
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Market clearing price <span className="hero-kpi-case">· {m.label}</span></div>
-        <div className="hero-kpi-value hero-kpi-pipeline hero-kpi-range">
-          <span className="hero-range-low">{fmtMoney(clearLow)}</span>
-          <span className="hero-range-sep">to</span>
-          <span className="hero-range-high">{fmtMoney(clearHigh)}</span>
-        </div>
-        <div className="hero-kpi-foot">${ebitda}M EBITDA × <b>{m.low.toFixed(1)}–{m.high.toFixed(1)}×</b> · midpoint <b>{fmtMoney(clearMid)}</b></div>
+        <div className="hero-kpi-value hero-kpi-pipeline">{fmtMoney(clearMid)}</div>
+        <div className="hero-kpi-foot">{fmtMoney(clearLow)}–{fmtMoney(clearHigh)} · ${ebitda}M EBITDA × <b>{m.low.toFixed(1)}–{m.high.toFixed(1)}×</b></div>
         {priceChips && <ModelVote claudeVal={priceChips.claude} openaiVal={priceChips.openai} avgVal={priceChips.avg} />}
-        <HeroRationale text={rationales?.clearing_price} />
       </div>
     </div>
   );
