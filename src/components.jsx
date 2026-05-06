@@ -299,13 +299,13 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
       <div className="hero-kpi">
         <div className="hero-kpi-label">Projected offer</div>
         <div className="hero-kpi-value hero-kpi-close">{headlineOffer}</div>
-        <div className="hero-kpi-foot"><b>{weeksToOfferDisplay}</b> weeks to first offer · currently in <b>{currentTask.phase}</b></div>
+        <div className="hero-kpi-foot" title={`${weeksToOfferDisplay} weeks to first offer · ${currentTask.phase}`}><b>{weeksToOfferDisplay}</b> weeks to first offer · <b>{currentTask.phase}</b></div>
         {offerChips && <ModelVote claudeVal={offerChips.claude} openaiVal={offerChips.openai} avgVal={offerChips.avg} />}
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Projected close</div>
         <div className="hero-kpi-value hero-kpi-close">{headlineClose}</div>
-        <div className="hero-kpi-foot"><b>{weeksRemaining}</b> weeks remaining · currently in <b>{currentTask.phase}</b></div>
+        <div className="hero-kpi-foot" title={`${weeksRemaining} weeks remaining · ${currentTask.phase}`}><b>{weeksRemaining}</b> weeks remaining · <b>{currentTask.phase}</b></div>
         {closeChips && <ModelVote claudeVal={closeChips.claude} openaiVal={closeChips.openai} avgVal={closeChips.avg} />}
       </div>
       <div className="hero-kpi">

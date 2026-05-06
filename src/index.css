@@ -115,11 +115,11 @@ body { font-size: 14px; }
 .hero-kpi { background: var(--bg-card); padding: 24px 24px 20px; display: flex; flex-direction: column; aspect-ratio: 1 / 1; }
 .hero-kpi-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 14px; }
 .hero-kpi-case { color: var(--accent); letter-spacing: 0.06em; }
-.hero-kpi-value { font-family: var(--serif); font-size: 56px; font-weight: 600; line-height: 0.95; letter-spacing: -0.02em; }
+.hero-kpi-value { font-family: var(--serif); font-size: 44px; font-weight: 600; line-height: 1; letter-spacing: -0.02em; font-feature-settings: "lnum" 1, "tnum" 1; }
 .hero-kpi-close { color: var(--accent); }
 .hero-kpi-confidence { color: var(--pos); }
 .hero-kpi-pipeline { color: var(--ink); }
-.hero-kpi-foot { font-family: var(--sans); font-size: 13px; color: var(--ink-3); margin-top: 10px; line-height: 1.5; }
+.hero-kpi-foot { font-family: var(--sans); font-size: 12.5px; color: var(--ink-3); margin-top: 10px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hero-kpi-foot b { color: var(--ink); font-weight: 500; }
 .hero-kpi > .model-vote { margin-top: 12px; flex-wrap: nowrap; gap: 4px; }
 .hero-kpi > .model-vote .model-chip { padding: 3px 7px; font-size: 10.5px; gap: 4px; }
