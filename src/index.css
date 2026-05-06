@@ -64,6 +64,7 @@ body { font-size: 14px; }
 .sysbar-update-progress { position: absolute; top: 0; left: 0; bottom: 0; background: rgba(255, 255, 255, 0.22); transition: width 0.2s linear; z-index: 0; }
 .sysbar-update-elapsed { font-variant-numeric: tabular-nums; opacity: 0.85; font-weight: 500; }
 .sysbar-last { font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; color: var(--ink-3); padding: 0 4px; }
+.sysbar-last-failed { color: var(--neg, #c44); font-weight: 500; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .sysbar-live { display: inline-flex; padding: 0 6px; align-self: stretch; align-items: center; border-left: 1px solid var(--rule); }
 .sysbar-err { display: inline-flex; align-items: center; padding: 4px 10px; max-width: 520px; font-family: var(--mono); font-size: 10.5px; line-height: 1.35; color: #c0392b; letter-spacing: 0.02em; border-left: 1px solid var(--rule); white-space: normal; overflow: hidden; word-break: break-word; }

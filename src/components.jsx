@@ -465,7 +465,7 @@ export function marketMultiplesSeed(ebitda) {
 }
 
 // ---------- system bar ----------
-export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMeta, onRescan, rescanError, clearingRationale, lastRescanTs }) {
+export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMeta, onRescan, rescanError, clearingRationale, lastRescanTs, lastAttemptTs }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(ebitda));
   const [refreshing, setRefreshing] = useState(false);
@@ -534,6 +534,14 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
   // setRefreshing(false) clears the bar entirely (visually a snap to done).
   const progressPct = refreshing ? Math.min(95, Math.round((elapsed / EXPECTED_MS) * 100)) : 0;
   const lastUpdatedRel = lastRescanTs ? relativeTime(lastRescanTs) : null;
+  // The last refresh attempt may have failed silently (network blip, AI 500,
+  // schema mismatch). Compare the last attempt to the last success: if the
+  // attempt is materially newer, the data displayed is older than the user
+  // expects, surface a 'last try failed' suffix so the label can't lie.
+  const successMs = lastRescanTs ? new Date(lastRescanTs).getTime() : 0;
+  const attemptMs = lastAttemptTs ? new Date(lastAttemptTs).getTime() : 0;
+  const lastTryFailed = attemptMs > 0 && attemptMs > successMs + 30_000;
+  const lastTryRel = lastTryFailed ? relativeTime(lastAttemptTs) : null;
 
   return (
     <div className="sysbar">
@@ -579,8 +587,15 @@ export function SystemBar({ ebitda, onEbitda, caseMode, onCase, market, marketMe
         </span>
       </button>
       {lastUpdatedRel && !refreshing && !errorMsg && (
-        <div className="sysbar-last" title={`Last AI rescan: ${new Date(lastRescanTs).toLocaleString()}`}>
-          updated {lastUpdatedRel}
+        <div
+          className={"sysbar-last" + (lastTryFailed ? " sysbar-last-failed" : "")}
+          title={lastTryFailed
+            ? `Last successful AI rescan: ${new Date(lastRescanTs).toLocaleString()}\nLast attempt (failed): ${new Date(lastAttemptTs).toLocaleString()}`
+            : `Last AI rescan: ${new Date(lastRescanTs).toLocaleString()}`}
+        >
+          {lastTryFailed
+            ? <>last try failed {lastTryRel} · prior success {lastUpdatedRel}</>
+            : <>updated {lastUpdatedRel}</>}
         </div>
       )}
       <div className="sysbar-live" title={marketMeta || "Last AI re-scan"}>

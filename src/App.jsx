@@ -261,8 +261,18 @@ export default function App() {
     }));
   };
 
+  // Stamp every attempt (success or fail) so the SystemBar label can surface
+  // a stale-data warning if the user clicked Update today but the rescan
+  // threw. Without this the label shows the last *successful* time only,
+  // which can read 'yesterday' even though the user just tried to refresh.
+  const stampAttempt = () => {
+    const now = new Date().toISOString();
+    setRationales(prev => ({ ...prev, lastAttemptTs: now }));
+  };
+
   const rescanAll = async (extraIntel = null) => {
     setRescanError(null);
+    stampAttempt();
     try {
       const result = await rescanPipeline({
         buyers,
@@ -290,6 +300,7 @@ export default function App() {
   // aiHistory entry. Lets the timeline UI show "AI re-scored after this note".
   const rescanOne = async (buyerId, opts = {}) => {
     setRescanError(null);
+    stampAttempt();
     try {
       const result = await rescanBuyer({
         buyers,
@@ -565,6 +576,7 @@ export default function App() {
             rescanError={rescanError}
             clearingRationale={rationales?.clearing_price}
             lastRescanTs={rationales?.ts}
+            lastAttemptTs={rationales?.lastAttemptTs}
           />
         </div>
       </div>
