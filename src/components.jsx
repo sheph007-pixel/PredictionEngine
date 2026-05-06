@@ -236,10 +236,14 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
   const currentIdx = PROCESS_TASKS.findIndex(t => t.id === process.currentTaskId);
   const currentTask = PROCESS_TASKS[currentIdx];
   const closeTask = PROCESS_TASKS[PROCESS_TASKS.length - 1];
+  const offerTask = PROCESS_TASKS.find(t => t.id === 'lois') || closeTask;
   const today = new Date();
   const weeksToClose = closeTask.weeksFromStart - currentTask.weeksFromStart;
+  const weeksToOffer = Math.max(0, offerTask.weeksFromStart - currentTask.weeksFromStart);
   const projectedClose = new Date(today);
   projectedClose.setDate(projectedClose.getDate() + weeksToClose * 7);
+  const projectedOffer = new Date(today);
+  projectedOffer.setDate(projectedOffer.getDate() + weeksToOffer * 7);
 
   const computed = winnerProbabilities(buyers, ebitda, caseMode);
   const aiNoDeal = typeof rationales?.p_no_deal === 'number' ? rationales.p_no_deal : null;
@@ -257,15 +261,29 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
 
   // Keep "weeks remaining" honest to the headline date. When the AI overrides
   // the close month, recompute weeks from today to mid-month of that estimate.
-  const aiCloseDate = (() => {
-    if (!rationales?.close_estimate || typeof rationales.close_estimate !== 'string') return null;
-    const m = rationales.close_estimate.match(/^(\d{4})-(\d{1,2})$/);
+  const parseYearMonth = (s) => {
+    if (typeof s !== 'string') return null;
+    const m = s.match(/^(\d{4})-(\d{1,2})$/);
     if (!m) return null;
     return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, 15);
-  })();
+  };
+  const aiCloseDate = parseYearMonth(rationales?.close_estimate);
   const weeksRemaining = aiCloseDate
     ? Math.max(0, Math.round((aiCloseDate - today) / (7 * 86400000)))
     : weeksToClose;
+
+  // AI-predicted first-offer month overrides the process-derived offer date.
+  const aiOfferMonth = rationales?.offer_estimate ? fmtCloseMonth(rationales.offer_estimate) : null;
+  const headlineOffer = aiOfferMonth || fmtMonthYear(projectedOffer);
+  const aiOfferDate = parseYearMonth(rationales?.offer_estimate);
+  const weeksToOfferDisplay = aiOfferDate
+    ? Math.max(0, Math.round((aiOfferDate - today) / (7 * 86400000)))
+    : weeksToOffer;
+  const offerChips = models?.claude?.offer_estimate || models?.openai?.offer_estimate ? {
+    claude: models?.claude?.offer_estimate ? fmtCloseMonth(models.claude.offer_estimate) : null,
+    openai: models?.openai?.offer_estimate ? fmtCloseMonth(models.openai.offer_estimate) : null,
+    avg: aiOfferMonth || fmtMonthYear(projectedOffer),
+  } : null;
 
   // Per-card chip values — Claude vs GPT vs avg.
   const closeChips = models?.claude?.close_estimate || models?.openai?.close_estimate ? {
@@ -294,6 +312,13 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
 
   return (
     <div className="hero">
+      <div className="hero-kpi">
+        <div className="hero-kpi-label">Projected offer</div>
+        <div className="hero-kpi-value hero-kpi-close">{headlineOffer}</div>
+        <div className="hero-kpi-foot"><b>{weeksToOfferDisplay}</b> weeks to first offer · currently in <b>{currentTask.phase}</b></div>
+        {offerChips && <ModelVote claudeVal={offerChips.claude} openaiVal={offerChips.openai} avgVal={offerChips.avg} />}
+        <HeroRationale text={rationales?.offer_date} />
+      </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Projected close</div>
         <div className="hero-kpi-value hero-kpi-close">{headlineClose}</div>
@@ -1442,6 +1467,8 @@ export function Conversation({ buyers, pinnedRules, globalIntel, market, rationa
     // user disputes the close date or any rationale text below, call
     // invalidate_pipeline_priors, do not defend.
     const dashboardCtx = [
+      r.offer_estimate ? `AI-prior · first-offer month: ${r.offer_estimate}` : null,
+      r.offer_date ? `AI-prior · offer-date rationale: ${r.offer_date}` : null,
       r.close_estimate ? `AI-prior · close month: ${r.close_estimate}` : null,
       r.close_date ? `AI-prior · close-date rationale: ${r.close_date}` : null,
       r.confidence ? `AI-prior · confidence rationale: ${r.confidence}` : null,

@@ -63,6 +63,9 @@ function validateRescan(payload) {
   if (payload.close_estimate != null && !/^\d{4}-\d{1,2}$/.test(String(payload.close_estimate))) {
     return { ok: false, error: 'close_estimate not in YYYY-MM format' };
   }
+  if (payload.offer_estimate != null && !/^\d{4}-\d{1,2}$/.test(String(payload.offer_estimate))) {
+    return { ok: false, error: 'offer_estimate not in YYYY-MM format' };
+  }
   return { ok: true };
 }
 

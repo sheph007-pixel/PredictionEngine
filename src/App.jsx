@@ -91,7 +91,7 @@ export default function App() {
   const [caseMode, setCaseMode] = usePersistedState('caseMode', 'mid');
   const [market, setMarket] = usePersistedState('market', DEFAULT_MARKET);
   const [marketMeta, setMarketMeta] = usePersistedState('marketMeta', 'AI · sector deal flow + public comp drift · 2 min ago');
-  const [rationales, setRationales] = usePersistedState('rationales', { close_date: null, confidence: null, clearing_price: null, p_no_deal: null, p_no_deal_rationale: null });
+  const [rationales, setRationales] = usePersistedState('rationales', { close_date: null, confidence: null, clearing_price: null, p_no_deal: null, p_no_deal_rationale: null, offer_date: null, offer_estimate: null });
   const [globalIntel, setGlobalIntel] = usePersistedState('globalIntel', []);
   const [pinnedRules, setPinnedRules] = usePersistedState('pinnedRules', []);
 
@@ -139,6 +139,8 @@ export default function App() {
             clearing_price: null,
             p_no_deal: null,
             p_no_deal_rationale: null,
+            offer_date: null,
+            offer_estimate: null,
           });
         }
         if (ws.process) setProcess(ws.process);
@@ -234,6 +236,8 @@ export default function App() {
       p_no_deal: typeof result.p_no_deal === 'number' ? result.p_no_deal : (prev.p_no_deal ?? null),
       p_no_deal_rationale: result.p_no_deal_rationale ?? prev.p_no_deal_rationale ?? null,
       close_estimate: result.close_estimate ?? prev.close_estimate ?? null,
+      offer_date: result.offer_date_rationale ?? prev.offer_date ?? null,
+      offer_estimate: result.offer_estimate ?? prev.offer_estimate ?? null,
       two_model: !!result.two_model,
       models: result.models || prev.models || null,
       ts: result.ts || new Date().toISOString(),
@@ -466,6 +470,8 @@ export default function App() {
       confidence: null,
       clearing_price: null,
       p_no_deal_rationale: null,
+      offer_date: null,
+      offer_estimate: null,
     }));
     if (reason) appendGlobalIntel(reason);
   };

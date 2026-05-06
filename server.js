@@ -193,6 +193,13 @@ Predict the calendar month the deal is most likely to close. Anchor on Reagan's 
 - If chemistry meetings are scheduled but not yet held, anchor on the realistic post-chemistry-to-close interval (~10 weeks).
 Output strictly in "YYYY-MM" format. Example: "2026-09". Do NOT add quotes or extra prose.
 
+# First-offer estimate (\`offer_estimate\`, strict YYYY-MM format)
+Predict the calendar month a first written offer (LOI / term sheet / written verbal) most likely lands. Anchor on Reagan's process step (Receive Letters of Intent step is week 12 from process start; Marketing Phase 1 → ~7 weeks to first offer, Marketing Phase 2 pre-LOI → ~3 weeks, Exclusivity onward → already past). Adjust:
+- If any top buyer already has firm-evidence pricing in notes/docs, the first offer is in hand — set to current month.
+- If chemistry meetings are scheduled but not held, anchor at chemistry-date + ~3-5 weeks.
+- If top buyers are stalling in outreach/NDA, extend by 3-6 weeks.
+Must be ≤ \`close_estimate\`. Output strictly in "YYYY-MM". Write \`offer_date_rationale\` (max 22 words, plain English, same discipline as close_date_rationale) explaining what's driving the timing.
+
 # No-deal probability (\`p_no_deal\`, 0–100)
 This is the probability that the asset does NOT sell within the planned process window. It reflects market/process risk, not the inverse of buyer probabilities. Consider:
 - Buyer-pool depth for the size bucket (sub-mid-market = thinner pool = higher no-deal risk)
@@ -213,6 +220,7 @@ Before submitting, verify: any percentage, multiple, or month cited in summary, 
 - If you write "X% odds" or "X% chance" in a rationale, X must be a buyer.probability you wrote in the buyers[] array, OR p_no_deal, OR (100 - p_no_deal).
 - If you write a multiple (e.g. "5×–7×"), it must match a market band you wrote.
 - **Close month consistency**: any month you assert as the close in close_date_rationale (or any other rationale) MUST match the month in \`close_estimate\`. If close_estimate is "2026-09", do not write "close August" or "close in October" anywhere — write "close September" or "close Q3". Pick close_estimate FIRST, then write the rationale to match.
+- **Offer month consistency**: any month you assert as the first-offer month in offer_date_rationale (or elsewhere) MUST match \`offer_estimate\`. \`offer_estimate\` MUST be ≤ \`close_estimate\` (an offer cannot land after close).
 - Do NOT reuse numbers from prior aiHistory entries or prior rationales without re-checking they match the values in THIS rescan's output.
 - If your top buyer this rescan is 15%, the rationale says "15% odds", not "20%+".
 The audit log shows both the rationale text and the buyers[] array side by side; mismatches are immediately visible to the user.
@@ -231,7 +239,7 @@ const RESCAN_TOOL = {
   description: 'Apply a re-evaluation of one or more buyers in the pipeline based on all available context (buyer profiles, attached documents, user field intelligence, prior reasoning).',
   input_schema: {
     type: 'object',
-    required: ['market', 'buyers', 'summary', 'close_date_rationale', 'confidence_rationale', 'clearing_price_rationale', 'p_no_deal', 'p_no_deal_rationale', 'close_estimate'],
+    required: ['market', 'buyers', 'summary', 'close_date_rationale', 'confidence_rationale', 'clearing_price_rationale', 'p_no_deal', 'p_no_deal_rationale', 'close_estimate', 'offer_estimate', 'offer_date_rationale'],
     properties: {
       market: {
         type: 'object',
@@ -337,6 +345,14 @@ const RESCAN_TOOL = {
       close_estimate: {
         type: 'string',
         description: 'Most likely close month in strict YYYY-MM format (e.g. "2026-09"). Anchor on Reagan process step + buyer momentum: outreach/NDA stages add weeks, active LOI buyers compress, cooling top buyers extend.',
+      },
+      offer_estimate: {
+        type: 'string',
+        description: 'Most likely month for the FIRST WRITTEN OFFER (LOI / term sheet / written verbal) in strict YYYY-MM format (e.g. "2026-07"). Must be ≤ close_estimate. Anchor on Reagan process step (LOI step at week 12) + buyer momentum.',
+      },
+      offer_date_rationale: {
+        type: 'string',
+        description: 'Plain-English one-liner explaining the projected first-offer date. Max 22 words, two short sentences max. Same writing discipline as close_date_rationale (8th-grade, no jargon, no acronyms — say "first written offer" not "LOI"). State what is driving the timing.',
       },
     },
   },
@@ -738,7 +754,7 @@ ${focusInstruction}`;
 const OPENAI_PREDICTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['market', 'buyers', 'p_no_deal', 'p_no_deal_rationale', 'close_estimate'],
+  required: ['market', 'buyers', 'p_no_deal', 'p_no_deal_rationale', 'close_estimate', 'offer_estimate'],
   properties: {
     market: {
       type: 'object', additionalProperties: false,
@@ -773,6 +789,7 @@ const OPENAI_PREDICTION_SCHEMA = {
     p_no_deal: { type: 'integer', minimum: 0, maximum: 100 },
     p_no_deal_rationale: { type: 'string' },
     close_estimate: { type: 'string', description: 'Most likely close month in YYYY-MM format.' },
+    offer_estimate: { type: 'string', description: 'Most likely month for the first written offer (LOI / term sheet / written verbal) in YYYY-MM format. Must be <= close_estimate.' },
   },
 };
 
@@ -800,6 +817,9 @@ Claude is producing the primary analysis IN PARALLEL — you do not see its outp
 
 # Close-month estimate (close_estimate, strict YYYY-MM)
 Predict the calendar month the deal is most likely to close. Anchor on the process step + buyer momentum. Marketing Phase 1 → ~17 weeks to close. Compress if firm offers are landing, extend if top buyers are stalling. Output strictly in "YYYY-MM" format (e.g. "2026-09").
+
+# First-offer estimate (offer_estimate, strict YYYY-MM)
+Predict the month a first written offer (LOI / term sheet / written verbal) most likely lands. Reagan's process puts LOI receipt at ~week 12 from start, so Marketing Phase 1 → ~7 weeks to first offer. Compress if any top buyer has firm-evidence pricing already; extend if top buyers are still in outreach with cooling notes. MUST be <= close_estimate.
 
 # No-deal probability
 For Kennion's profile (captive-niche, sub-mid-market) a healthy floor is 10–20% even with strong buyers. Reflect buyer-pool depth, sponsor capacity, note trajectory, captive illiquidity.
@@ -892,6 +912,7 @@ function blendPredictions(claude, openai) {
     : (claude.p_no_deal ?? openai.p_no_deal);
 
   const blendedClose = blendCloseMonth(claude.close_estimate, openai.close_estimate);
+  const blendedOffer = blendCloseMonth(claude.offer_estimate, openai.offer_estimate);
 
   // Claude wrote its dashboard rationales referencing its OWN raw buyer
   // probabilities (e.g. "IMA's 22% odds") because at write time it can't see
@@ -921,11 +942,13 @@ function blendPredictions(claude, openai) {
     buyers: blendedBuyers.map(b => ({ ...b, thesis: reconcile(b.thesis) })),
     p_no_deal: blendedPNoDeal,
     close_estimate: blendedClose || claude.close_estimate || openai.close_estimate || null,
+    offer_estimate: blendedOffer || claude.offer_estimate || openai.offer_estimate || null,
     summary: reconcile(claude.summary),
     close_date_rationale: reconcile(claude.close_date_rationale),
     confidence_rationale: reconcile(claude.confidence_rationale),
     clearing_price_rationale: reconcile(claude.clearing_price_rationale),
     p_no_deal_rationale: reconcile(claude.p_no_deal_rationale),
+    offer_date_rationale: reconcile(claude.offer_date_rationale),
     models: {
       claude: extractClaudeNumbers(claude),
       openai: {
@@ -934,6 +957,7 @@ function blendPredictions(claude, openai) {
         p_no_deal: openai.p_no_deal,
         p_no_deal_rationale: openai.p_no_deal_rationale,
         close_estimate: openai.close_estimate || null,
+        offer_estimate: openai.offer_estimate || null,
       },
     },
   };
@@ -946,6 +970,7 @@ function extractClaudeNumbers(c) {
     p_no_deal: c.p_no_deal,
     p_no_deal_rationale: c.p_no_deal_rationale,
     close_estimate: c.close_estimate || null,
+    offer_estimate: c.offer_estimate || null,
   };
 }
 
@@ -1052,6 +1077,10 @@ function validateRescanShape(p, onlyBuyerId) {
     if (typeof p.close_estimate !== 'string' || !/^\d{4}-\d{1,2}$/.test(p.close_estimate)) {
       return { ok: false, error: 'close_estimate missing or not YYYY-MM' };
     }
+    if (typeof p.offer_estimate !== 'string' || !/^\d{4}-\d{1,2}$/.test(p.offer_estimate)) {
+      return { ok: false, error: 'offer_estimate missing or not YYYY-MM' };
+    }
+    if (typeof p.offer_date_rationale !== 'string') return { ok: false, error: 'missing offer_date_rationale' };
   }
   return { ok: true };
 }
