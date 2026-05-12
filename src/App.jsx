@@ -121,6 +121,13 @@ export default function App() {
   const [rescanError, setRescanError] = useState(null);
   const [syncStatus, setSyncStatus] = useState('local'); // 'local' | 'syncing' | 'synced' | 'offline'
   const hydrated = useRef(false);
+  // Mirror of `buyers` that's always up-to-date synchronously. Rescan calls
+  // fire right after `setBuyers` (e.g. stage-change triggers a rescan), and
+  // `buyers` from the closure is one render behind — so the AI would see the
+  // OLD stage and hit the "echo prior probability" rule. Reading from the ref
+  // ensures the request body reflects the just-applied state.
+  const buyersRef = useRef(buyers);
+  useEffect(() => { buyersRef.current = buyers; }, [buyers]);
 
   const fileIds = docs.filter(d => !d.classifying).map(d => d.id);
 
@@ -286,7 +293,7 @@ export default function App() {
     stampAttempt();
     try {
       const result = await rescanPipeline({
-        buyers,
+        buyers: buyersRef.current,
         ebitda,
         fileIds,
         priorMarket: market,
@@ -314,12 +321,13 @@ export default function App() {
     stampAttempt();
     try {
       const result = await rescanBuyer({
-        buyers,
+        buyers: buyersRef.current,
         ebitda,
         fileIds,
         priorMarket: market,
         buyerId,
         globalIntel,
+        extraIntel: opts.extraIntel || null,
         pinnedRules,
       });
       const trigger = opts.triggerNoteId
@@ -339,7 +347,7 @@ export default function App() {
     setRescanError(null);
     try {
       const result = await rescanBuyers({
-        buyers,
+        buyers: buyersRef.current,
         ebitda,
         fileIds,
         priorMarket: market,
@@ -360,10 +368,15 @@ export default function App() {
   // see that the number reflects the new state, not the old one.
   const [rescanning, setRescanning] = useState({});
 
-  const triggerRescanForStageChange = async (id) => {
+  const triggerRescanForStageChange = async (id, fromStage, toStage) => {
     setRescanning(r => ({ ...r, [id]: true }));
+    const target = buyersRef.current.find(b => b.id === id);
+    const name = target?.name || id;
+    const extraIntel = fromStage && toStage
+      ? `STAGE CHANGE: ${name} moved from ${fromStage} → ${toStage}. This is new evidence — re-evaluate probability per stage discipline range (do not echo prior).`
+      : null;
     try {
-      await rescanOne(id);
+      await rescanOne(id, { extraIntel });
     } catch (_e) {
       // rescanOne already records rescanError state; nothing else to do here.
     } finally {
@@ -375,17 +388,18 @@ export default function App() {
   };
 
   const advance = (id) => {
-    setBuyers(bs => bs.map(b => {
-      if (b.id !== id) return b;
-      const idx = STAGE_INDEX[b.stage];
-      const next = STAGES[Math.min(idx + 1, STAGES.length - 1)];
-      return applyStageFloor({ ...b, stage: next.id }, next.id);
-    }));
-    triggerRescanForStageChange(id);
+    const prev = buyersRef.current.find(b => b.id === id);
+    const prevStage = prev?.stage;
+    const idx = STAGE_INDEX[prevStage];
+    const nextStage = STAGES[Math.min(idx + 1, STAGES.length - 1)].id;
+    setBuyers(bs => bs.map(b => b.id === id ? applyStageFloor({ ...b, stage: nextStage }, nextStage) : b));
+    triggerRescanForStageChange(id, prevStage, nextStage);
   };
   const drop = (id) => {
+    const prev = buyersRef.current.find(b => b.id === id);
+    const prevStage = prev?.stage;
     setBuyers(bs => bs.map(b => b.id === id ? { ...b, stage: 'dropped' } : b));
-    triggerRescanForStageChange(id);
+    triggerRescanForStageChange(id, prevStage, 'dropped');
   };
   // Append a new note entry to a buyer's noteLog. Returns the new note id so
   // the caller can pass it through to a rescan as `triggerNoteId`. Optional
@@ -465,14 +479,11 @@ export default function App() {
     }));
   };
   const setBuyerStage = (id, stage, reason) => {
-    let from = null;
-    setBuyers(bs => bs.map(b => {
-      if (b.id !== id) return b;
-      from = b.stage;
-      return applyStageFloor({ ...b, stage }, stage);
-    }));
+    const prev = buyersRef.current.find(b => b.id === id);
+    const from = prev?.stage ?? null;
+    setBuyers(bs => bs.map(b => b.id === id ? applyStageFloor({ ...b, stage }, stage) : b));
     if (reason) recordOverride(id, { kind: 'stage', from, to: stage, reason });
-    if (from !== stage) triggerRescanForStageChange(id);
+    if (from !== stage) triggerRescanForStageChange(id, from, stage);
   };
   const overrideBuyerProbability = (id, probability, reason) => {
     let from = null;
