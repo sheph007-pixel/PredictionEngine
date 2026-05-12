@@ -3,7 +3,7 @@ import { STAGES, STAGE_INDEX, PROCESS_DEFAULT, BUYERS } from './data.js';
 import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
   Conversation, winnerProbabilities, AIHistoryButton, AIHistoryModal,
-  BrainButton, BrainModal, AddBuyerForm, PrintButton,
+  BrainButton, BrainModal, AddBuyerForm, PrintButton, STAGE_PROB_RANGE,
 } from './components.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
@@ -29,6 +29,17 @@ function backfillIdentity(buyer) {
     if (buyer[k] == null || buyer[k] === '') patch[k] = seed[k];
   }
   return Object.keys(patch).length > 0 ? { ...buyer, ...patch } : buyer;
+}
+
+// Optimistic stage-floor: when a buyer advances, lift their probability into
+// the new stage's discipline range immediately so the UI reflects the move
+// before the AI rescan refines the number. Never lowers an already-high prob.
+function applyStageFloor(buyer, stage) {
+  const range = STAGE_PROB_RANGE[stage];
+  if (!range) return buyer;
+  const cur = typeof buyer.probability === 'number' ? buyer.probability : 0;
+  if (cur >= range.low) return buyer;
+  return { ...buyer, probability: range.low };
 }
 
 const DEFAULT_MARKET = {
@@ -368,7 +379,7 @@ export default function App() {
       if (b.id !== id) return b;
       const idx = STAGE_INDEX[b.stage];
       const next = STAGES[Math.min(idx + 1, STAGES.length - 1)];
-      return { ...b, stage: next.id };
+      return applyStageFloor({ ...b, stage: next.id }, next.id);
     }));
     triggerRescanForStageChange(id);
   };
@@ -458,9 +469,10 @@ export default function App() {
     setBuyers(bs => bs.map(b => {
       if (b.id !== id) return b;
       from = b.stage;
-      return { ...b, stage };
+      return applyStageFloor({ ...b, stage }, stage);
     }));
     if (reason) recordOverride(id, { kind: 'stage', from, to: stage, reason });
+    if (from !== stage) triggerRescanForStageChange(id);
   };
   const overrideBuyerProbability = (id, probability, reason) => {
     let from = null;
