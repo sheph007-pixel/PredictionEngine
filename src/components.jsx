@@ -427,7 +427,7 @@ export function ProcessTracker({ process, onUpdate, buyers = [], ebitda = 18, ca
                       <div
                         key={t.id}
                         className={"process-task process-task-" + state}
-                        onClick={() => onUpdate({ ...process, currentTaskId: t.id })}
+                        onClick={() => onUpdate({ ...process, currentTaskId: t.id, ts: new Date().toISOString() })}
                         title={"Mark " + t.label + " as current step"}
                       >
                         <div className="process-task-dot"></div>

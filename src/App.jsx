@@ -178,7 +178,11 @@ export default function App() {
             offer_estimate: null,
           });
         }
-        if (ws.process) setProcess(ws.process);
+        if (ws.process) {
+          const localTs = process?.ts ? new Date(process.ts).getTime() : 0;
+          const serverTs = ws.process?.ts ? new Date(ws.process.ts).getTime() : 0;
+          if (serverTs >= localTs) setProcess(ws.process);
+        }
         if (Array.isArray(ws.global_intel)) setGlobalIntel(ws.global_intel);
         if (Array.isArray(ws.pinned_rules)) setPinnedRules(ws.pinned_rules);
       }
