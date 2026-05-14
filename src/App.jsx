@@ -218,7 +218,35 @@ export default function App() {
           // Push cleaned state back to Postgres so other devices see the scrub.
           pushBuyers(cleaned).catch(() => {});
         }
+
+        // One-shot CIM-delivered backfill. Reagan delivered the CIM to these
+        // 5 buyers on 5/14/26 per email; the event predates the cim_delivered
+        // chip going live, so the field is null on each persisted record.
+        // Sets the date and appends a backdated noteLog entry so the next
+        // rescan sees the milestone as historical fact.
+        const BACKFILL_KEY = 'kennion.cimBackfill.v1';
+        const didBackfill = !localStorage.getItem(BACKFILL_KEY);
+        if (didBackfill) {
+          const BACKFILL_TARGETS = ['ima', 'onedigital', 'kelly', 'cason', 'oakbridge'];
+          const CIM_DATE = '2026-05-14';
+          const CIM_TS = '2026-05-14T00:00:00.000Z';
+          cleaned = cleaned.map(b => {
+            if (!BACKFILL_TARGETS.includes(b.id) || b.cim_delivered) return b;
+            const entry = {
+              id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'n_' + Math.random().toString(36).slice(2, 10),
+              ts: CIM_TS,
+              text: 'CIM delivered to buyer.',
+            };
+            return { ...b, cim_delivered: CIM_DATE, noteLog: [...(b.noteLog || []), entry] };
+          });
+          try { localStorage.setItem(BACKFILL_KEY, new Date().toISOString()); } catch {}
+          pushBuyers(cleaned).catch(() => {});
+        }
+
         setBuyers(cleaned);
+        if (didBackfill) {
+          rescanAll('Backfilled CIM delivered milestone (2026-05-14) for IMA, OneDigital, Kelly, Cason, Oakbridge per Reagan 5/14/26 update.').catch(() => {});
+        }
       } else {
         // Server is empty — push our local state up as the seed.
         await pushBuyers(buyers);
