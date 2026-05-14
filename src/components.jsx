@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { STAGES, STAGE_INDEX, PROCESS_TASKS, PHASES } from './data.js';
+import { STAGES, STAGE_INDEX, PROCESS_TASKS, PHASES, PHASE_DESCRIPTIONS } from './data.js';
 import { claudeComplete, claudeChat } from './utils/ai.js';
 import { PUBLIC_COMP_BY_TICKER, PUBLIC_COMP_BANDS } from './data/precedents.js';
 import { relativeTime, EVENT_SPECS, NOTE_SIGNALS } from './lib/notes.js';
@@ -477,6 +477,7 @@ export function ProcessTracker({ process, onUpdate, buyers = [], ebitda = 18, ca
               >
                 <div className="process-phase-pip-dot"></div>
                 <div className="process-phase-pip-label">{phase}</div>
+                <div className="process-phase-pip-sub">{PHASE_DESCRIPTIONS[phase]}</div>
                 {i === activeIdx && (
                   <div className="process-phase-pip-detail">{derived.distributionText}</div>
                 )}
