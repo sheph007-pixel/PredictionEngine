@@ -164,6 +164,9 @@ Each buyer's \`notes_timeline\` field is a chronological log of field intel, one
 # PE-backed buyers (ownership === "PE-backed")
 The active-PE acquirer set has been curated by the user. Only buyers with \`ownership === "PE-backed"\` (currently OneDigital, Alliant, Oakbridge, IMA) have active PE sponsors with platform-acquisition mandates and deployable capital — treat the PE flag as a credibility lift for "bid capacity" and "deployment cadence". They're more likely than private / family / captive / public peers of similar size to actually write the check at market clears. Conversely, buyers without \`ownership === "PE-backed"\` (private, family-owned, captive, public, regional, wholesale, etc.) should be modeled on their own capital base — do not impute PE-cycle urgency. If a buyer's note history contradicts their ownership label (e.g., a "PE-backed" buyer cooling for capital reasons), the note evidence wins.
 
+# Insurance Journal Top 100 P/C Agencies (\`top100_rank\`, 2025 list)
+\`buyer.top100_rank\` is the firm's 2025 IJ Top 100 P/C Agencies ranking — a real-world scale proxy. A top-10 firm (Alliant #1, HUB top-5, OneDigital #11) has materially more capital, deal-team capacity, and acquisition cadence than a #50+ regional. Treat top100_rank as a secondary credibility signal: a buyer ranked top-25 with PE-backed ownership is the most likely to clear at market multiples; a buyer ranked #50+ may show interest but execution capacity is the open question. \`null\` means "not in Top 100" — for our size bucket that's a real signal of execution risk, not a disqualifier. \`undefined\`/missing means the field wasn't populated yet, do not assume.
+
 # Stage discipline (probability anchors, these are the FINAL displayed ranges, not a base to be lifted)
 - outreach: prob 8–22%
 - nda: prob 12–28%. CIM-delivered checkpoint within this band: if buyer.cim_delivered is set and the notes_timeline shows no objections, pullback, or cooling signals dated AFTER cim_delivered, lift within-NDA probability into the upper half (20–28). CIM delivered + chemistry scheduled (i.e. chemistry_date set) → lean 24–28 with stage advance imminent. CIM delivered followed by stalling or objection notes → mid-band (16–22). Absent cim_delivered, stay in the lower half (12–20).
@@ -575,6 +578,7 @@ app.post('/api/ai/rescan', async (req, res) => {
   const fullDetail = (b) => ({
     id: b.id, name: b.name, hq: b.hq, revenue: b.revenue, headcount: b.headcount,
     offices: b.offices, ownership: b.ownership, sponsor: b.sponsor, type: b.type,
+    top100_rank: b.top100_rank ?? null,
     stage: b.stage, nda_signed: b.nda_signed || null, cim_delivered: b.cim_delivered || null, chemistry_date: b.chemistry_date || null, ioi_received: b.ioi_received || null,
     // Chronological field-intel log. Each line: "[YYYY-MM-DD] text". Recent
     // entries should weigh more than old ones. Falls back to legacy single-
@@ -615,6 +619,7 @@ app.post('/api/ai/rescan', async (req, res) => {
     .map(b => ({
       id: b.id, name: b.name, hq: b.hq, revenue: b.revenue, headcount: b.headcount,
       offices: b.offices, ownership: b.ownership, sponsor: b.sponsor, type: b.type,
+      top100_rank: b.top100_rank ?? null,
       stage: b.stage,
       nda_signed: b.nda_signed || null,
       cim_delivered: b.cim_delivered || null,
