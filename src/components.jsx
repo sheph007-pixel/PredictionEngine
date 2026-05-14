@@ -972,10 +972,10 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
             </>
           ) : buyer.name}
           {typeof buyer.top100_rank === 'number' && (
-            <span className="top100-badge" title={`Insurance Journal Top 100 P/C Agencies (2025) · rank #${buyer.top100_rank}`}>#{buyer.top100_rank}</span>
+            <span className="top100-badge" title={`Business Insurance · 100 Largest Brokers of U.S. Business (July/August 2025) · rank #${buyer.top100_rank}`}>#{buyer.top100_rank}</span>
           )}
           {buyer.top100_rank === null && (
-            <span className="top100-badge top100-badge-nr" title="Not in the Insurance Journal Top 100 P/C Agencies (2025)">NR</span>
+            <span className="top100-badge top100-badge-nr" title="Not in Business Insurance's 100 Largest Brokers of U.S. Business (July/August 2025)">NR</span>
           )}
           {buyer.ownership === 'PE-backed' && (
             <span className="pe-badge" title={`PE-backed${buyer.sponsor && buyer.sponsor !== '—' ? ` · ${buyer.sponsor}` : ''}`}>PE</span>
@@ -1245,10 +1245,10 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
             <div className="modal-eyebrow">
               Buyer · {buyer.type}
               {typeof buyer.top100_rank === 'number' && (
-                <span className="top100-badge top100-badge-modal" title={`Insurance Journal Top 100 P/C Agencies (2025) · rank #${buyer.top100_rank}`}>#{buyer.top100_rank}</span>
+                <span className="top100-badge top100-badge-modal" title={`Business Insurance · 100 Largest Brokers of U.S. Business (July/August 2025) · rank #${buyer.top100_rank}`}>#{buyer.top100_rank}</span>
               )}
               {buyer.top100_rank === null && (
-                <span className="top100-badge top100-badge-modal top100-badge-nr" title="Not in the Insurance Journal Top 100 P/C Agencies (2025)">NR</span>
+                <span className="top100-badge top100-badge-modal top100-badge-nr" title="Not in Business Insurance's 100 Largest Brokers of U.S. Business (July/August 2025)">NR</span>
               )}
               {buyer.ownership === 'PE-backed' && (
                 <span className="pe-badge pe-badge-modal" title={`PE-backed${buyer.sponsor && buyer.sponsor !== '—' ? ` · ${buyer.sponsor}` : ''}`}>PE</span>

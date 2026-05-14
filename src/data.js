@@ -78,7 +78,7 @@ const _RAW_BUYERS = [
     revenue: "$4.2B",
     headcount: "14,000+",
     offices: "100+",
-    top100_rank: 1,
+    top100_rank: 5,
     ownership: "PE-backed",
     sponsor: "Stone Point",
     sources: {
@@ -125,7 +125,7 @@ const _RAW_BUYERS = [
     revenue: "$1.2B",
     headcount: "1,300+",
     offices: "35",
-    top100_rank: null,
+    top100_rank: 29,
     ownership: "Private (no PE)",
     sponsor: "—",
     type: "Captive specialist",
@@ -146,7 +146,7 @@ const _RAW_BUYERS = [
     revenue: "$870M",
     headcount: "3,200-3,500",
     offices: "125",
-    top100_rank: 41,
+    top100_rank: 17,
     ownership: "PE-backed",
     sponsor: "Onex / New Mountain",
     sources: {
@@ -175,7 +175,7 @@ const _RAW_BUYERS = [
     revenue: "~$750M",
     headcount: "3,000",
     offices: "Multiple",
-    top100_rank: 13,
+    top100_rank: 20,
     ownership: "PE-backed",
     sponsor: "New Mountain",
     sources: {
@@ -283,7 +283,7 @@ const _RAW_BUYERS = [
     revenue: "~$100-150M",
     headcount: "313",
     offices: "30",
-    top100_rank: 40,
+    top100_rank: 50,
     ownership: "PE-backed",
     sponsor: "—",
     sources: {

@@ -296,14 +296,15 @@ export default function App() {
           pushBuyers(cleaned).catch(() => {});
         }
 
-        // One-shot Insurance Journal Top 100 P/C Agencies (2025 list) rank
-        // backfill. Field provided per buyer in src/data.js — copies it into
-        // the persisted record so the badge renders and the AI rescan sees
-        // ranking as a credibility signal. null = explicitly "not in Top 100"
-        // (Cason, Kelly, C&B); undefined/missing = no data yet (dropped).
-        // v2 key forces re-apply after the initial v1 shipped with wrong
-        // numbers (corrected per user's 2025 IJ list cross-check).
-        const TOP100_KEY = 'kennion.top100Backfill.v2';
+        // One-shot Business Insurance "100 Largest Brokers of U.S. Business"
+        // (July/August 2025 edition) rank backfill. Field provided per buyer
+        // in src/data.js — copies it into the persisted record so the badge
+        // renders and the AI rescan sees ranking as a credibility signal.
+        // null = explicitly "not in the BI 100" (Cason, Kelly); undefined =
+        // no data yet (dropped). v3 key forces re-apply over v1/v2 values
+        // (v1 was a draft IJ list, v2 was a corrected IJ list, v3 is the
+        // recommended Business Insurance source for Reagan benchmarking).
+        const TOP100_KEY = 'kennion.top100Backfill.v3';
         const didTop100 = !localStorage.getItem(TOP100_KEY);
         if (didTop100) {
           cleaned = cleaned.map(b => {
@@ -323,7 +324,7 @@ export default function App() {
           const reasons = [];
           if (didBackfill) reasons.push('Backfilled CIM delivered milestone (2026-05-14) for IMA, OneDigital, Kelly, Cason, Oakbridge per Reagan 5/14/26 update.');
           if (didPeCurate) reasons.push('Curated PE designation: only OneDigital, Alliant, Oakbridge, IMA are flagged PE-backed. HUB / Higginbotham / Cason demoted to non-PE per user direction.');
-          if (didTop100) reasons.push('Added Insurance Journal Top 100 P/C Agencies (2025) rank to each buyer: Alliant #1, IMA #13, Oakbridge #40, OneDigital #41. Cason / Kelly / Cottingham & Butler not in the 2025 Top 100 list.');
+          if (didTop100) reasons.push('Swapped scale-rank source to Business Insurance "100 Largest Brokers of U.S. Business" (July/August 2025): Alliant #5, OneDigital #17, IMA #20, C&B #29, Oakbridge #50. Kelly and Cason not ranked. This is a broker-of-business revenue ranking (broader than just P/C), the recommended source for Reagan acquisition benchmarking.');
           if (didSeedNotes) reasons.push('Restored pre-process buyer-intel notes (Reagan/Hunter context from the 4/30/26 buyer list) to each noteLog so per-buyer reasoning grounds in actual history instead of profile + comps.');
           rescanAll(reasons.join(' ')).catch(() => {});
         }
