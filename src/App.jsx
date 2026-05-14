@@ -108,6 +108,7 @@ export default function App() {
 
   const [openId, setOpenId] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [showDropped, setShowDropped] = useState(false);
   const addBuyer = (newBuyer) => {
     setBuyers(bs => [...bs, newBuyer]);
     setShowAdd(false);
@@ -204,6 +205,7 @@ export default function App() {
               nda_signed: null,
               cim_delivered: null,
               chemistry_date: null,
+              ioi_received: null,
               notes: '',
               thesis: null,
               aiHistory: [],
@@ -581,6 +583,8 @@ export default function App() {
     if (b.stage === 'dropped' && a.stage !== 'dropped') return -1;
     return (b.probability || 0) - (a.probability || 0);
   });
+  const orderedLive = ordered.filter(b => b.stage !== 'dropped');
+  const orderedDropped = ordered.filter(b => b.stage === 'dropped');
 
   return (
     <div className="shell">
@@ -636,11 +640,33 @@ export default function App() {
           <button className="btn btn-add" onClick={() => setShowAdd(true)}>+ Add buyer</button>
         </div>
         <div className="rows">
-          {ordered.map((b, i) => (
+          {orderedLive.map((b, i) => (
             <BuyerRow
               key={b.id}
               buyer={b}
               displayRank={i + 1}
+              selected={b.id === openId}
+              onSelect={() => openBuyer(b.id)}
+              onAppendNote={appendBuyerNote}
+              onRescanBuyer={rescanOne}
+              rescanning={!!rescanning[b.id]}
+            />
+          ))}
+          {orderedDropped.length > 0 && (
+            <button
+              type="button"
+              className="dropped-toggle"
+              onClick={() => setShowDropped(s => !s)}
+              title={showDropped ? 'Hide dropped buyers' : 'Show dropped buyers'}
+            >
+              {showDropped ? '▾' : '▸'} {orderedDropped.length} dropped
+            </button>
+          )}
+          {showDropped && orderedDropped.map((b) => (
+            <BuyerRow
+              key={b.id}
+              buyer={b}
+              displayRank={'-'}
               selected={b.id === openId}
               onSelect={() => openBuyer(b.id)}
               onAppendNote={appendBuyerNote}
