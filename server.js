@@ -9,6 +9,7 @@ import pg from 'pg';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
+import crypto from 'node:crypto';
 import { PUBLIC_COMP_BANDS, publicCompsSummary } from './src/data/precedents.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -559,8 +560,29 @@ function derivePhaseSummary(buyers) {
 
 // Re-evaluate the buyer pipeline with full context (buyers + docs + notes + prior reasoning).
 // Used by the top-bar Re-scan, per-buyer note submission, and post-classify doc upload.
+// Rescan memoization: skip the AI call entirely when the request body hashes
+// to the same value as the last successful call. Guarantees identical buyer
+// + market state → identical probabilities + reasoning, which is what the
+// user expects from the Update button. Cache is in-memory + per-process; a
+// Railway restart drops it and the next call rebuilds it on the fly.
+const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
+let lastRescanHash = null;
+let lastRescanResponse = null;
+let lastRescanAt = 0;
+
+function stableStringify(obj) {
+  if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
+  if (Array.isArray(obj)) return '[' + obj.map(stableStringify).join(',') + ']';
+  const keys = Object.keys(obj).sort();
+  return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}';
+}
+
+function hashRescanInput(payload) {
+  return crypto.createHash('sha256').update(stableStringify(payload)).digest('hex');
+}
+
 app.post('/api/ai/rescan', async (req, res) => {
-  const { buyers, ebitda, file_ids, only_buyer_id, prior_market, global_intel, extra_intel, pinned_rules } = req.body;
+  const { buyers, ebitda, file_ids, only_buyer_id, prior_market, global_intel, extra_intel, pinned_rules, force } = req.body;
   if (!Array.isArray(buyers) || buyers.length === 0) {
     return res.status(400).json({ error: 'buyers array required' });
   }
@@ -570,6 +592,19 @@ app.post('/api/ai/rescan', async (req, res) => {
   // when re-scoring is scoped to a single buyer.
   const livePipeline = buyers.filter(b => b.stage !== 'dropped');
   if (livePipeline.length === 0) return res.status(400).json({ error: 'no live buyers' });
+
+  // Idempotence: if buyer + market + intel state is byte-identical to the
+  // previous call, return the cached response. The user pressing Update
+  // without changing anything should NOT shift any number. `force: true`
+  // bypasses the cache for the rare retry-after-bad-call case.
+  const inputHash = hashRescanInput({
+    buyers, ebitda, file_ids: file_ids || [], only_buyer_id: only_buyer_id || null,
+    prior_market: prior_market || null, global_intel: global_intel || [],
+    extra_intel: extra_intel || null, pinned_rules: pinned_rules || [],
+  });
+  if (!force && inputHash === lastRescanHash && Date.now() - lastRescanAt < RESCAN_CACHE_TTL_MS) {
+    return res.json({ ...lastRescanResponse, cached: true });
+  }
 
   // For the buyer in scope (or all when no scope), include full grounded
   // detail including notes + history. For the rest of the pipeline, send a
@@ -673,7 +708,7 @@ ${JSON.stringify(groundedBuyers, null, 2)}
 
 ${docBlocks.length > 0 ? `# Documents attached: ${docBlocks.length} (CIM, LOIs, emails, etc., read them as evidence)` : '# No documents attached yet.'}
 
-${liveIntel ? `# Live web intel (fetched ${new Date().toISOString().slice(0,10)} via OpenAI web search, may contain summarization errors, treat as a hint not ground truth; cite source URLs verbatim when used)
+${liveIntel ? `# Live web intel (fetched via OpenAI web search, may contain summarization errors, treat as a hint not ground truth; cite source URLs verbatim when used)
 ${liveIntel}
 ` : '# Live web intel: disabled (Update reflects internal pipeline state only)'}
 
@@ -791,6 +826,13 @@ ${focusInstruction}`;
         stop_reason: stopReason,
       });
     }
+
+    // Cache the successful response under this input hash so the next
+    // call with identical state returns immediately (see the idempotence
+    // check at the top of this handler).
+    lastRescanHash = inputHash;
+    lastRescanResponse = responsePayload;
+    lastRescanAt = Date.now();
 
     res.json(responsePayload);
     logRescan({
