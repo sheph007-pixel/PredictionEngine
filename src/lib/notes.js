@@ -147,6 +147,12 @@ export const EVENT_SPECS = {
     value: '$today',
     stage: 'nda',
   },
+  cim_delivered: {
+    label: 'CIM delivered',
+    text: 'CIM delivered to buyer.',
+    field: 'cim_delivered',
+    value: '$today',
+  },
   chemistry_scheduled: {
     label: 'Chemistry scheduled',
     text: 'Chemistry meeting scheduled.',

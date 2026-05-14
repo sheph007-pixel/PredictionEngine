@@ -30,8 +30,8 @@ export const PROCESS_TASKS = [
 export const PHASES = ["Preparation", "Marketing Phase 1", "Marketing Phase 2", "Exclusivity", "Close"];
 
 export const PROCESS_DEFAULT = {
-  currentTaskId: "cim_final",
-  currentTaskDate: "2026-04-30",
+  currentTaskId: "cim_deliver",
+  currentTaskDate: "2026-05-14",
 };
 
 // Buyer roster — structural profile facts only (name, sponsor, stage, dates,

@@ -202,6 +202,7 @@ export default function App() {
               ...b,
               ...(seed ? { website: seed.website } : {}),
               nda_signed: null,
+              cim_delivered: null,
               chemistry_date: null,
               notes: '',
               thesis: null,

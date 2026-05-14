@@ -163,7 +163,7 @@ Each buyer's \`notes_timeline\` field is a chronological log of field intel, one
 
 # Stage discipline (probability anchors, these are the FINAL displayed ranges, not a base to be lifted)
 - outreach: prob 8–22%
-- nda: prob 12–28%
+- nda: prob 12–28%. CIM-delivered checkpoint within this band: if buyer.cim_delivered is set and the notes_timeline shows no objections, pullback, or cooling signals dated AFTER cim_delivered, lift within-NDA probability into the upper half (20–28). CIM delivered + chemistry scheduled (i.e. chemistry_date set) → lean 24–28 with stage advance imminent. CIM delivered followed by stalling or objection notes → mid-band (16–22). Absent cim_delivered, stay in the lower half (12–20).
 - chemistry: prob 18–38%
 - loi: prob 28–58% (and almost always has multiple_override)
 - closed: prob 90+%
@@ -241,7 +241,7 @@ Do NOT assert that buyer milestones (chemistry meetings, NDAs, LOIs, exclusivity
 - The buyer's noteLog or notes_timeline contains a dated entry asserting the event.
 - A document in the library asserts it.
 
-If you are PROJECTING when an event will likely happen (which is what \`close_estimate\` and the timeline rationale are for), use forward-looking language: "projected", "expected", "likely", "estimated mid-July", "anchor on Reagan's ~17-week timeline". Never write "one chemistry meeting set for late May" unless the noteLog has a dated chemistry entry. Never write "NDAs signed" unless buyers are at \`nda\` stage or later. Hallucinated events (events you assert as fact when there is no evidence) are the single worst failure mode of this engine, when in doubt, omit the specific event and stick to stage-level language.`;
+If you are PROJECTING when an event will likely happen (which is what \`close_estimate\` and the timeline rationale are for), use forward-looking language: "projected", "expected", "likely", "estimated mid-July", "anchor on Reagan's ~17-week timeline". Never write "one chemistry meeting set for late May" unless the noteLog has a dated chemistry entry. Never write "NDAs signed" unless buyers are at \`nda\` stage or later. Never write "CIM delivered" for a buyer unless \`buyer.cim_delivered\` is set or the notes_timeline contains a dated CIM-delivery entry. Hallucinated events (events you assert as fact when there is no evidence) are the single worst failure mode of this engine, when in doubt, omit the specific event and stick to stage-level language.`;
 }
 
 const RESCAN_TOOL = {
@@ -532,7 +532,7 @@ app.post('/api/ai/rescan', async (req, res) => {
   const fullDetail = (b) => ({
     id: b.id, name: b.name, hq: b.hq, revenue: b.revenue, headcount: b.headcount,
     offices: b.offices, ownership: b.ownership, sponsor: b.sponsor, type: b.type,
-    stage: b.stage, nda_signed: b.nda_signed || null, chemistry_date: b.chemistry_date || null,
+    stage: b.stage, nda_signed: b.nda_signed || null, cim_delivered: b.cim_delivered || null, chemistry_date: b.chemistry_date || null,
     // Chronological field-intel log. Each line: "[YYYY-MM-DD] text". Recent
     // entries should weigh more than old ones. Falls back to legacy single-
     // string `notes` for buyers not yet migrated.
@@ -574,6 +574,7 @@ app.post('/api/ai/rescan', async (req, res) => {
       offices: b.offices, ownership: b.ownership, sponsor: b.sponsor, type: b.type,
       stage: b.stage,
       nda_signed: b.nda_signed || null,
+      cim_delivered: b.cim_delivered || null,
       chemistry_date: b.chemistry_date || null,
       notes_timeline: formatNoteTimeline(b),
       flags: b.flags || [],
@@ -837,7 +838,7 @@ Claude is producing the primary analysis IN PARALLEL, you do not see its output 
 
 # Stage discipline (probability ranges, final, no post-processing)
 - outreach: 8–22%
-- nda: 12–28%
+- nda: 12–28%. If buyer.cim_delivered is set with no objection/cooling notes after that date, lift into upper half (20–28); CIM delivered + chemistry_date set → 24–28; CIM delivered with stalling notes after → mid-band 16–22; no cim_delivered → stay 12–20.
 - chemistry: 18–38%
 - loi: 28–58%
 - closed: 90+%

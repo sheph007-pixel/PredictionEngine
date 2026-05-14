@@ -948,7 +948,12 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
               return <span key={s.id} className={cls} title={s.label} />;
             })}
           </div>
-          <div className="row-stage-label">{stageLabel}</div>
+          <div className="row-stage-label">
+            {stageLabel}
+            {buyer.stage === 'nda' && buyer.cim_delivered && (
+              <span className="row-stage-substage" title={`CIM delivered ${buyer.cim_delivered}`}> · CIM SENT</span>
+            )}
+          </div>
         </div>
       )}
       <div className="row-prob-stack">
