@@ -389,6 +389,7 @@ body { font-size: 14px; }
 .row-stage-pip-done { background: var(--ink-2); border-color: var(--ink-2); }
 .row-stage-pip-active { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .row-stage-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); font-weight: 500; }
+.row-stage-substage { color: var(--accent); font-weight: 600; }
 .row-stage-dropped { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); padding: 3px 8px; border: 1px solid var(--rule-2); border-radius: 2px; align-self: start; margin-top: 4px; }
 .row-prob-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 70px; }
 .row-prob-stack .model-vote { margin-top: 4px; gap: 3px; }
