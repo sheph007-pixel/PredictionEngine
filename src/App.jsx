@@ -243,9 +243,35 @@ export default function App() {
           pushBuyers(cleaned).catch(() => {});
         }
 
+        // One-shot PE-curation migration. User curated the active-PE buyer
+        // list down to OneDigital, Alliant, Oakbridge, IMA. HUB / Higginbotham /
+        // Cason were marked PE-backed in earlier seeds; rewrite the persisted
+        // ownership / sponsor / fit.pe to non-PE so badges, prompt anchors,
+        // and AI reasoning all read the same source of truth.
+        const PE_KEY = 'kennion.peCuration.v1';
+        const didPeCurate = !localStorage.getItem(PE_KEY);
+        if (didPeCurate) {
+          const NON_PE = {
+            hub:   { ownership: 'National consolidator', sponsor: '—' },
+            higgi: { ownership: 'Regional P&C',           sponsor: '—' },
+            cason: { ownership: 'Captive distributor',    sponsor: '—' },
+          };
+          cleaned = cleaned.map(b => {
+            const patch = NON_PE[b.id];
+            if (!patch) return b;
+            const fit = { ...(b.fit || {}), pe: 0 };
+            return { ...b, ownership: patch.ownership, sponsor: patch.sponsor, fit };
+          });
+          try { localStorage.setItem(PE_KEY, new Date().toISOString()); } catch {}
+          pushBuyers(cleaned).catch(() => {});
+        }
+
         setBuyers(cleaned);
-        if (didBackfill) {
-          rescanAll('Backfilled CIM delivered milestone (2026-05-14) for IMA, OneDigital, Kelly, Cason, Oakbridge per Reagan 5/14/26 update.').catch(() => {});
+        if (didBackfill || didPeCurate) {
+          const reasons = [];
+          if (didBackfill) reasons.push('Backfilled CIM delivered milestone (2026-05-14) for IMA, OneDigital, Kelly, Cason, Oakbridge per Reagan 5/14/26 update.');
+          if (didPeCurate) reasons.push('Curated PE designation: only OneDigital, Alliant, Oakbridge, IMA are flagged PE-backed. HUB / Higginbotham / Cason demoted to non-PE per user direction.');
+          rescanAll(reasons.join(' ')).catch(() => {});
         }
       } else {
         // Server is empty — push our local state up as the seed.
