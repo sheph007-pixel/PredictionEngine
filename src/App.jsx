@@ -296,11 +296,34 @@ export default function App() {
           pushBuyers(cleaned).catch(() => {});
         }
 
+        // One-shot Insurance Journal Top 100 P/C Agencies (2025 list) rank
+        // backfill. Field provided per buyer in src/data.js — copies it into
+        // the persisted record so the badge renders and the AI rescan sees
+        // ranking as a credibility signal. null = explicitly "not in Top 100"
+        // (Cason, Kelly, C&B); undefined/missing = no data yet (dropped).
+        // v2 key forces re-apply after the initial v1 shipped with wrong
+        // numbers (corrected per user's 2025 IJ list cross-check).
+        const TOP100_KEY = 'kennion.top100Backfill.v2';
+        const didTop100 = !localStorage.getItem(TOP100_KEY);
+        if (didTop100) {
+          cleaned = cleaned.map(b => {
+            const seed = SEED_BY_ID[b.id];
+            if (!seed || !('top100_rank' in seed)) return b;
+            // Force overwrite to the seed value (v2 correction may downgrade
+            // or remove ranks set by v1). Keep undefined behavior for buyers
+            // not in the seed's named set.
+            return { ...b, top100_rank: seed.top100_rank };
+          });
+          try { localStorage.setItem(TOP100_KEY, new Date().toISOString()); } catch {}
+          pushBuyers(cleaned).catch(() => {});
+        }
+
         setBuyers(cleaned);
-        if (didBackfill || didPeCurate || didSeedNotes) {
+        if (didBackfill || didPeCurate || didSeedNotes || didTop100) {
           const reasons = [];
           if (didBackfill) reasons.push('Backfilled CIM delivered milestone (2026-05-14) for IMA, OneDigital, Kelly, Cason, Oakbridge per Reagan 5/14/26 update.');
           if (didPeCurate) reasons.push('Curated PE designation: only OneDigital, Alliant, Oakbridge, IMA are flagged PE-backed. HUB / Higginbotham / Cason demoted to non-PE per user direction.');
+          if (didTop100) reasons.push('Added Insurance Journal Top 100 P/C Agencies (2025) rank to each buyer: Alliant #1, IMA #13, Oakbridge #40, OneDigital #41. Cason / Kelly / Cottingham & Butler not in the 2025 Top 100 list.');
           if (didSeedNotes) reasons.push('Restored pre-process buyer-intel notes (Reagan/Hunter context from the 4/30/26 buyer list) to each noteLog so per-buyer reasoning grounds in actual history instead of profile + comps.');
           rescanAll(reasons.join(' ')).catch(() => {});
         }
