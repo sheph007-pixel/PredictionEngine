@@ -953,6 +953,9 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
             {buyer.stage === 'nda' && buyer.cim_delivered && (
               <span className="row-stage-substage" title={`CIM delivered ${buyer.cim_delivered}`}> · CIM SENT</span>
             )}
+            {buyer.stage === 'chemistry' && buyer.ioi_received && (
+              <span className="row-stage-substage" title={`IOI received ${buyer.ioi_received}`}> · IOI</span>
+            )}
           </div>
         </div>
       )}

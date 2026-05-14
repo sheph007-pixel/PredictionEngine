@@ -164,7 +164,7 @@ Each buyer's \`notes_timeline\` field is a chronological log of field intel, one
 # Stage discipline (probability anchors, these are the FINAL displayed ranges, not a base to be lifted)
 - outreach: prob 8–22%
 - nda: prob 12–28%. CIM-delivered checkpoint within this band: if buyer.cim_delivered is set and the notes_timeline shows no objections, pullback, or cooling signals dated AFTER cim_delivered, lift within-NDA probability into the upper half (20–28). CIM delivered + chemistry scheduled (i.e. chemistry_date set) → lean 24–28 with stage advance imminent. CIM delivered followed by stalling or objection notes → mid-band (16–22). Absent cim_delivered, stay in the lower half (12–20).
-- chemistry: prob 18–38%
+- chemistry: prob 18–38%. IOI-received checkpoint within this band: if buyer.ioi_received is set (a soft, non-binding indication of interest), lift within-chemistry probability into the upper half (28–38). IOI received with corroborating warming notes after → lean 32–38 with an LOI plausible inside 4–6 weeks. IOI received followed by stalling/pushback → mid-band (24–30). Absent ioi_received, stay in the lower half (18–28).
 - loi: prob 28–58% (and almost always has multiple_override)
 - closed: prob 90+%
 - dropped: filter out, do not include in output
@@ -217,7 +217,7 @@ This is the probability that the asset does NOT sell within the planned process 
 - Sponsor capacity / deployment cycle drag
 - Trajectory of recent notes (multiple cooling signals, declined-2x flags, capacity pulls increase no-deal risk)
 - Process timeline pressure (further from LOI deadline = lower urgency = higher no-deal risk)
-For Kennion's profile (captive benefits, sub-mid-market) a healthy floor is 10–20% even with strong buyers. Do not let it go below 5% absent firm-evidence LOIs from multiple buyers. \`p_no_deal_rationale\`: max 25 words, plain English, name the single biggest no-deal risk.
+For Kennion's profile (captive benefits, sub-mid-market) a healthy floor is 10–20% even with strong buyers. Do not let it go below 5% absent firm-evidence LOIs from multiple buyers. **Structural-pass calibration**: each buyer the noteLog records as having formally passed (regardless of whether the reason is buyer-side structural like "small-accts focus" or "no-retail mandate") thins the bidder pool and raises no-deal risk. Two or more passes from the original top-half of the list → floor 12–18%. Four or more passes → floor 15–22%. Do not discount these passes just because the reason is "not about us"; a thinner pool is a thinner pool. \`p_no_deal_rationale\`: max 25 words, plain English, name the single biggest no-deal risk.
 
 # Output discipline
 Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence. If evidence is insufficient to move a number, leave it stable and say so in reasoning.
@@ -241,7 +241,7 @@ Do NOT assert that buyer milestones (chemistry meetings, NDAs, LOIs, exclusivity
 - The buyer's noteLog or notes_timeline contains a dated entry asserting the event.
 - A document in the library asserts it.
 
-If you are PROJECTING when an event will likely happen (which is what \`close_estimate\` and the timeline rationale are for), use forward-looking language: "projected", "expected", "likely", "estimated mid-July", "anchor on Reagan's ~17-week timeline". Never write "one chemistry meeting set for late May" unless the noteLog has a dated chemistry entry. Never write "NDAs signed" unless buyers are at \`nda\` stage or later. Never write "CIM delivered" for a buyer unless \`buyer.cim_delivered\` is set or the notes_timeline contains a dated CIM-delivery entry. Hallucinated events (events you assert as fact when there is no evidence) are the single worst failure mode of this engine, when in doubt, omit the specific event and stick to stage-level language.`;
+If you are PROJECTING when an event will likely happen (which is what \`close_estimate\` and the timeline rationale are for), use forward-looking language: "projected", "expected", "likely", "estimated mid-July", "anchor on Reagan's ~17-week timeline". Never write "one chemistry meeting set for late May" unless the noteLog has a dated chemistry entry. Never write "NDAs signed" unless buyers are at \`nda\` stage or later. Never write "CIM delivered" for a buyer unless \`buyer.cim_delivered\` is set or the notes_timeline contains a dated CIM-delivery entry. Never write "IOI received" or "indication of interest" for a buyer unless \`buyer.ioi_received\` is set or the notes_timeline contains a dated IOI entry. Hallucinated events (events you assert as fact when there is no evidence) are the single worst failure mode of this engine, when in doubt, omit the specific event and stick to stage-level language.`;
 }
 
 const RESCAN_TOOL = {
@@ -532,7 +532,7 @@ app.post('/api/ai/rescan', async (req, res) => {
   const fullDetail = (b) => ({
     id: b.id, name: b.name, hq: b.hq, revenue: b.revenue, headcount: b.headcount,
     offices: b.offices, ownership: b.ownership, sponsor: b.sponsor, type: b.type,
-    stage: b.stage, nda_signed: b.nda_signed || null, cim_delivered: b.cim_delivered || null, chemistry_date: b.chemistry_date || null,
+    stage: b.stage, nda_signed: b.nda_signed || null, cim_delivered: b.cim_delivered || null, chemistry_date: b.chemistry_date || null, ioi_received: b.ioi_received || null,
     // Chronological field-intel log. Each line: "[YYYY-MM-DD] text". Recent
     // entries should weigh more than old ones. Falls back to legacy single-
     // string `notes` for buyers not yet migrated.
@@ -576,6 +576,7 @@ app.post('/api/ai/rescan', async (req, res) => {
       nda_signed: b.nda_signed || null,
       cim_delivered: b.cim_delivered || null,
       chemistry_date: b.chemistry_date || null,
+      ioi_received: b.ioi_received || null,
       notes_timeline: formatNoteTimeline(b),
       flags: b.flags || [],
       fit: b.fit,
@@ -839,7 +840,7 @@ Claude is producing the primary analysis IN PARALLEL, you do not see its output 
 # Stage discipline (probability ranges, final, no post-processing)
 - outreach: 8–22%
 - nda: 12–28%. If buyer.cim_delivered is set with no objection/cooling notes after that date, lift into upper half (20–28); CIM delivered + chemistry_date set → 24–28; CIM delivered with stalling notes after → mid-band 16–22; no cim_delivered → stay 12–20.
-- chemistry: 18–38%
+- chemistry: 18–38%. If buyer.ioi_received is set with no pushback notes after, lift into upper half (28–38); IOI + warming notes after → 32–38; IOI + stalling/pushback after → mid-band 24–30; no ioi_received → stay 18–28.
 - loi: 28–58%
 - closed: 90+%
 - dropped: omit

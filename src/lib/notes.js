@@ -160,6 +160,12 @@ export const EVENT_SPECS = {
     value: '$today',
     stage: 'chemistry',
   },
+  ioi_received: {
+    label: 'IOI received',
+    text: 'Indication of interest received.',
+    field: 'ioi_received',
+    value: '$today',
+  },
   loi_received: {
     label: 'LOI received',
     text: 'LOI received.',
