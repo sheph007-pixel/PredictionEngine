@@ -102,6 +102,17 @@ body { font-size: 14px; }
 .process-task-label { font-size: 12px; color: var(--ink-2); transition: color 0.12s; line-height: 1.3; }
 .process-task-active .process-task-label { color: var(--ink); font-weight: 600; }
 .process-task-future .process-task-label { color: var(--ink-3); }
+.process-rail-phases { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+.process-phase-pip { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px 12px; border: 1px solid var(--rule-2); border-radius: 4px; background: transparent; cursor: pointer; text-align: left; transition: all 0.12s; font-family: inherit; }
+.process-phase-pip:hover { border-color: var(--accent); }
+.process-phase-pip-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bg); border: 1px solid var(--rule-2); }
+.process-phase-pip-done .process-phase-pip-dot { background: var(--ink); border-color: var(--ink); }
+.process-phase-pip-active { border-color: var(--accent); background: var(--accent-soft); }
+.process-phase-pip-active .process-phase-pip-dot { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.process-phase-pip-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); font-weight: 500; }
+.process-phase-pip-active .process-phase-pip-label { color: var(--ink); font-weight: 700; }
+.process-phase-pip-future .process-phase-pip-label { color: var(--ink-3); }
+.process-phase-pip-detail { font-family: var(--mono); font-size: 10px; color: var(--accent); letter-spacing: 0.04em; line-height: 1.4; }
 
 /* process tracker collapse */
 .process-collapse { background: transparent; border: 1px solid var(--rule-2); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; color: var(--ink-2); display: flex; align-items: center; justify-content: center; align-self: flex-start; margin-left: 6px; }

@@ -32,6 +32,47 @@ function fmtMonthYear(d) {
   return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
 }
 
+// Derive the current process phase from live buyer state. Replaces the
+// manually-managed `currentTaskId`. Phase = the most-advanced live buyer's
+// stage mapped to a phase bucket. Distribution = a one-line breakdown of
+// where each live buyer sits within the active phase (NDA+CIM vs NDA pending,
+// chemistry+IOI vs chemistry, etc.). Used by ProcessTracker (display) and
+// HeroKPIs (timeline math) so the deal-level view stays honest as buyers move.
+export function derivePhase(buyers) {
+  const live = (buyers || []).filter(b => b.stage !== 'dropped');
+  const droppedCount = (buyers || []).filter(b => b.stage === 'dropped').length;
+
+  let phase = 'Marketing Phase 1', phaseIdx = 1, weeksToClose = 17, weeksToOffer = 7;
+  if (live.length === 0) {
+    return { phase: 'Preparation', phaseIdx: 0, weeksToClose: 22, weeksToOffer: 12, distribution: {}, distributionText: 'no live buyers', droppedCount };
+  }
+  const maxStageIdx = Math.max(...live.map(b => STAGE_INDEX[b.stage] ?? 0));
+  if (maxStageIdx >= STAGE_INDEX.closed) { phase = 'Close'; phaseIdx = 4; weeksToClose = 0; weeksToOffer = 0; }
+  else if (maxStageIdx >= STAGE_INDEX.loi) { phase = 'Exclusivity'; phaseIdx = 3; weeksToClose = 7; weeksToOffer = 0; }
+  else if (maxStageIdx >= STAGE_INDEX.chemistry) { phase = 'Marketing Phase 2'; phaseIdx = 2; weeksToClose = 13; weeksToOffer = 3; }
+
+  const c = {
+    outreach:  live.filter(b => b.stage === 'outreach').length,
+    ndaCim:    live.filter(b => b.stage === 'nda' && b.cim_delivered).length,
+    ndaOnly:   live.filter(b => b.stage === 'nda' && !b.cim_delivered).length,
+    chemIoi:   live.filter(b => b.stage === 'chemistry' && b.ioi_received).length,
+    chemOnly:  live.filter(b => b.stage === 'chemistry' && !b.ioi_received).length,
+    loi:       live.filter(b => b.stage === 'loi').length,
+    closed:    live.filter(b => b.stage === 'closed').length,
+  };
+  const parts = [];
+  if (c.closed)    parts.push(`${c.closed} closed`);
+  if (c.loi)       parts.push(`${c.loi} LOI`);
+  if (c.chemIoi)   parts.push(`${c.chemIoi} chemistry+IOI`);
+  if (c.chemOnly)  parts.push(`${c.chemOnly} chemistry`);
+  if (c.ndaCim)    parts.push(`${c.ndaCim} NDA+CIM`);
+  if (c.ndaOnly)   parts.push(`${c.ndaOnly} NDA pending`);
+  if (c.outreach)  parts.push(`${c.outreach} outreach`);
+  const distributionText = parts.join(' · ') || `${live.length} live`;
+
+  return { phase, phaseIdx, weeksToClose, weeksToOffer, distribution: c, distributionText, droppedCount };
+}
+
 function projectTaskDates(process) {
   const anchor = PROCESS_TASKS.find(t => t.id === process.currentTaskId);
   const anchorWeeks = anchor.weeksFromStart;
@@ -220,13 +261,10 @@ function fmtCloseMonth(s) {
 }
 
 export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales }) {
-  const currentIdx = PROCESS_TASKS.findIndex(t => t.id === process.currentTaskId);
-  const currentTask = PROCESS_TASKS[currentIdx];
-  const closeTask = PROCESS_TASKS[PROCESS_TASKS.length - 1];
-  const offerTask = PROCESS_TASKS.find(t => t.id === 'lois') || closeTask;
+  const derived = derivePhase(buyers);
   const today = new Date();
-  const weeksToClose = closeTask.weeksFromStart - currentTask.weeksFromStart;
-  const weeksToOffer = Math.max(0, offerTask.weeksFromStart - currentTask.weeksFromStart);
+  const weeksToClose = derived.weeksToClose;
+  const weeksToOffer = derived.weeksToOffer;
   const projectedClose = new Date(today);
   projectedClose.setDate(projectedClose.getDate() + weeksToClose * 7);
   const projectedOffer = new Date(today);
@@ -299,13 +337,13 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
       <div className="hero-kpi">
         <div className="hero-kpi-label">Projected offer</div>
         <div className="hero-kpi-value hero-kpi-close">{headlineOffer}</div>
-        <div className="hero-kpi-foot" title={`${weeksToOfferDisplay} weeks to first offer · ${currentTask.phase}`}><b>{weeksToOfferDisplay}</b> weeks to first offer · <b>{currentTask.phase}</b></div>
+        <div className="hero-kpi-foot" title={`${weeksToOfferDisplay} weeks to first offer · ${derived.phase}`}><b>{weeksToOfferDisplay}</b> weeks to first offer · <b>{derived.phase}</b></div>
         {offerChips && <ModelVote claudeVal={offerChips.claude} openaiVal={offerChips.openai} avgVal={offerChips.avg} />}
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Projected close</div>
         <div className="hero-kpi-value hero-kpi-close">{headlineClose}</div>
-        <div className="hero-kpi-foot" title={`${weeksRemaining} weeks remaining · ${currentTask.phase}`}><b>{weeksRemaining}</b> weeks remaining · <b>{currentTask.phase}</b></div>
+        <div className="hero-kpi-foot" title={`${weeksRemaining} weeks remaining · ${derived.phase}`}><b>{weeksRemaining}</b> weeks remaining · <b>{derived.phase}</b></div>
         {closeChips && <ModelVote claudeVal={closeChips.claude} openaiVal={closeChips.openai} avgVal={closeChips.avg} />}
       </div>
       <div className="hero-kpi">
@@ -381,11 +419,14 @@ export function ContributionChart({ buyers, ebitda, caseMode, market, onSelect }
 // ---------- process tracker ----------
 export function ProcessTracker({ process, onUpdate, buyers = [], ebitda = 18, caseMode = "mid" }) {
   const [collapsed, setCollapsed] = useState(true);
-  const currentIdx = PROCESS_TASKS.findIndex(t => t.id === process.currentTaskId);
-  const currentTask = PROCESS_TASKS[currentIdx];
-  const totalTasks = PROCESS_TASKS.length;
-  const pctDone = Math.round(((currentIdx) / (totalTasks - 1)) * 100);
-  const phaseIdx = PHASES.indexOf(currentTask.phase);
+  const derived = derivePhase(buyers);
+  // Manual override wins if the user clicked a phase explicitly; otherwise the
+  // phase auto-derives from buyer state. Lets you say "we're in Q&A even though
+  // no buyer has formally moved" without the auto-derivation overriding you.
+  const activePhase = process?.phase || derived.phase;
+  const activeIdx = Math.max(0, PHASES.indexOf(activePhase));
+  const pctDone = Math.round((activeIdx / (PHASES.length - 1)) * 100);
+  const isAuto = !process?.phase;
 
   return (
     <div className={"process process-thin" + (collapsed ? " process-collapsed" : "")}>
@@ -393,8 +434,8 @@ export function ProcessTracker({ process, onUpdate, buyers = [], ebitda = 18, ca
         <div className="process-thin-left">
           <div className="process-eyebrow">Process · Reagan Consulting</div>
           <div className="process-thin-title">
-            <span className="process-thin-phase">Phase {phaseIdx + 1}/{PHASES.length} · {currentTask.phase}</span>
-            <span className="process-thin-task">{currentTask.label}</span>
+            <span className="process-thin-phase">Phase {activeIdx + 1}/{PHASES.length} · {activePhase}</span>
+            <span className="process-thin-task">{derived.distributionText}{derived.droppedCount > 0 && ` · ${derived.droppedCount} dropped`}{isAuto && ' · auto'}</span>
           </div>
         </div>
         <div className="process-thin-right">
@@ -413,30 +454,33 @@ export function ProcessTracker({ process, onUpdate, buyers = [], ebitda = 18, ca
       </div>
 
       {!collapsed && (
-        <div className="process-rail">
-          {PHASES.map((phase) => {
-            const phaseTasks = PROCESS_TASKS.filter(t => t.phase === phase);
+        <div className="process-rail process-rail-phases">
+          {PHASES.map((phase, i) => {
+            const state = i < activeIdx ? "done" : i === activeIdx ? "active" : "future";
+            const onClick = (e) => {
+              e.stopPropagation();
+              if (i === activeIdx && process?.phase) {
+                // Click the active phase again → release manual override, fall back to auto
+                const { phase: _, ...rest } = process || {};
+                onUpdate(rest);
+              } else {
+                onUpdate({ ...(process || {}), phase });
+              }
+            };
             return (
-              <div key={phase} className="process-phase">
-                <div className="process-phase-label">{phase}</div>
-                <div className="process-phase-tasks">
-                  {phaseTasks.map(t => {
-                    const idx = PROCESS_TASKS.findIndex(x => x.id === t.id);
-                    const state = idx < currentIdx ? "done" : idx === currentIdx ? "active" : "future";
-                    return (
-                      <div
-                        key={t.id}
-                        className={"process-task process-task-" + state}
-                        onClick={() => onUpdate({ ...process, currentTaskId: t.id })}
-                        title={"Mark " + t.label + " as current step"}
-                      >
-                        <div className="process-task-dot"></div>
-                        <div className="process-task-label">{t.label}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <button
+                key={phase}
+                type="button"
+                className={"process-phase-pip process-phase-pip-" + state}
+                onClick={onClick}
+                title={i === activeIdx && process?.phase ? `Click to release manual override (auto would be: ${derived.phase})` : `Mark ${phase} as current phase`}
+              >
+                <div className="process-phase-pip-dot"></div>
+                <div className="process-phase-pip-label">{phase}</div>
+                {i === activeIdx && (
+                  <div className="process-phase-pip-detail">{derived.distributionText}</div>
+                )}
+              </button>
             );
           })}
         </div>
@@ -2362,7 +2406,7 @@ export function BrainModal({
           <div className="brain-grid">
             <div><b>EBITDA</b><br/>${ebitda}M</div>
             <div><b>Case mode</b><br/>{caseMode}</div>
-            <div><b>Process step</b><br/>{process?.currentTaskId || '-'}</div>
+            <div><b>Phase</b><br/>{process?.phase || '(auto)'}</div>
             <div><b>Conservative</b><br/>{market?.conservative ? `${market.conservative.low.toFixed(1)}–${market.conservative.high.toFixed(1)}×` : '-'}</div>
             <div><b>Realistic</b><br/>{market?.mid ? `${market.mid.low.toFixed(1)}–${market.mid.high.toFixed(1)}×` : '-'}</div>
             <div><b>Aggressive</b><br/>{market?.aggressive ? `${market.aggressive.low.toFixed(1)}–${market.aggressive.high.toFixed(1)}×` : '-'}</div>

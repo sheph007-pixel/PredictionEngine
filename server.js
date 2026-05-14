@@ -511,6 +511,46 @@ Cite every fact with a source URL inline. If a topic has no material updates, sa
   return sections.length > 0 ? sections.join('\n\n') : null;
 }
 
+// One-line derivation of the deal-level process phase from buyer state.
+// Mirror of derivePhase() in src/components.jsx — kept inline because the
+// React module is ESM/JSX and not directly importable into Node. The phase
+// goes into the AI userText so close-date / offer-date estimates anchor on
+// where the pipeline actually is, not on a manually-managed task pointer.
+function derivePhaseSummary(buyers) {
+  const STAGE_ORDER = ['outreach', 'nda', 'chemistry', 'loi', 'closed'];
+  const idx = (s) => Math.max(0, STAGE_ORDER.indexOf(s));
+  const live = (buyers || []).filter(b => b.stage !== 'dropped');
+  const droppedCount = (buyers || []).filter(b => b.stage === 'dropped').length;
+  if (live.length === 0) return { phase: 'Preparation', text: 'Preparation · no live buyers', droppedCount };
+  const maxIdx = Math.max(...live.map(b => idx(b.stage)));
+  let phase;
+  if (maxIdx >= idx('closed')) phase = 'Close';
+  else if (maxIdx >= idx('loi')) phase = 'Exclusivity';
+  else if (maxIdx >= idx('chemistry')) phase = 'Marketing Phase 2';
+  else phase = 'Marketing Phase 1';
+
+  const c = {
+    outreach: live.filter(b => b.stage === 'outreach').length,
+    ndaCim: live.filter(b => b.stage === 'nda' && b.cim_delivered).length,
+    ndaOnly: live.filter(b => b.stage === 'nda' && !b.cim_delivered).length,
+    chemIoi: live.filter(b => b.stage === 'chemistry' && b.ioi_received).length,
+    chemOnly: live.filter(b => b.stage === 'chemistry' && !b.ioi_received).length,
+    loi: live.filter(b => b.stage === 'loi').length,
+    closed: live.filter(b => b.stage === 'closed').length,
+  };
+  const parts = [];
+  if (c.closed) parts.push(`${c.closed} closed`);
+  if (c.loi) parts.push(`${c.loi} LOI`);
+  if (c.chemIoi) parts.push(`${c.chemIoi} chemistry+IOI`);
+  if (c.chemOnly) parts.push(`${c.chemOnly} chemistry`);
+  if (c.ndaCim) parts.push(`${c.ndaCim} NDA+CIM`);
+  if (c.ndaOnly) parts.push(`${c.ndaOnly} NDA pending`);
+  if (c.outreach) parts.push(`${c.outreach} outreach`);
+  const distribution = parts.join(', ');
+  const text = `${phase} · ${distribution}` + (droppedCount > 0 ? ` · ${droppedCount} dropped` : '');
+  return { phase, text, droppedCount };
+}
+
 // Re-evaluate the buyer pipeline with full context (buyers + docs + notes + prior reasoning).
 // Used by the top-bar Re-scan, per-buyer note submission, and post-classify doc upload.
 app.post('/api/ai/rescan', async (req, res) => {
@@ -608,10 +648,14 @@ app.post('/api/ai/rescan', async (req, res) => {
     : ebitda < 20 ? '$10–20M (mid-market PE band starts to apply)'
     : ebitda < 50 ? '$20–50M (full mid-market PE / strategic platform)'
     : '>$50M (scaled-platform comps with private discount)';
+  const phaseSummary = derivePhaseSummary(livePipeline.concat(buyers.filter(b => b.stage === 'dropped')));
   const userText = `# Pipeline state
 EBITDA: $${ebitda}M (locked, set by Reagan, do not adjust)
 Size bucket: ${sizeBucket}
 **Reminder: anchor the realistic multiple band on this bucket FIRST. Do not apply mid-market or scaled-broker multiples to a sub-$10M asset without explicit hard evidence (LOI, term sheet, written offer).**
+
+# Process phase (derived from buyer state — use this to anchor close_estimate and offer_estimate)
+${phaseSummary.text}
 
 # Prior market multiples (echo if no shift evidence)
 ${JSON.stringify(prior_market || {}, null, 2)}
@@ -672,6 +716,7 @@ ${focusInstruction}`;
       }),
       getOpenAIPredictions({
         ebitda, groundedBuyers: openaiBuyers, liveIntel, sizeBucket, only_buyer_id,
+        phaseSummaryText: phaseSummary.text,
       }),
     ]);
 
@@ -820,7 +865,7 @@ const OPENAI_PREDICTION_SCHEMA = {
   },
 };
 
-async function getOpenAIPredictions({ ebitda, groundedBuyers, liveIntel, sizeBucket, only_buyer_id }) {
+async function getOpenAIPredictions({ ebitda, groundedBuyers, liveIntel, sizeBucket, only_buyer_id, phaseSummaryText }) {
   if (!openai) return null;
   const sys = `You are a senior M&A analyst providing an independent SECOND OPINION on the Kennion Benefits Program sale (captive-style benefits brokerage, advised by Reagan Consulting, Spring 2026 process).
 
@@ -865,7 +910,10 @@ Return JSON only, no commentary. Per-buyer probability MUST respect the stage ra
 EBITDA: $${ebitda}M
 Size bucket: ${sizeBucket}
 
-# Buyers in scope
+${phaseSummaryText ? `# Process phase (derived from full pipeline buyer state — anchor close_estimate / offer_estimate on this)
+${phaseSummaryText}
+
+` : ''}# Buyers in scope
 ${JSON.stringify(groundedBuyers, null, 2)}
 
 ${liveIntel ? `# Live web intel (fetched today via web search, treat as hint, not ground truth)
