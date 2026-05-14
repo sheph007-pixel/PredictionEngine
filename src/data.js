@@ -29,6 +29,14 @@ export const PROCESS_TASKS = [
 
 export const PHASES = ["Preparation", "Marketing Phase 1", "Marketing Phase 2", "Exclusivity", "Close"];
 
+export const PHASE_DESCRIPTIONS = {
+  "Preparation":       "Gather data · model · draft CIM",
+  "Marketing Phase 1": "Outreach · NDAs · deliver CIM",
+  "Marketing Phase 2": "Q&A calls · chemistry · first LOIs",
+  "Exclusivity":       "Negotiate LOI · confirmatory diligence",
+  "Close":             "Closing and funding",
+};
+
 export const PROCESS_DEFAULT = {
   currentTaskId: "cim_deliver",
   currentTaskDate: "2026-05-14",

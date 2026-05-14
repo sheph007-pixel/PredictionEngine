@@ -113,6 +113,8 @@ body { font-size: 14px; }
 .process-phase-pip-active .process-phase-pip-label { color: var(--ink); font-weight: 700; }
 .process-phase-pip-future .process-phase-pip-label { color: var(--ink-3); }
 .process-phase-pip-detail { font-family: var(--mono); font-size: 10px; color: var(--accent); letter-spacing: 0.04em; line-height: 1.4; }
+.process-phase-pip-sub { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); letter-spacing: 0.04em; line-height: 1.4; margin-top: -2px; }
+.process-phase-pip-active .process-phase-pip-sub { color: var(--ink-2); }
 
 /* process tracker collapse */
 .process-collapse { background: transparent; border: 1px solid var(--rule-2); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; color: var(--ink-2); display: flex; align-items: center; justify-content: center; align-self: flex-start; margin-left: 6px; }
