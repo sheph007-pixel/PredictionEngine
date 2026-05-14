@@ -970,6 +970,9 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
               >↗</a>
             </>
           ) : buyer.name}
+          {buyer.ownership === 'PE-backed' && (
+            <span className="pe-badge" title={`PE-backed${buyer.sponsor && buyer.sponsor !== '—' ? ` · ${buyer.sponsor}` : ''}`}>PE</span>
+          )}
           {rescanning && <span className="row-rescanning-tag" style={{ marginLeft: 10 }}>AI re-scoring…</span>}
         </div>
         {!isDropped && (
@@ -1232,7 +1235,12 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
 
         <div className="modal-head modal-head-compact">
           <div>
-            <div className="modal-eyebrow">Buyer · {buyer.type}</div>
+            <div className="modal-eyebrow">
+              Buyer · {buyer.type}
+              {buyer.ownership === 'PE-backed' && (
+                <span className="pe-badge pe-badge-modal" title={`PE-backed${buyer.sponsor && buyer.sponsor !== '—' ? ` · ${buyer.sponsor}` : ''}`}>PE</span>
+              )}
+            </div>
             <div className="modal-title">
               {buyer.website ? (
                 <a
