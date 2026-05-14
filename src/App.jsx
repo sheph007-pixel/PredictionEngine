@@ -266,11 +266,42 @@ export default function App() {
           pushBuyers(cleaned).catch(() => {});
         }
 
+        // One-shot seed-notes → noteLog migration. The demoScrub above blanks
+        // the legacy `notes` string field but never moved that content into
+        // the chronological noteLog the AI rescan actually reads. After scrub
+        // the AI saw zero per-buyer narrative intel and could only reason
+        // from profile + comps, producing generic "PE-backed scale buyer"
+        // output across the board. Inject each buyer's seed notes as a single
+        // backdated noteLog entry anchored to the Reagan list date (4/30/26)
+        // so the AI sees it as pre-process context ordered before all NDAs
+        // and CIMs. Idempotent: skip if the same text is already logged.
+        const SEED_NOTES_KEY = 'kennion.seedNotesToNoteLog.v1';
+        const didSeedNotes = !localStorage.getItem(SEED_NOTES_KEY);
+        if (didSeedNotes) {
+          const SEED_NOTE_TS = '2026-04-30T00:00:00.000Z';
+          cleaned = cleaned.map(b => {
+            const seed = SEED_BY_ID[b.id];
+            const seedText = seed?.notes?.trim();
+            if (!seedText) return b;
+            const existing = Array.isArray(b.noteLog) ? b.noteLog : [];
+            if (existing.some(e => e.text === seedText)) return b;
+            const entry = {
+              id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'n_' + Math.random().toString(36).slice(2, 10),
+              ts: SEED_NOTE_TS,
+              text: seedText,
+            };
+            return { ...b, noteLog: [entry, ...existing] };
+          });
+          try { localStorage.setItem(SEED_NOTES_KEY, new Date().toISOString()); } catch {}
+          pushBuyers(cleaned).catch(() => {});
+        }
+
         setBuyers(cleaned);
-        if (didBackfill || didPeCurate) {
+        if (didBackfill || didPeCurate || didSeedNotes) {
           const reasons = [];
           if (didBackfill) reasons.push('Backfilled CIM delivered milestone (2026-05-14) for IMA, OneDigital, Kelly, Cason, Oakbridge per Reagan 5/14/26 update.');
           if (didPeCurate) reasons.push('Curated PE designation: only OneDigital, Alliant, Oakbridge, IMA are flagged PE-backed. HUB / Higginbotham / Cason demoted to non-PE per user direction.');
+          if (didSeedNotes) reasons.push('Restored pre-process buyer-intel notes (Reagan/Hunter context from the 4/30/26 buyer list) to each noteLog so per-buyer reasoning grounds in actual history instead of profile + comps.');
           rescanAll(reasons.join(' ')).catch(() => {});
         }
       } else {
