@@ -1448,6 +1448,30 @@ const CONVO_TOOLS = [
     },
   },
   {
+    name: 'log_batch_event',
+    description: 'Stamp a structural milestone across MULTIPLE buyers in one call. Use when the user states an event affecting multiple buyers in one message ("CIM delivered to IMA / OneDigital / Kelly on 5/14"; "chemistry meetings confirmed for OneDigital and Oakbridge"; "NDAs signed by Alliant and C&B last week"). The tool stamps the canonical event note + sets the structural date field on every named buyer, then triggers ONE consolidated rescan. Event keys map 1:1 to the chips in the buyer modal: nda_signed (sets nda_signed date + advances stage to nda), cim_delivered (sets cim_delivered date), chemistry_scheduled (sets chemistry_date + advances to chemistry), ioi_received (sets ioi_received date), loi_received (advances to loi), declined (advances to dropped, force). Only call when the user EXPLICITLY states the event; for soft/ambiguous intel ("X seems excited about chemistry") use add_buyer_note instead. If the event key is uncertain, ask the user before calling.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        buyer_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of buyer ids the event applies to (lowercase short ids like ["ima", "onedigital", "kelly"]). Must match the id field from the pipeline state above.',
+        },
+        event_key: {
+          type: 'string',
+          enum: ['nda_signed', 'cim_delivered', 'chemistry_scheduled', 'ioi_received', 'loi_received', 'declined'],
+          description: 'Which structural milestone to stamp on each buyer. Maps to the chips in the buyer modal.',
+        },
+        reason: {
+          type: 'string',
+          description: 'Optional source attribution (e.g., "Reagan email 5/14"). If provided, appended as a follow-up note on each affected buyer for audit trail.',
+        },
+      },
+      required: ['buyer_ids', 'event_key'],
+    },
+  },
+  {
     name: 'invalidate_buyer_priors',
     description: 'Wipe stale AI-derived fields (thesis + last AI reasoning) on one or more buyers when the user pushes back on a claim that came from those fields ("you say OneDigital is pure-benefits, not true" / "you\'re wrong about X"). The thesis and last AI reasoning shown to you below are YOUR OWN prior conclusions, not user-verified facts, when the user disputes them, do NOT defend or apologize, call this tool. It logs the user\'s correction as pipeline-wide intel and forces the auto-rescan that follows to re-derive thesis + reasoning from clean state. Pass every buyer whose stale reasoning depends on the disputed claim.',
     input_schema: {
@@ -1465,7 +1489,7 @@ const CONVO_TOOLS = [
   },
 ];
 
-export function Conversation({ buyers, pinnedRules, globalIntel, market, rationales, ebitda, onAddBuyerNote, onAppendGlobal, onSetStage, onOverrideProbability, onInvalidatePriors, onInvalidatePipelinePriors, onCorrectWebsite, onRescanAll }) {
+export function Conversation({ buyers, pinnedRules, globalIntel, market, rationales, ebitda, onAddBuyerNote, onAppendGlobal, onSetStage, onOverrideProbability, onInvalidatePriors, onInvalidatePipelinePriors, onCorrectWebsite, onLogBatchEvent, onRescanAll }) {
   const [messages, setMessages] = useState(() => {
     try {
       const saved = localStorage.getItem(CONVO_STORAGE_KEY);
@@ -1568,6 +1592,7 @@ When the user gives you intel, apply it via tools, do not just acknowledge it:
 - user corrects a buyer's website URL → correct_buyer_website (buyer_id + corrected URL + reason). Always actually call the tool, don't just say you'll update it.
 - user disputes a buyer-level AI-prior (thesis / last reasoning) → invalidate_buyer_priors (every affected buyer + the correction as reason)
 - user disputes a workspace-level AI-prior (close month, close-date / confidence / clearing-price / no-deal rationale) → invalidate_pipeline_priors (the correction as reason)
+- user states a structural milestone affecting MULTIPLE buyers in one message ("CIM delivered to A, B, C on date" / "chemistry confirmed for X and Y" / "NDAs signed by Z and W") → log_batch_event ONCE with all buyer_ids + the event_key. Do NOT call add_buyer_note N times. Event keys: nda_signed, cim_delivered, chemistry_scheduled, ioi_received, loi_received, declined. Only call when the user explicitly states the event; for soft intel ("X seems excited") still use add_buyer_note. Single-buyer milestones can also use this tool with a one-element buyer_ids array.
 
 After tools run, a full pipeline rescan automatically rescores every buyer with the new input. In your reply, briefly state what you did and one sharp implication. If the input is genuinely ambiguous (which buyer? which stage?), ask one clarifying question instead of guessing, but if the user is pushing back on an AI-prior line, invalidating is rarely ambiguous: clear the priors and let the rescan re-derive, even if the user hasn't given you the corrected fact yet.
 
@@ -1625,6 +1650,19 @@ ${buyerCtx || '(none)'}${droppedCtx}${rulesCtx}${intelCtx}`;
       onInvalidatePriors(valid, args.reason);
       const names = valid.map(id => cur.find(b => b.id === id)?.name || id).join(', ');
       return `ok: cleared stale thesis + AI reasoning on ${names}; logged correction as pipeline intel`;
+    }
+    if (name === 'log_batch_event') {
+      if (!onLogBatchEvent) return 'error: batch event handler not wired';
+      const ids = Array.isArray(args.buyer_ids) ? args.buyer_ids : [];
+      if (ids.length === 0) return 'error: buyer_ids array is empty';
+      const valid = ids.filter(id => cur.some(b => b.id === id));
+      if (valid.length === 0) return `error: no valid buyer ids, valid: ${cur.map(b => b.id).join(', ')}`;
+      if (!EVENT_SPECS[args.event_key]) return `error: unknown event_key "${args.event_key}", valid: ${Object.keys(EVENT_SPECS).join(', ')}`;
+      const skipped = ids.filter(id => !cur.some(b => b.id === id));
+      onLogBatchEvent(valid, args.event_key, args.reason);
+      const names = valid.map(id => cur.find(b => b.id === id)?.name || id).join(', ');
+      const skipMsg = skipped.length > 0 ? ` (skipped unknown ids: ${skipped.join(', ')})` : '';
+      return `ok: stamped ${args.event_key} on ${names}${skipMsg}`;
     }
     return `error: unknown tool "${name}"`;
   };
