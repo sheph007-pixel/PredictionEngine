@@ -622,7 +622,12 @@ app.post('/api/ai/rescan', async (req, res) => {
   const inputHash = hashRescanInput({
     buyers: normalizeBuyersForHash(buyers),
     ebitda, file_ids: file_ids || [], only_buyer_id: only_buyer_id || null,
-    prior_market: prior_market || null, global_intel: global_intel || [],
+    // prior_market intentionally excluded: it's AI-output from the previous
+    // rescan that feedback-loops back into the next request body, so the
+    // hash never converges. The AI still receives prior_market in the
+    // userText prompt (so STABILITY RULE for market bands works); only the
+    // cache key normalizes it away.
+    global_intel: global_intel || [],
     extra_intel: extra_intel || null, pinned_rules: pinned_rules || [],
   });
   if (!force && inputHash === lastRescanHash && Date.now() - lastRescanAt < RESCAN_CACHE_TTL_MS) {
