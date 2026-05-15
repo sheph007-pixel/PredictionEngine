@@ -581,6 +581,28 @@ function hashRescanInput(payload) {
   return crypto.createHash('sha256').update(stableStringify(payload)).digest('hex');
 }
 
+// Strip AI-output fields from buyers before hashing for memoization. Without
+// this, applyRescanToBuyers (src/lib/ai-engine.js) writes aiHistory, aiNotes,
+// lastAnalyzed, probability, fit, thesis, modelVote etc. back to every buyer
+// on every rescan — and those bytes then flow into the next request body,
+// breaking the cache hash so it never converges. By normalizing to only the
+// user-input + structural fields, two consecutive Update calls with identical
+// user state hash to the same value → cache hit → byte-identical response.
+// The AI call itself still receives the full buyer payload (so STABILITY RULE
+// can see prior reasoning); only the cache key uses the normalized view.
+const AI_OUTPUT_FIELDS = [
+  'probability', 'fit', 'thesis', 'multipleOverride',
+  'aiNotes', 'aiConfidence', 'aiCitations', 'aiCitedPrecedents',
+  'lastAnalyzed', 'aiHistory', 'modelVote',
+];
+function normalizeBuyersForHash(buyers) {
+  return (buyers || []).map(b => {
+    const norm = { ...b };
+    for (const f of AI_OUTPUT_FIELDS) delete norm[f];
+    return norm;
+  });
+}
+
 app.post('/api/ai/rescan', async (req, res) => {
   const { buyers, ebitda, file_ids, only_buyer_id, prior_market, global_intel, extra_intel, pinned_rules, force } = req.body;
   if (!Array.isArray(buyers) || buyers.length === 0) {
@@ -598,7 +620,8 @@ app.post('/api/ai/rescan', async (req, res) => {
   // without changing anything should NOT shift any number. `force: true`
   // bypasses the cache for the rare retry-after-bad-call case.
   const inputHash = hashRescanInput({
-    buyers, ebitda, file_ids: file_ids || [], only_buyer_id: only_buyer_id || null,
+    buyers: normalizeBuyersForHash(buyers),
+    ebitda, file_ids: file_ids || [], only_buyer_id: only_buyer_id || null,
     prior_market: prior_market || null, global_intel: global_intel || [],
     extra_intel: extra_intel || null, pinned_rules: pinned_rules || [],
   });
