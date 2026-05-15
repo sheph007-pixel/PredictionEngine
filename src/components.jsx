@@ -2501,7 +2501,11 @@ export function BrainModal({
                 {live.map(b => (
                   <tr key={b.id}>
                     <td><button type="button" className="brain-link" onClick={() => onOpenBuyer(b.id)}>{b.name}</button></td>
-                    <td>{b.stage}</td>
+                    <td>
+                      {b.stage}
+                      {b.stage === 'nda' && b.cim_delivered && <span className="brain-substage"> · CIM SENT</span>}
+                      {b.stage === 'chemistry' && b.ioi_received && <span className="brain-substage"> · IOI</span>}
+                    </td>
                     <td>{b.probability ?? '?'}%</td>
                     <td>{(b.noteLog || []).length}</td>
                     <td>{(b.overrides || []).length}</td>
