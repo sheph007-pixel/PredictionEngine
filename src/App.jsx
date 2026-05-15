@@ -559,6 +559,27 @@ export default function App() {
     }));
     return newNoteId;
   };
+  // Batch event stamping for the Conversation chat tool — fans a single event
+  // across N buyers in one call. Per-buyer mutation reuses logBuyerEvent;
+  // optional reason gets appended as a follow-up note for audit attribution;
+  // ONE consolidated rescan fires for the affected slice (not N rescans, so
+  // the memoization layer + AI both see the batch as a single state change).
+  const logBatchEvent = (buyerIds, eventKey, reason) => {
+    if (!Array.isArray(buyerIds) || buyerIds.length === 0) return;
+    const spec = EVENT_SPECS[eventKey];
+    if (!spec) return;
+    const applied = [];
+    for (const id of buyerIds) {
+      const nid = logBuyerEvent(id, eventKey);
+      if (nid) applied.push(id);
+    }
+    if (applied.length === 0) return;
+    if (reason && reason.trim()) {
+      for (const id of applied) appendBuyerNote(id, `Source: ${reason.trim()}`);
+    }
+    // Fire-and-forget — UI shows per-row "AI re-scoring…" while it runs.
+    rescanMany(applied).catch(() => {});
+  };
   const deleteBuyer = (id) => {
     if (!window.confirm('Permanently delete this buyer from the pipeline? This cannot be undone.')) return;
     setBuyers(bs => bs.filter(b => b.id !== id));
@@ -742,6 +763,7 @@ export default function App() {
           onInvalidatePriors={invalidateBuyerPriors}
           onInvalidatePipelinePriors={invalidatePipelinePriors}
           onCorrectWebsite={correctBuyerWebsite}
+          onLogBatchEvent={logBatchEvent}
           onRescanAll={rescanAll}
         />
         <div className="pipeline-head">
