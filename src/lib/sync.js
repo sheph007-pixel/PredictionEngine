@@ -40,6 +40,8 @@ export async function pushWorkspace(patch) {
   }
 }
 
+// Bulk replace. Only called on the initial-seed bootstrap path when the
+// server is empty. Everyday writes go through patchBuyer/deleteBuyer.
 export async function pushBuyers(buyers) {
   try {
     const res = await fetch('/api/buyers', {
@@ -51,6 +53,38 @@ export async function pushBuyers(buyers) {
     return res.ok;
   } catch (err) {
     console.warn('pushBuyers failed:', err.message);
+    return false;
+  }
+}
+
+// Upsert a single buyer. Server merges noteLog by union so stale clients
+// can't drop notes they never saw.
+export async function patchBuyer(buyer) {
+  if (!buyer?.id) return false;
+  try {
+    const res = await fetch(`/api/buyers/${encodeURIComponent(buyer.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buyer),
+    });
+    if (res.status === 503) return false;
+    return res.ok;
+  } catch (err) {
+    console.warn('patchBuyer failed:', err.message);
+    return false;
+  }
+}
+
+export async function deleteBuyer(id) {
+  if (!id) return false;
+  try {
+    const res = await fetch(`/api/buyers/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (res.status === 503) return false;
+    return res.ok;
+  } catch (err) {
+    console.warn('deleteBuyer failed:', err.message);
     return false;
   }
 }
