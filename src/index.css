@@ -695,9 +695,6 @@ body { font-size: 14px; }
 .flag-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .flag { font-family: var(--mono); font-size: 11px; color: var(--neg); border: 1px solid var(--neg); padding: 4px 8px; border-radius: 2px; background: oklch(0.55 0.13 25 / 0.06); }
 
-/* footer */
-.footer { margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--rule); display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
-
 /* dark mode */
 body.dark { --bg: #14110d; --bg-card: #1c1814; --ink: #f4efe6; --ink-2: #c8c1b3; --ink-3: #807868; --rule: #2a251f; --rule-2: #3a342c; }
 body.dark .modal-card-prob { background: #0a0907; border-color: #0a0907; }
