@@ -103,6 +103,7 @@ async function runStartupMigrations() {
     { id: 'oakbridge_ceo_reagan_note_2026_05_18', fn: oakbridgeCeoNoteMigration },
     { id: 'purge_seed_opinion_2026_05_18', fn: purgeSeedOpinionMigration },
     { id: 'backfill_pe_facts_2026_05_18', fn: backfillPeFactsMigration },
+    { id: 'reset_cb_stage_2026_05_18', fn: resetCbStageMigration },
   ];
   for (const m of all) {
     try {
@@ -276,6 +277,35 @@ async function backfillPeFactsMigration() {
     summary.updated.push(id);
   }
   return summary;
+}
+
+// Cottingham & Butler is at outreach awaiting NDA, not at nda. The seed
+// shipped them with nda_signed: "2026-05-05" baked in from the original
+// Reagan list, and the chat AI's set_buyer_stage failed to actually fire
+// when the user pushed back. This migration corrects the stored stage +
+// clears the planted NDA date and logs the correction in noteLog so the
+// next rescan sees the reason for the move.
+async function resetCbStageMigration() {
+  const row = await pool.query(
+    `SELECT data FROM buyers WHERE workspace_id = $1 AND id = $2`,
+    [WORKSPACE_ID, 'cb']
+  );
+  if (row.rowCount === 0) return { skipped: 'cb_not_found' };
+  const b = { ...row.rows[0].data };
+  if (b.stage === 'outreach' && !b.nda_signed) return { skipped: 'already_outreach' };
+  b.stage = 'outreach';
+  b.nda_signed = null;
+  const log = Array.isArray(b.noteLog) ? [...b.noteLog] : [];
+  const text = 'C&B is at outreach, NDA not yet signed. Earlier nda_signed date was a planted seed value, not a real signed NDA.';
+  if (!log.some(e => e.text === text)) {
+    log.push({ id: crypto.randomUUID(), ts: new Date().toISOString(), text });
+  }
+  b.noteLog = log;
+  await pool.query(
+    `UPDATE buyers SET data = $1, updated_at = now() WHERE workspace_id = $2 AND id = $3`,
+    [b, WORKSPACE_ID, 'cb']
+  );
+  return { reset: 'cb', new_stage: 'outreach', nda_signed_cleared: true };
 }
 
 // Removes subjective seed-derived fields and seed-narrative noteLog entries
