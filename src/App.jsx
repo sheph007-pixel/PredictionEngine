@@ -194,6 +194,40 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Re-fetch workspace when the tab regains focus. Catches the case where a
+  // background server-side migration ran (or another browser made changes)
+  // while this tab was idle. Without this, a stale local state could persist
+  // until the user manually reloads and the next PATCH from this tab would
+  // try to write the stale state back (now protected by server-side stale
+  // detection, but a fresh fetch closes the loop on the UI too).
+  useEffect(() => {
+    const onVisible = async () => {
+      if (document.visibilityState !== 'visible' || !hydrated.current) return;
+      // Skip refetch if the user has unsynced local changes (would clobber
+      // them). lastSyncedBuyersRef tracks the last successfully-pushed state;
+      // if it equals the current buyers state by reference, nothing is in
+      // flight and a refetch is safe.
+      if (lastSyncedBuyersRef.current !== buyersRef.current) return;
+      const result = await fetchWorkspace();
+      if (!result.available) return;
+      if (Array.isArray(result.buyers) && result.buyers.length > 0) {
+        setBuyers(result.buyers);
+        lastSyncedBuyersRef.current = result.buyers;
+      }
+      if (result.workspace) {
+        const ws = result.workspace;
+        if (ws.process) setProcess(ws.process);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Write-through: every workspace-level change → debounced PUT to server.
   useEffect(() => {
     if (!hydrated.current) return;
