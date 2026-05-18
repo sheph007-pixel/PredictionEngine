@@ -7,7 +7,7 @@ import {
 } from './components.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
-import { fetchWorkspace, pushWorkspace, pushBuyers, patchBuyer, deleteBuyer, debouncedPush } from './lib/sync.js';
+import { fetchWorkspace, pushWorkspace, pushBuyers, patchBuyer, deleteBuyer, deleteNote, debouncedPush } from './lib/sync.js';
 import { migrateNoteLog, appendNote, removeNote, latestNoteId, EVENT_SPECS } from './lib/notes.js';
 
 const STATE_KEY = 'kennion.state.v1';
@@ -405,8 +405,12 @@ export default function App() {
 
   // Remove a single note entry by id. The AI's prior reasoning may have
   // anchored on this note, so the modal triggers a rescan after deletion.
+  // The buyers-sync useEffect would otherwise PATCH the buyer with the
+  // shorter noteLog, but the server PATCH union-merges noteLog and would
+  // preserve the deleted note. Explicit DELETE propagates the deletion.
   const removeBuyerNote = (id, noteId) => {
     setBuyers(bs => bs.map(b => b.id === id ? removeNote(migrateNoteLog(b), noteId) : b));
+    deleteNote(id, noteId).catch(() => {});
   };
 
   // Stamp a structured stage event on a buyer in one atomic state update:
