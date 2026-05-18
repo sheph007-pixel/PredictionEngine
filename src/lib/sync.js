@@ -89,6 +89,23 @@ export async function deleteBuyer(id) {
   }
 }
 
+// Server-side note deletion. The PATCH endpoint union-merges noteLog so it
+// can't be used to drop notes — this route is the explicit deletion path.
+export async function deleteNote(buyerId, noteId) {
+  if (!buyerId || !noteId) return false;
+  try {
+    const res = await fetch(
+      `/api/buyers/${encodeURIComponent(buyerId)}/notes/${encodeURIComponent(noteId)}`,
+      { method: 'DELETE' }
+    );
+    if (res.status === 503) return false;
+    return res.ok;
+  } catch (err) {
+    console.warn('deleteNote failed:', err.message);
+    return false;
+  }
+}
+
 export async function fetchRescans(limit = 25) {
   try {
     const res = await fetch(`/api/rescans?limit=${limit}`);

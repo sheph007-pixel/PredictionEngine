@@ -101,6 +101,7 @@ async function runStartupMigrations() {
   const all = [
     { id: 'repair_state_2026_05_15', fn: repairStateMigration },
     { id: 'oakbridge_ceo_reagan_note_2026_05_18', fn: oakbridgeCeoNoteMigration },
+    { id: 'purge_seed_opinion_2026_05_18', fn: purgeSeedOpinionMigration },
   ];
   for (const m of all) {
     try {
@@ -247,6 +248,75 @@ async function oakbridgeCeoNoteMigration() {
   return { injected: NOTE_TEXT };
 }
 
+// Removes subjective seed-derived fields and seed-narrative noteLog entries
+// from every buyer in Postgres. Aligns the database with the new identity-only
+// data model where the AI only sees user-authored facts. Idempotent.
+//
+// Removed fields per buyer: type, ownership, sponsor, sources, flags. (Stage
+// and process dates are preserved — those are user-managed.)
+//
+// Removed noteLog entries: any entry whose text exactly matches one of the
+// 4/30/26 SEED_NOTES strings injected by the earlier repair migration.
+// User-typed notes and the Oakbridge CEO/Reagan note stay.
+async function purgeSeedOpinionMigration() {
+  // SEED_NOTES text values from repairStateMigration. Kept inline so this
+  // migration is self-contained — these are the strings to delete.
+  const SEED_NOTE_TEXTS = new Set([
+    'Top-tier consolidator. Reagan flagged as likely top-3 bidder. Aggressive integration playbook.',
+    'Diversified, less benefits-centric. Stone Point recently recapitalized. Could surprise on price; strategic fit weaker.',
+    'Hunter add. CAC = Cobbs Allen, Birmingham roots. Bobby flagged BWIN stock pressure may limit M&A appetite this cycle.',
+    'Private, no PE. Captive specialist — direct strategic fit. Slower decision cycle but high conviction when they move.',
+    'Atlanta-based, pure benefits. Best targeted distribution match. New Mountain co-sponsor. Expect aggressive process engagement.',
+    'Hunter add. Acquired Valent in Birmingham 10/1/25. 10 deals in 2025 — most active acquirer on the list.',
+    'Hunter add. Mostly P&C. Declined twice informally — retry through formal Reagan process.',
+    '$2.5B premium placed. Wholesale orientation — Reagan thesis to confirm whether benefits acquisition fits.',
+    'Family-owned, no PE. Mid-Atlantic. Cultural-fit play. Smaller — would be a stretch financially.',
+    'Captive distributor through retail brokers. Direct product overlap — but capital base smaller than top tier.',
+    'PE-backed Southeast regional. Limited national distribution. Local proximity to Atlanta.',
+  ]);
+  const STRIP_FIELDS = ['type', 'ownership', 'sponsor', 'sources', 'flags'];
+  const summary = { buyers_cleaned: 0, fields_removed: 0, notes_removed: 0 };
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    const rows = await c.query(`SELECT id, data FROM buyers WHERE workspace_id = $1`, [WORKSPACE_ID]);
+    for (const row of rows.rows) {
+      const b = { ...row.data };
+      let touched = false;
+      for (const k of STRIP_FIELDS) {
+        if (k in b) {
+          delete b[k];
+          summary.fields_removed++;
+          touched = true;
+        }
+      }
+      if (Array.isArray(b.noteLog)) {
+        const before = b.noteLog.length;
+        b.noteLog = b.noteLog.filter(e => !SEED_NOTE_TEXTS.has(e?.text));
+        const removed = before - b.noteLog.length;
+        if (removed > 0) {
+          summary.notes_removed += removed;
+          touched = true;
+        }
+      }
+      if (touched) {
+        await c.query(
+          `UPDATE buyers SET data = $1, updated_at = now() WHERE workspace_id = $2 AND id = $3`,
+          [b, WORKSPACE_ID, row.id]
+        );
+        summary.buyers_cleaned++;
+      }
+    }
+    await c.query('COMMIT');
+    return summary;
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    c.release();
+  }
+}
+
 
 // Fire-and-forget audit log writer, does not block the rescan response.
 function logRescan({ scope, only_buyer_id, input, output, live_intel, duration_ms, error }) {
@@ -323,11 +393,11 @@ Each buyer's \`notes_timeline\` field is a chronological log of field intel, one
 - confidence ("low" | "medium" | "high"): how grounded this prediction is in hard evidence. "high" = LOI/term-sheet/written-offer or multiple corroborating signals from CIM/notes/live intel; "medium" = consistent pattern across notes + comps but no firm number; "low" = mostly inference from buyer profile + sponsor pattern with thin evidence.
 - multiple_override: null OR { low, mid, high, source: "LOI"|"term-sheet"|"verbal-offer", evidence: "doc filename or note quote" }. Set ONLY when hard-evidence number exists. Most buyers should have null here.
 
-# PE-backed buyers (ownership === "PE-backed")
-The active-PE acquirer set has been curated by the user. Only buyers with \`ownership === "PE-backed"\` (currently OneDigital, Alliant, Oakbridge, IMA) have active PE sponsors with platform-acquisition mandates and deployable capital — treat the PE flag as a credibility lift for "bid capacity" and "deployment cadence". They're more likely than private / family / captive / public peers of similar size to actually write the check at market clears. Conversely, buyers without \`ownership === "PE-backed"\` (private, family-owned, captive, public, regional, wholesale, etc.) should be modeled on their own capital base — do not impute PE-cycle urgency. If a buyer's note history contradicts their ownership label (e.g., a "PE-backed" buyer cooling for capital reasons), the note evidence wins.
+# Buyer profile facts (READ FIRST)
+You see only identity facts on each buyer (name, HQ, revenue, headcount, offices, BI Top 100 rank) plus stage / process dates and the user's noteLog. You do NOT see ownership labels, sponsor names, or buyer-type categories. If the user wants those signals to shape your reasoning, they will write them as noteLog entries. Do not infer PE-backed status, sponsor identity, or strategic-fit categorization from training-data priors on individual firms; if the user hasn't put it in the noteLog or library, treat it as unknown and ground your reasoning in the facts that are present.
 
 # Broker scale ranking (\`top100_rank\`, Business Insurance "100 Largest Brokers of U.S. Business," July/August 2025 edition)
-\`buyer.top100_rank\` is the firm's 2025 ranking in Business Insurance's annual "100 Largest Brokers of U.S. Business" list — a broker-of-business revenue ranking (broader than just P/C, which is exactly the right scope for a benefits-program sale and the recommended source for Reagan acquisition benchmarking). Anchors among our live set: Alliant #5, OneDigital #17, IMA #20, Cottingham & Butler #29, Oakbridge #50. Treat top100_rank as a secondary credibility signal alongside ownership and revenue: a buyer ranked top-25 with PE-backed ownership is the most likely to clear at market multiples; a buyer ranked #30-60 may show interest but execution capacity is the open question; a buyer outside the Top 100 (\`null\`) is materially smaller-scale, which for our size bucket means meaningful execution risk on a stretch deal — not a disqualifier but a real drag on bid-capacity confidence. \`undefined\`/missing means the field wasn't populated yet — do not assume.
+\`buyer.top100_rank\` is the firm's 2025 ranking in Business Insurance's annual "100 Largest Brokers of U.S. Business" list — a broker-of-business revenue ranking (broader than just P/C, which is exactly the right scope for a benefits-program sale and the recommended source for Reagan acquisition benchmarking). Anchors among our live set: Alliant #5, OneDigital #17, IMA #20, Cottingham & Butler #29, Oakbridge #50. Treat top100_rank as a secondary credibility signal alongside revenue: a top-25 ranked buyer is more likely to clear at market multiples; a buyer ranked #30-60 may show interest but execution capacity is the open question; a buyer outside the Top 100 (\`null\`) is materially smaller-scale, which for our size bucket means meaningful execution risk on a stretch deal — not a disqualifier but a real drag on bid-capacity confidence. \`undefined\`/missing means the field wasn't populated yet — do not assume.
 
 # Stage discipline (probability anchors, these are the FINAL displayed ranges, not a base to be lifted)
 - outreach: prob 8–22%
@@ -799,16 +869,20 @@ app.post('/api/ai/rescan', async (req, res) => {
   // detail including notes + history. For the rest of the pipeline, send a
   // compact summary so the AI has enough context for pipeline rationales
   // without blowing token budget.
+  // Identity-only buyer serialization. Subjective fields (type, ownership,
+  // sponsor, flags) are intentionally NOT sent to the AI — those are user
+  // judgments that belong in the noteLog if the user authored them, and
+  // shouldn't be silently inferred from an old seed file.
   const fullDetail = (b) => ({
     id: b.id, name: b.name, hq: b.hq, revenue: b.revenue, headcount: b.headcount,
-    offices: b.offices, ownership: b.ownership, sponsor: b.sponsor, type: b.type,
+    offices: b.offices,
     top100_rank: b.top100_rank ?? null,
     stage: b.stage, nda_signed: b.nda_signed || null, cim_delivered: b.cim_delivered || null, chemistry_date: b.chemistry_date || null, ioi_received: b.ioi_received || null,
     // Chronological field-intel log. Each line: "[YYYY-MM-DD] text". Recent
     // entries should weigh more than old ones. Falls back to legacy single-
     // string `notes` for buyers not yet migrated.
     notes_timeline: formatNoteTimeline(b),
-    flags: b.flags || [], fit: b.fit,
+    fit: b.fit,
     probability: b.probability, thesis: b.thesis,
     multipleOverride: b.multipleOverride || null,
     aiNotes: b.aiNotes || null,
@@ -825,7 +899,7 @@ app.post('/api/ai/rescan', async (req, res) => {
     overrides: (b.overrides || []).slice(-5),
   });
   const compactSummary = (b) => ({
-    id: b.id, name: b.name, stage: b.stage, ownership: b.ownership, sponsor: b.sponsor,
+    id: b.id, name: b.name, stage: b.stage,
     probability: b.probability, thesis: b.thesis,
     multipleOverride: b.multipleOverride || null,
   });
@@ -842,7 +916,7 @@ app.post('/api/ai/rescan', async (req, res) => {
     .filter(b => !only_buyer_id || b.id === only_buyer_id)
     .map(b => ({
       id: b.id, name: b.name, hq: b.hq, revenue: b.revenue, headcount: b.headcount,
-      offices: b.offices, ownership: b.ownership, sponsor: b.sponsor, type: b.type,
+      offices: b.offices,
       top100_rank: b.top100_rank ?? null,
       stage: b.stage,
       nda_signed: b.nda_signed || null,
@@ -850,7 +924,6 @@ app.post('/api/ai/rescan', async (req, res) => {
       chemistry_date: b.chemistry_date || null,
       ioi_received: b.ioi_received || null,
       notes_timeline: formatNoteTimeline(b),
-      flags: b.flags || [],
       fit: b.fit,
       multipleOverride: b.multipleOverride || null,
       overrides: (b.overrides || []).slice(-5),
@@ -1605,6 +1678,45 @@ app.delete('/api/buyers/:id', async (req, res) => {
   } catch (err) {
     console.error('DELETE /api/buyers/:id error:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Explicit per-note deletion. The PATCH endpoint union-merges noteLog (so
+// stale browsers can't drop notes they never saw), which means a deletion
+// from the UI doesn't propagate via PATCH. This route does propagate it:
+// the note id is removed from the buyer's stored noteLog.
+app.delete('/api/buyers/:id/notes/:noteId', async (req, res) => {
+  if (!ensureDb(res)) return;
+  const { id, noteId } = req.params;
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    const existing = await c.query(
+      `SELECT data FROM buyers WHERE workspace_id = $1 AND id = $2 FOR UPDATE`,
+      [WORKSPACE_ID, id]
+    );
+    if (existing.rowCount === 0) {
+      await c.query('COMMIT');
+      return res.json({ ok: true, removed: 0 });
+    }
+    const b = { ...existing.rows[0].data };
+    const before = Array.isArray(b.noteLog) ? b.noteLog.length : 0;
+    b.noteLog = (Array.isArray(b.noteLog) ? b.noteLog : []).filter(e => e?.id !== noteId);
+    const removed = before - b.noteLog.length;
+    if (removed > 0) {
+      await c.query(
+        `UPDATE buyers SET data = $1, updated_at = now() WHERE workspace_id = $2 AND id = $3`,
+        [b, WORKSPACE_ID, id]
+      );
+    }
+    await c.query('COMMIT');
+    res.json({ ok: true, removed });
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => {});
+    console.error('DELETE /api/buyers/:id/notes/:noteId error:', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    c.release();
   }
 });
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { STAGES, STAGE_INDEX, PROCESS_TASKS, PHASES, PHASE_DESCRIPTIONS } from './data.js';
-import { claudeComplete, claudeChat } from './utils/ai.js';
+import { claudeChat } from './utils/ai.js';
 import { PUBLIC_COMP_BY_TICKER, PUBLIC_COMP_BANDS } from './data/precedents.js';
 import { relativeTime, EVENT_SPECS, NOTE_SIGNALS } from './lib/notes.js';
 
@@ -201,8 +201,6 @@ function heuristicReasonsFor(buyer) {
   if (buyer.fit.precedent >= 4) reasons.push({ kind: "+", text: "Active 2025-26 M&A precedent" });
   if (buyer.fit.benefits <= 2) reasons.push({ kind: "−", text: "Limited benefits focus" });
   if (buyer.fit.size <= 2) reasons.push({ kind: "−", text: "Capacity constraint at our scale" });
-  if (buyer.flags?.includes("Declined 2x informally")) reasons.push({ kind: "−", text: "Two prior informal passes" });
-  if (buyer.flags?.includes("Stock pressure")) reasons.push({ kind: "−", text: "Public-equity headwinds" });
   if (buyer.stage === "chemistry") reasons.push({ kind: "+", text: "Chemistry meeting on calendar" });
   if (buyer.stage === "loi") reasons.push({ kind: "+", text: "LOI received" });
   return reasons.slice(0, 4);
@@ -798,60 +796,40 @@ export function PipelineStats({ buyers, ebitda, caseMode, market, process }) {
 }
 
 // ---------- add buyer form ----------
-export function AddBuyerForm({ onAdd, onCancel, existingBuyers }) {
+// Identity-only flow. User enters verifiable public-record facts (name +
+// optional HQ, revenue, website, headcount, offices). No subjective fields
+// (type, ownership label, sponsor) are collected or AI-generated — those
+// belong in the noteLog if the user wants them part of the AI's reasoning.
+// New buyer lands at stage "outreach" with empty noteLog.
+export function AddBuyerForm({ onAdd, onCancel }) {
   const [name, setName] = useState("");
+  const [website, setWebsite] = useState("");
   const [hq, setHq] = useState("");
   const [revenue, setRevenue] = useState("");
-  const [ownership, setOwnership] = useState("PE-backed");
-  const [pending, setPending] = useState(false);
+  const [headcount, setHeadcount] = useState("");
+  const [offices, setOffices] = useState("");
   const [error, setError] = useState(null);
 
-  const submit = async () => {
-    if (!name.trim() || pending) return;
-    setPending(true);
-    setError(null);
-
-    const sys = `You are an M&A analyst building a buyer profile for the Kennion Benefits Program sale (advised by Reagan Consulting). The user is adding a new prospective acquirer to the pipeline. Pricing comes from the global industry band, DO NOT generate a per-buyer multiple. Return ONLY a JSON object, no markdown, no commentary, with this exact shape:
-{
-  "headcount": "string e.g. 5,000-7,000",
-  "offices": "string e.g. 200+ or -",
-  "sponsor": "string PE sponsor name OR, if not PE-backed",
-  "type": "string e.g. National consolidator | Regional broker | Specialty",
-  "thesis": "1-2 sentence fit thesis specific to a benefits-program acquisition",
-  "fit": { "size": 1-5, "benefits": 1-5, "pe": 0 or 1, "precedent": 1-5 }
-}
-Be realistic. Match the format of existing peers in the pipeline.`;
-
-    const prompt = `${sys}\n\nNew buyer:\nName: ${name}\nHQ: ${hq || "unknown"}\nRevenue: ${revenue || "unknown"}\nOwnership: ${ownership}\n\nReturn JSON only.`;
-
+  const submit = () => {
+    if (!name.trim()) return;
     try {
-      let reply = await claudeComplete(prompt);
-      reply = reply.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-      const data = JSON.parse(reply);
       const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) + "-" + Math.random().toString(36).slice(2, 5);
       onAdd({
         id,
-        rank: 99,
         name: name.trim(),
+        website: website.trim() || undefined,
         hq: hq.trim() || "-",
         revenue: revenue.trim() || "-",
-        headcount: data.headcount || "-",
-        offices: data.offices || "-",
-        ownership,
-        sponsor: data.sponsor || "-",
-        type: data.type || "Buyer",
+        headcount: headcount.trim() || "-",
+        offices: offices.trim() || "-",
         stage: "outreach",
-        notes: "",
-        flags: [],
-        fit: data.fit || { size: 3, benefits: 3, pe: 3, precedent: 3 },
-        multipleOverride: null,
-        thesis: data.thesis || "Profile under construction.",
-        probability: 12,
-        aiGenerated: true,
+        fit: { size: 0, benefits: 0, pe: 0, precedent: 0 },
+        thesis: "",
+        probability: 0,
+        noteLog: [],
       });
     } catch (e) {
-      setError("AI couldn't build the profile. Try again.");
-      setPending(false);
+      setError("Could not add buyer. Try again.");
     }
   };
 
@@ -861,40 +839,41 @@ Be realistic. Match the format of existing peers in the pipeline.`;
         <button className="modal-close" onClick={onCancel}>×</button>
         <div className="modal-eyebrow">Add to pipeline</div>
         <div className="modal-title" style={{ fontSize: 32, marginBottom: 6 }}>New buyer group</div>
-        <div className="modal-sub" style={{ marginBottom: 20 }}>AI builds the full profile, fit thesis, scores, multiple range, so the new entry matches every other row.</div>
+        <div className="modal-sub" style={{ marginBottom: 20 }}>Add identity facts only. Use the noteLog (or chat) to capture process intel, sponsor, type, or thesis.</div>
 
         <div className="add-form">
           <div className="add-field">
             <label>Buyer name *</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. AssuredPartners" autoFocus disabled={pending} />
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. AssuredPartners" autoFocus />
+          </div>
+          <div className="add-field">
+            <label>Website</label>
+            <input type="text" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://..." />
           </div>
           <div className="add-row">
             <div className="add-field">
               <label>Headquarters</label>
-              <input type="text" value={hq} onChange={(e) => setHq(e.target.value)} placeholder="e.g. Lake Mary, FL" disabled={pending} />
+              <input type="text" value={hq} onChange={(e) => setHq(e.target.value)} placeholder="e.g. Lake Mary, FL" />
             </div>
             <div className="add-field">
               <label>Revenue (approx.)</label>
-              <input type="text" value={revenue} onChange={(e) => setRevenue(e.target.value)} placeholder="e.g. $2.5B" disabled={pending} />
+              <input type="text" value={revenue} onChange={(e) => setRevenue(e.target.value)} placeholder="e.g. $2.5B" />
             </div>
           </div>
-          <div className="add-field">
-            <label>Ownership</label>
-            <div className="add-radio-group">
-              {["PE-backed", "Private", "Public", "Mutual"].map(o => (
-                <label key={o} className={"add-radio" + (ownership === o ? " on" : "")}>
-                  <input type="radio" name="ownership" value={o} checked={ownership === o} onChange={() => setOwnership(o)} disabled={pending} />
-                  <span>{o}</span>
-                </label>
-              ))}
+          <div className="add-row">
+            <div className="add-field">
+              <label>Headcount</label>
+              <input type="text" value={headcount} onChange={(e) => setHeadcount(e.target.value)} placeholder="e.g. 5,000+" />
+            </div>
+            <div className="add-field">
+              <label>Offices</label>
+              <input type="text" value={offices} onChange={(e) => setOffices(e.target.value)} placeholder="e.g. 100+" />
             </div>
           </div>
           {error && <div className="add-error">{error}</div>}
           <div className="add-actions">
-            <button className="btn-ghost" onClick={onCancel} disabled={pending}>Cancel</button>
-            <button className="btn" onClick={submit} disabled={pending || !name.trim()}>
-              {pending ? "AI building profile…" : "Add & analyze"}
-            </button>
+            <button className="btn-ghost" onClick={onCancel}>Cancel</button>
+            <button className="btn" onClick={submit} disabled={!name.trim()}>Add</button>
           </div>
         </div>
       </div>
@@ -976,9 +955,6 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
           )}
           {buyer.top100_rank === null && (
             <span className="top100-badge top100-badge-nr" title="Not in Business Insurance's 100 Largest Brokers of U.S. Business (July/August 2025)">NR</span>
-          )}
-          {buyer.ownership === 'PE-backed' && (
-            <span className="pe-badge" title={`PE-backed${buyer.sponsor && buyer.sponsor !== '—' ? ` · ${buyer.sponsor}` : ''}`}>PE</span>
           )}
           {rescanning && <span className="row-rescanning-tag" style={{ marginLeft: 10 }}>AI re-scoring…</span>}
         </div>
@@ -1243,15 +1219,12 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
         <div className="modal-head modal-head-compact">
           <div>
             <div className="modal-eyebrow">
-              Buyer · {buyer.type}
+              Buyer
               {typeof buyer.top100_rank === 'number' && (
                 <span className="top100-badge top100-badge-modal" title={`Business Insurance · 100 Largest Brokers of U.S. Business (July/August 2025) · rank #${buyer.top100_rank}`}>#{buyer.top100_rank}</span>
               )}
               {buyer.top100_rank === null && (
                 <span className="top100-badge top100-badge-modal top100-badge-nr" title="Not in Business Insurance's 100 Largest Brokers of U.S. Business (July/August 2025)">NR</span>
-              )}
-              {buyer.ownership === 'PE-backed' && (
-                <span className="pe-badge pe-badge-modal" title={`PE-backed${buyer.sponsor && buyer.sponsor !== '—' ? ` · ${buyer.sponsor}` : ''}`}>PE</span>
               )}
             </div>
             <div className="modal-title">
@@ -1540,7 +1513,7 @@ export function Conversation({ buyers, pinnedRules, globalIntel, market, rationa
       const reasoning = b.aiNotes ? `\n  AI-prior · last reasoning: ${b.aiNotes}` : '';
       const thesis = b.thesis ? `\n  AI-prior · thesis: ${b.thesis}` : '';
       const site = b.website ? `\n  website: ${b.website}` : '';
-      return `- id="${b.id}" · ${b.name} · ${b.type || ''} · ${b.ownership || ''}${b.sponsor && b.sponsor !== '-' ? '/' + b.sponsor : ''} · stage=${b.stage} · p=${b.probability ?? '?'}%${site}${thesis}${reasoning}${recentNotes ? `\n  Recent notes:\n${recentNotes}` : ''}${overrides ? `\n  Recent overrides:\n${overrides}` : ''}`;
+      return `- id="${b.id}" · ${b.name} · stage=${b.stage} · p=${b.probability ?? '?'}%${site}${thesis}${reasoning}${recentNotes ? `\n  Recent notes:\n${recentNotes}` : ''}${overrides ? `\n  Recent overrides:\n${overrides}` : ''}`;
     }).join('\n');
 
     const dropped = (buyersRef.current || []).filter(b => b.stage === 'dropped');
@@ -1926,7 +1899,7 @@ export function AIChat({ buyers, setBuyers, fileIds, open, onToggle, alwaysOpen 
 
   const buildSystem = () => {
     const ranked = [...buyersRef.current].sort((a, b) => probabilityFor(b) - probabilityFor(a));
-    const ctx = ranked.map(b => `- id="${b.id}" · ${b.name} (${b.hq}, ${b.revenue}, ${b.ownership}${b.sponsor !== "-" ? "/" + b.sponsor : ""}, stage=${b.stage}, p=${probabilityFor(b)}%), ${b.thesis}`).join("\n");
+    const ctx = ranked.map(b => `- id="${b.id}" · ${b.name} (${b.hq}, ${b.revenue}, stage=${b.stage}, p=${probabilityFor(b)}%), ${b.thesis}`).join("\n");
     const docNote = fileIds && fileIds.length > 0
       ? `\n\nThe user has uploaded ${fileIds.length} document${fileIds.length === 1 ? '' : 's'} to the library (CIM, LOIs, buyer emails, analysis, etc.) which are attached to this conversation. Reference them when relevant, quote specifics, cite which doc.`
       : '';
