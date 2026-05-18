@@ -48,18 +48,23 @@ export const PROCESS_DEFAULT = {
   currentTaskDate: "2026-05-14",
 };
 
+// pe_backed + sponsor are seeded only for firms whose PE ownership is a
+// matter of public record (press releases, Pitchbook, sponsor portfolio
+// pages). Treated as identity facts on the same shelf as top100_rank.
+// Firms without these fields are not asserting "not PE-backed" — the AI
+// just doesn't see a PE signal for them.
 const _IDENTITY = [
   { id: "hub",        name: "Hub International",   website: "https://www.hubinternational.com",   hq: "Chicago, IL",       revenue: "$4.8B",        headcount: "20,000",     offices: "570+" },
-  { id: "alliant",    name: "Alliant",             website: "https://www.alliant.com",            hq: "Irvine, CA",        revenue: "$4.2B",        headcount: "14,000+",    offices: "100+",       top100_rank: 5  },
+  { id: "alliant",    name: "Alliant",             website: "https://www.alliant.com",            hq: "Irvine, CA",        revenue: "$4.2B",        headcount: "14,000+",    offices: "100+",       top100_rank: 5,  pe_backed: true, sponsor: "Stone Point" },
   { id: "baldwin",    name: "Baldwin Group / CAC", website: "https://www.baldwin.com",            hq: "Tampa, FL",         revenue: "$1.5B",        headcount: "5,020",      offices: "Public (BWIN)" },
   { id: "cb",         name: "Cottingham & Butler", website: "https://www.cottinghambutler.com",   hq: "Dubuque, IA",       revenue: "$1.2B",        headcount: "1,300+",     offices: "35",         top100_rank: 29 },
-  { id: "onedigital", name: "OneDigital",          website: "https://www.onedigital.com",         hq: "Atlanta, GA",       revenue: "$870M",        headcount: "3,200-3,500",offices: "125",        top100_rank: 17 },
-  { id: "ima",        name: "IMA Financial Group", website: "https://www.imacorp.com",            hq: "Denver, CO",        revenue: "~$750M",       headcount: "3,000",      offices: "Multiple",   top100_rank: 20 },
+  { id: "onedigital", name: "OneDigital",          website: "https://www.onedigital.com",         hq: "Atlanta, GA",       revenue: "$870M",        headcount: "3,200-3,500",offices: "125",        top100_rank: 17, pe_backed: true, sponsor: "Onex / New Mountain" },
+  { id: "ima",        name: "IMA Financial Group", website: "https://www.imacorp.com",            hq: "Denver, CO",        revenue: "~$750M",       headcount: "3,000",      offices: "Multiple",   top100_rank: 20, pe_backed: true, sponsor: "New Mountain" },
   { id: "higgi",      name: "Higginbotham",        website: "https://www.higginbotham.com",       hq: "Fort Worth, TX",    revenue: "$750M",        headcount: "3,000-4,000",offices: "140+" },
   { id: "br",         name: "Brown & Riding",      website: "https://www.brownandriding.com",     hq: "Sherman Oaks, CA",  revenue: "~$300M",       headcount: "400+",       offices: "National" },
   { id: "kelly",      name: "Kelly Benefits",      website: "https://www.kellybenefits.com",      hq: "Sparks, MD",        revenue: "$250M",        headcount: "280",        offices: "4" },
   { id: "cason",      name: "The Cason Group",     website: "https://www.thecasongroup.com/",     hq: "Columbia, SC",      revenue: "$168M",        headcount: "~233",       offices: "10" },
-  { id: "oakbridge",  name: "Oakbridge",           website: "https://oakbridgeinsurance.com/",    hq: "Atlanta, GA",       revenue: "~$100-150M",   headcount: "313",        offices: "30",         top100_rank: 50 },
+  { id: "oakbridge",  name: "Oakbridge",           website: "https://oakbridgeinsurance.com/",    hq: "Atlanta, GA",       revenue: "~$100-150M",   headcount: "313",        offices: "30",         top100_rank: 50, pe_backed: true },
 ];
 
 export const BUYERS = _IDENTITY.map(b => ({
