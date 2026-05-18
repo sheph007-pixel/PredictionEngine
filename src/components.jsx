@@ -1567,6 +1567,7 @@ When the user gives you intel, apply it via tools, do not just acknowledge it:
 - buyer-specific facts → add_buyer_note
 - general market / process / sector intel → append_global_intel
 - explicit stage change requested → set_buyer_stage (always include reason)
+- user pushes back on a stage field ("X hasn't signed NDA yet", "Y is not at chemistry", "Z is still at outreach", "we are waiting on NDA from W"): this IS a stage correction. Call set_buyer_stage to the correct stage with the user's correction as reason. Do not "make a note" instead, do not just acknowledge in prose. The wrong stage stays on the dashboard until the tool fires.
 - explicit probability override requested → override_probability (always include reason)
 - user corrects a buyer's website URL → correct_buyer_website (buyer_id + corrected URL + reason). Always actually call the tool, don't just say you'll update it.
 - user disputes a buyer-level AI-prior (thesis / last reasoning) → invalidate_buyer_priors (every affected buyer + the correction as reason)
