@@ -812,12 +812,6 @@ export default function App() {
         </div>
       </div>
 
-      <div className="footer">
-        <div>Kennion Holdings · Benefits Program Sale</div>
-        <div>Reagan Consulting · Spring 2026 process</div>
-        <div>Engine v0.5 · learns as we go</div>
-      </div>
-
       {open && (
         <BuyerModal
           buyer={open}
