@@ -104,6 +104,7 @@ async function runStartupMigrations() {
     { id: 'purge_seed_opinion_2026_05_18', fn: purgeSeedOpinionMigration },
     { id: 'backfill_pe_facts_2026_05_18', fn: backfillPeFactsMigration },
     { id: 'reset_cb_stage_2026_05_18', fn: resetCbStageMigration },
+    { id: 'reset_cb_stage_2026_05_18_v2', fn: resetCbStageMigration },
   ];
   for (const m of all) {
     try {
@@ -1685,12 +1686,21 @@ app.put('/api/buyers', async (req, res) => {
   }
 });
 
-// Upsert a single buyer. Replaces the buyer's stored JSON with the incoming
-// JSON, EXCEPT for noteLog, which is union-merged by entry id so a stale
-// browser that doesn't know about a recently-added note (e.g. chat-derived
-// intel) can't accidentally drop it on the next write. New notes appear at
-// the position the client specified; any older noteLog entry whose id is not
-// in the incoming log is preserved at the tail.
+// Upsert a single buyer with two layers of stale-client protection:
+//
+// 1. noteLog is union-merged by entry id, so a stale browser can't drop a
+//    recently-added note (e.g. chat-derived intel) on the next write.
+// 2. PROCESS_FIELDS (stage, nda_signed, cim_delivered, chemistry_date,
+//    ioi_received) are PRESERVED FROM THE SERVER COPY when the incoming
+//    payload's `updated_at` is older than the server's current updated_at.
+//    This is what prevents the failure mode that bit C&B: a startup
+//    migration bumps the server stage, but the user's already-loaded
+//    browser still holds the pre-migration stage in local state; when the
+//    next rescan triggers a PATCH, the stale stage no longer overwrites
+//    the migration's correction.
+//
+// The server's authoritative copy of the buyer is returned in the response
+// so the client can sync its local state without a full workspace refetch.
 app.patch('/api/buyers/:id', async (req, res) => {
   if (!ensureDb(res)) return;
   const { id } = req.params;
@@ -1698,31 +1708,46 @@ app.patch('/api/buyers/:id', async (req, res) => {
   if (!incoming || typeof incoming !== 'object' || incoming.id !== id) {
     return res.status(400).json({ error: 'buyer payload missing or id mismatch' });
   }
+  const PROCESS_FIELDS = ['stage', 'nda_signed', 'cim_delivered', 'chemistry_date', 'ioi_received'];
   const c = await pool.connect();
   try {
     await c.query('BEGIN');
     const existing = await c.query(
-      `SELECT data FROM buyers WHERE workspace_id = $1 AND id = $2 FOR UPDATE`,
+      `SELECT data, updated_at FROM buyers WHERE workspace_id = $1 AND id = $2 FOR UPDATE`,
       [WORKSPACE_ID, id]
     );
     let merged = incoming;
+    let staleClient = false;
     if (existing.rowCount > 0) {
       const old = existing.rows[0].data || {};
+      const serverUpdatedAt = existing.rows[0].updated_at ? new Date(existing.rows[0].updated_at) : null;
+      const clientUpdatedAt = incoming.updated_at ? new Date(incoming.updated_at) : null;
+      staleClient = !!(serverUpdatedAt && clientUpdatedAt && serverUpdatedAt > clientUpdatedAt);
+
       const oldLog = Array.isArray(old.noteLog) ? old.noteLog : [];
       const newLog = Array.isArray(incoming.noteLog) ? incoming.noteLog : [];
       const incomingIds = new Set(newLog.map(n => n?.id).filter(Boolean));
       const retained = oldLog.filter(n => n?.id && !incomingIds.has(n.id));
       merged = { ...incoming, noteLog: [...newLog, ...retained] };
+
+      if (staleClient) {
+        for (const k of PROCESS_FIELDS) {
+          if (k in old) merged[k] = old[k];
+          else delete merged[k];
+        }
+      }
     }
-    await c.query(
+    const writeRes = await c.query(
       `INSERT INTO buyers (workspace_id, id, data, updated_at)
        VALUES ($1, $2, $3, now())
        ON CONFLICT (workspace_id, id) DO UPDATE SET
-         data = EXCLUDED.data, updated_at = now()`,
+         data = EXCLUDED.data, updated_at = now()
+       RETURNING data, updated_at`,
       [WORKSPACE_ID, id, merged]
     );
     await c.query('COMMIT');
-    res.json({ ok: true });
+    const row = writeRes.rows[0];
+    res.json({ ok: true, stale_client: staleClient, buyer: { ...row.data, updated_at: row.updated_at } });
   } catch (err) {
     await c.query('ROLLBACK').catch(() => {});
     console.error('PATCH /api/buyers/:id error:', err.message);
