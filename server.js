@@ -79,10 +79,145 @@ async function initDb() {
       ALTER TABLE workspace ADD COLUMN IF NOT EXISTS global_intel JSONB NOT NULL DEFAULT '[]';
       ALTER TABLE workspace ADD COLUMN IF NOT EXISTS pinned_rules JSONB NOT NULL DEFAULT '[]';
       ALTER TABLE workspace ADD COLUMN IF NOT EXISTS lessons JSONB NOT NULL DEFAULT '[]';
+      CREATE TABLE IF NOT EXISTS applied_migrations (
+        id TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        summary JSONB
+      );
     `);
     console.log('DB schema ready');
+    await runStartupMigrations();
   } catch (err) {
     console.error('DB init failed, continuing without persistence:', err.message);
+  }
+}
+
+// Server-side data migrations that run once per database at startup. Gated by
+// the applied_migrations table so each migration is idempotent across Railway
+// redeploys. Used to apply data corrections that previously lived as
+// localStorage-gated client migrations (which only ran on browsers that opened
+// the app, leaving Postgres state inconsistent across devices).
+async function runStartupMigrations() {
+  const all = [
+    { id: 'repair_state_2026_05_15', fn: repairStateMigration },
+  ];
+  for (const m of all) {
+    try {
+      const seen = await pool.query(`SELECT 1 FROM applied_migrations WHERE id = $1`, [m.id]);
+      if (seen.rowCount > 0) continue;
+      const summary = await m.fn();
+      await pool.query(
+        `INSERT INTO applied_migrations (id, summary) VALUES ($1, $2)`,
+        [m.id, summary || {}]
+      );
+      console.log(`migration ${m.id} applied:`, JSON.stringify(summary));
+    } catch (err) {
+      console.error(`migration ${m.id} failed:`, err.message);
+    }
+  }
+}
+
+// Re-applies the cumulative client-side migrations (CIM backfill, PE curation,
+// seed-notes, Top 100 ranks) plus user-curated drops/deletions directly against
+// Postgres, restoring the 5/15/26 curated state. Idempotent.
+async function repairStateMigration() {
+  const DELETE_NAME_SUBSTRINGS = ['alera', 'relation'];
+  const DROP_IDS = ['hub', 'baldwin', 'br', 'higgi'];
+  const CIM_TARGETS = ['ima', 'onedigital', 'kelly', 'cason', 'oakbridge'];
+  const CIM_DATE = '2026-05-14';
+  const CIM_TS = '2026-05-14T00:00:00.000Z';
+  const NON_PE = {
+    hub:   { ownership: 'National consolidator', sponsor: '—' },
+    higgi: { ownership: 'Regional P&C',           sponsor: '—' },
+    cason: { ownership: 'Captive distributor',    sponsor: '—' },
+  };
+  const TOP100 = {
+    alliant: 5, onedigital: 17, ima: 20, cb: 29, oakbridge: 50,
+    kelly: null, cason: null,
+  };
+  const SEED_NOTES = {
+    hub: 'Top-tier consolidator. Reagan flagged as likely top-3 bidder. Aggressive integration playbook.',
+    alliant: 'Diversified, less benefits-centric. Stone Point recently recapitalized. Could surprise on price; strategic fit weaker.',
+    baldwin: 'Hunter add. CAC = Cobbs Allen, Birmingham roots. Bobby flagged BWIN stock pressure may limit M&A appetite this cycle.',
+    cb: 'Private, no PE. Captive specialist — direct strategic fit. Slower decision cycle but high conviction when they move.',
+    onedigital: 'Atlanta-based, pure benefits. Best targeted distribution match. New Mountain co-sponsor. Expect aggressive process engagement.',
+    ima: 'Hunter add. Acquired Valent in Birmingham 10/1/25. 10 deals in 2025 — most active acquirer on the list.',
+    higgi: 'Hunter add. Mostly P&C. Declined twice informally — retry through formal Reagan process.',
+    br: '$2.5B premium placed. Wholesale orientation — Reagan thesis to confirm whether benefits acquisition fits.',
+    kelly: 'Family-owned, no PE. Mid-Atlantic. Cultural-fit play. Smaller — would be a stretch financially.',
+    cason: 'Captive distributor through retail brokers. Direct product overlap — but capital base smaller than top tier.',
+    oakbridge: 'PE-backed Southeast regional. Limited national distribution. Local proximity to Atlanta.',
+  };
+  const SEED_NOTE_TS = '2026-04-30T00:00:00.000Z';
+  const DROP_TS = '2026-05-15T00:00:00.000Z';
+  const DROP_TEXT = 'Dropped from process — pass.';
+  const CIM_TEXT = 'CIM delivered to buyer.';
+  const newId = () => crypto.randomUUID();
+  const summary = { deleted: [], dropped: [], cim_set: [], pe_curated: [], top100_set: [], notes_injected: [] };
+
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    const rows = await c.query(`SELECT id, data FROM buyers WHERE workspace_id = $1`, [WORKSPACE_ID]);
+    const remaining = [];
+    for (const row of rows.rows) {
+      const b = { ...row.data };
+      const lowerName = String(b.name || '').toLowerCase();
+      if (DELETE_NAME_SUBSTRINGS.some(s => lowerName.includes(s))) {
+        summary.deleted.push(b.name || b.id);
+        continue;
+      }
+      if (DROP_IDS.includes(b.id) && b.stage !== 'dropped') {
+        b.stage = 'dropped';
+        const log = Array.isArray(b.noteLog) ? [...b.noteLog] : [];
+        if (!log.some(e => e.text === DROP_TEXT)) log.push({ id: newId(), ts: DROP_TS, text: DROP_TEXT });
+        b.noteLog = log;
+        summary.dropped.push(b.id);
+      }
+      if (CIM_TARGETS.includes(b.id) && !b.cim_delivered) {
+        b.cim_delivered = CIM_DATE;
+        const log = Array.isArray(b.noteLog) ? [...b.noteLog] : [];
+        if (!log.some(e => e.text === CIM_TEXT)) log.push({ id: newId(), ts: CIM_TS, text: CIM_TEXT });
+        b.noteLog = log;
+        summary.cim_set.push(b.id);
+      }
+      if (NON_PE[b.id]) {
+        const patch = NON_PE[b.id];
+        b.ownership = patch.ownership;
+        b.sponsor = patch.sponsor;
+        b.fit = { ...(b.fit || { size: 0, benefits: 0, pe: 0, precedent: 0 }), pe: 0 };
+        summary.pe_curated.push(b.id);
+      }
+      if (b.id in TOP100) {
+        b.top100_rank = TOP100[b.id];
+        summary.top100_set.push(b.id);
+      }
+      const seedText = SEED_NOTES[b.id];
+      if (seedText) {
+        const log = Array.isArray(b.noteLog) ? [...b.noteLog] : [];
+        if (!log.some(e => e.text === seedText)) {
+          log.unshift({ id: newId(), ts: SEED_NOTE_TS, text: seedText });
+          b.noteLog = log;
+          summary.notes_injected.push(b.id);
+        }
+      }
+      remaining.push(b);
+    }
+    await c.query(`DELETE FROM buyers WHERE workspace_id = $1`, [WORKSPACE_ID]);
+    for (const b of remaining) {
+      if (!b?.id) continue;
+      await c.query(
+        `INSERT INTO buyers (workspace_id, id, data) VALUES ($1, $2, $3)`,
+        [WORKSPACE_ID, b.id, b]
+      );
+    }
+    await c.query('COMMIT');
+    return { buyer_count: remaining.length, ...summary };
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    c.release();
   }
 }
 
@@ -1475,124 +1610,27 @@ app.delete('/api/files/:id', async (req, res) => {
   }
 });
 
-// One-shot data repair endpoint. Re-applies the cumulative client-side
-// migrations (CIM backfill, PE curation, seed-notes, Top 100 ranks) plus
-// the user's curated drops/deletions directly against Postgres, so the
-// production data matches the deployed code regardless of which browser
-// ever ran the localStorage-gated migrations. Idempotent: safe to re-run.
-app.post('/api/admin/repair-state', async (_req, res) => {
+// Manual re-trigger for the repair migration. Normally runs once at server
+// startup via runStartupMigrations; this endpoint lets us re-apply it without
+// a redeploy. force=1 also clears the applied_migrations row so it runs again
+// at the next startup.
+app.post('/api/admin/repair-state', async (req, res) => {
   if (!ensureDb(res)) return;
-
-  const DELETE_NAME_SUBSTRINGS = ['alera', 'relation'];
-  const DROP_IDS = ['hub', 'baldwin', 'br', 'higgi'];
-  const CIM_TARGETS = ['ima', 'onedigital', 'kelly', 'cason', 'oakbridge'];
-  const CIM_DATE = '2026-05-14';
-  const CIM_TS = '2026-05-14T00:00:00.000Z';
-  const NON_PE = {
-    hub:   { ownership: 'National consolidator', sponsor: '—' },
-    higgi: { ownership: 'Regional P&C',           sponsor: '—' },
-    cason: { ownership: 'Captive distributor',    sponsor: '—' },
-  };
-  const TOP100 = {
-    alliant: 5, onedigital: 17, ima: 20, cb: 29, oakbridge: 50,
-    kelly: null, cason: null,
-  };
-  const SEED_NOTES = {
-    hub: 'Top-tier consolidator. Reagan flagged as likely top-3 bidder. Aggressive integration playbook.',
-    alliant: 'Diversified, less benefits-centric. Stone Point recently recapitalized. Could surprise on price; strategic fit weaker.',
-    baldwin: 'Hunter add. CAC = Cobbs Allen, Birmingham roots. Bobby flagged BWIN stock pressure may limit M&A appetite this cycle.',
-    cb: 'Private, no PE. Captive specialist — direct strategic fit. Slower decision cycle but high conviction when they move.',
-    onedigital: 'Atlanta-based, pure benefits. Best targeted distribution match. New Mountain co-sponsor. Expect aggressive process engagement.',
-    ima: 'Hunter add. Acquired Valent in Birmingham 10/1/25. 10 deals in 2025 — most active acquirer on the list.',
-    higgi: 'Hunter add. Mostly P&C. Declined twice informally — retry through formal Reagan process.',
-    br: '$2.5B premium placed. Wholesale orientation — Reagan thesis to confirm whether benefits acquisition fits.',
-    kelly: 'Family-owned, no PE. Mid-Atlantic. Cultural-fit play. Smaller — would be a stretch financially.',
-    cason: 'Captive distributor through retail brokers. Direct product overlap — but capital base smaller than top tier.',
-    oakbridge: 'PE-backed Southeast regional. Limited national distribution. Local proximity to Atlanta.',
-  };
-  const SEED_NOTE_TS = '2026-04-30T00:00:00.000Z';
-  const DROP_TS = '2026-05-15T00:00:00.000Z';
-  const DROP_TEXT = 'Dropped from process — pass.';
-  const CIM_TEXT = 'CIM delivered to buyer.';
-  const newId = () => crypto.randomUUID();
-
-  const summary = { deleted: [], dropped: [], cim_set: [], pe_curated: [], top100_set: [], notes_injected: [] };
-  const c = await pool.connect();
   try {
-    await c.query('BEGIN');
-    const rows = await c.query(`SELECT id, data FROM buyers WHERE workspace_id = $1`, [WORKSPACE_ID]);
-
-    const remaining = [];
-    for (const row of rows.rows) {
-      const b = { ...row.data };
-      const lowerName = String(b.name || '').toLowerCase();
-      if (DELETE_NAME_SUBSTRINGS.some(s => lowerName.includes(s))) {
-        summary.deleted.push(b.name || b.id);
-        continue;
-      }
-
-      if (DROP_IDS.includes(b.id) && b.stage !== 'dropped') {
-        b.stage = 'dropped';
-        const log = Array.isArray(b.noteLog) ? [...b.noteLog] : [];
-        if (!log.some(e => e.text === DROP_TEXT)) {
-          log.push({ id: newId(), ts: DROP_TS, text: DROP_TEXT });
-        }
-        b.noteLog = log;
-        summary.dropped.push(b.id);
-      }
-
-      if (CIM_TARGETS.includes(b.id) && !b.cim_delivered) {
-        b.cim_delivered = CIM_DATE;
-        const log = Array.isArray(b.noteLog) ? [...b.noteLog] : [];
-        if (!log.some(e => e.text === CIM_TEXT)) {
-          log.push({ id: newId(), ts: CIM_TS, text: CIM_TEXT });
-        }
-        b.noteLog = log;
-        summary.cim_set.push(b.id);
-      }
-
-      if (NON_PE[b.id]) {
-        const patch = NON_PE[b.id];
-        b.ownership = patch.ownership;
-        b.sponsor = patch.sponsor;
-        b.fit = { ...(b.fit || { size: 0, benefits: 0, pe: 0, precedent: 0 }), pe: 0 };
-        summary.pe_curated.push(b.id);
-      }
-
-      if (b.id in TOP100) {
-        b.top100_rank = TOP100[b.id];
-        summary.top100_set.push(b.id);
-      }
-
-      const seedText = SEED_NOTES[b.id];
-      if (seedText) {
-        const log = Array.isArray(b.noteLog) ? [...b.noteLog] : [];
-        if (!log.some(e => e.text === seedText)) {
-          log.unshift({ id: newId(), ts: SEED_NOTE_TS, text: seedText });
-          b.noteLog = log;
-          summary.notes_injected.push(b.id);
-        }
-      }
-
-      remaining.push(b);
+    const force = req.query.force === '1' || req.query.force === 'true';
+    if (force) {
+      await pool.query(`DELETE FROM applied_migrations WHERE id = $1`, ['repair_state_2026_05_15']);
     }
-
-    await c.query(`DELETE FROM buyers WHERE workspace_id = $1`, [WORKSPACE_ID]);
-    for (const b of remaining) {
-      if (!b?.id) continue;
-      await c.query(
-        `INSERT INTO buyers (workspace_id, id, data) VALUES ($1, $2, $3)`,
-        [WORKSPACE_ID, b.id, b]
-      );
-    }
-    await c.query('COMMIT');
-    res.json({ ok: true, buyer_count: remaining.length, summary });
+    const summary = await repairStateMigration();
+    await pool.query(
+      `INSERT INTO applied_migrations (id, summary) VALUES ($1, $2)
+       ON CONFLICT (id) DO UPDATE SET summary = EXCLUDED.summary, applied_at = now()`,
+      ['repair_state_2026_05_15', summary]
+    );
+    res.json({ ok: true, summary });
   } catch (err) {
-    await c.query('ROLLBACK').catch(() => {});
     console.error('POST /api/admin/repair-state error:', err.message);
     res.status(500).json({ error: err.message });
-  } finally {
-    c.release();
   }
 });
 
