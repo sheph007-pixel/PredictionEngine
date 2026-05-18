@@ -1484,7 +1484,7 @@ app.post('/api/admin/repair-state', async (_req, res) => {
   if (!ensureDb(res)) return;
 
   const DELETE_NAME_SUBSTRINGS = ['alera', 'relation'];
-  const DROP_IDS = ['hub', 'baldwin', 'br'];
+  const DROP_IDS = ['hub', 'baldwin', 'br', 'higgi'];
   const CIM_TARGETS = ['ima', 'onedigital', 'kelly', 'cason', 'oakbridge'];
   const CIM_DATE = '2026-05-14';
   const CIM_TS = '2026-05-14T00:00:00.000Z';
