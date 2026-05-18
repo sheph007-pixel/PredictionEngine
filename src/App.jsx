@@ -7,7 +7,7 @@ import {
 } from './components.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
-import { fetchWorkspace, pushWorkspace, pushBuyers, debouncedPush } from './lib/sync.js';
+import { fetchWorkspace, pushWorkspace, pushBuyers, patchBuyer, deleteBuyer, debouncedPush } from './lib/sync.js';
 import { migrateNoteLog, appendNote, removeNote, latestNoteId, EVENT_SPECS } from './lib/notes.js';
 
 const STATE_KEY = 'kennion.state.v1';
@@ -164,170 +164,20 @@ export default function App() {
           const serverTs = ws.rationales?.ts ? new Date(ws.rationales.ts).getTime() : 0;
           if (serverTs >= localTs) setRationales(ws.rationales);
         }
-        // The v3 scrub of workspace rationales is hoisted up here so it runs
-        // even before the buyers branch (the rationale wipe should still
-        // apply on a workspace that has rationales but no buyers yet).
-        if (!localStorage.getItem('kennion.demoScrub.v4')) {
-          setRationales({
-            close_date: null,
-            close_estimate: null,
-            confidence: null,
-            clearing_price: null,
-            p_no_deal: null,
-            p_no_deal_rationale: null,
-            offer_date: null,
-            offer_estimate: null,
-          });
-        }
         if (ws.process) setProcess(ws.process);
         if (Array.isArray(ws.global_intel)) setGlobalIntel(ws.global_intel);
         if (Array.isArray(ws.pinned_rules)) setPinnedRules(ws.pinned_rules);
       }
       if (Array.isArray(result.buyers) && result.buyers.length > 0) {
-        // One-shot scrub of legacy demo seed fields (planted nda_signed,
-        // chemistry_date, the legacy `notes` string, AI history, AI reasoning,
-        // overrides). Runs once per browser, gated by a localStorage flag.
-        // Identity fields and noteLog timeline entries are preserved.
-        // v4 also force-refreshes the `website` field from the seed by id.
-        // Previous seeds had wrong URLs for some firms (e.g. Oakbridge,
-        // Cason) and the user couldn't correct them via the advisor — the
-        // advisor said it would but had no tool. Now the seed is the
-        // source of truth on first scrub; subsequent corrections via
-        // correct_buyer_website override it.
-        const SCRUB_KEY = 'kennion.demoScrub.v4';
-        let cleaned = result.buyers;
-        if (!localStorage.getItem(SCRUB_KEY)) {
-          cleaned = result.buyers.map(b => {
-            const seed = SEED_BY_ID[b.id];
-            return {
-              ...b,
-              ...(seed ? { website: seed.website } : {}),
-              nda_signed: null,
-              cim_delivered: null,
-              chemistry_date: null,
-              ioi_received: null,
-              notes: '',
-              thesis: null,
-              aiHistory: [],
-              aiNotes: null,
-              aiCitations: [],
-              overrides: [],
-            };
-          });
-          try { localStorage.setItem(SCRUB_KEY, new Date().toISOString()); } catch {}
-          // Push cleaned state back to Postgres so other devices see the scrub.
-          pushBuyers(cleaned).catch(() => {});
-        }
-
-        // One-shot CIM-delivered backfill. Reagan delivered the CIM to these
-        // 5 buyers on 5/14/26 per email; the event predates the cim_delivered
-        // chip going live, so the field is null on each persisted record.
-        // Sets the date and appends a backdated noteLog entry so the next
-        // rescan sees the milestone as historical fact.
-        const BACKFILL_KEY = 'kennion.cimBackfill.v1';
-        const didBackfill = !localStorage.getItem(BACKFILL_KEY);
-        if (didBackfill) {
-          const BACKFILL_TARGETS = ['ima', 'onedigital', 'kelly', 'cason', 'oakbridge'];
-          const CIM_DATE = '2026-05-14';
-          const CIM_TS = '2026-05-14T00:00:00.000Z';
-          cleaned = cleaned.map(b => {
-            if (!BACKFILL_TARGETS.includes(b.id) || b.cim_delivered) return b;
-            const entry = {
-              id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'n_' + Math.random().toString(36).slice(2, 10),
-              ts: CIM_TS,
-              text: 'CIM delivered to buyer.',
-            };
-            return { ...b, cim_delivered: CIM_DATE, noteLog: [...(b.noteLog || []), entry] };
-          });
-          try { localStorage.setItem(BACKFILL_KEY, new Date().toISOString()); } catch {}
-          pushBuyers(cleaned).catch(() => {});
-        }
-
-        // One-shot PE-curation migration. User curated the active-PE buyer
-        // list down to OneDigital, Alliant, Oakbridge, IMA. HUB / Higginbotham /
-        // Cason were marked PE-backed in earlier seeds; rewrite the persisted
-        // ownership / sponsor / fit.pe to non-PE so badges, prompt anchors,
-        // and AI reasoning all read the same source of truth.
-        const PE_KEY = 'kennion.peCuration.v1';
-        const didPeCurate = !localStorage.getItem(PE_KEY);
-        if (didPeCurate) {
-          const NON_PE = {
-            hub:   { ownership: 'National consolidator', sponsor: '—' },
-            higgi: { ownership: 'Regional P&C',           sponsor: '—' },
-            cason: { ownership: 'Captive distributor',    sponsor: '—' },
-          };
-          cleaned = cleaned.map(b => {
-            const patch = NON_PE[b.id];
-            if (!patch) return b;
-            const fit = { ...(b.fit || {}), pe: 0 };
-            return { ...b, ownership: patch.ownership, sponsor: patch.sponsor, fit };
-          });
-          try { localStorage.setItem(PE_KEY, new Date().toISOString()); } catch {}
-          pushBuyers(cleaned).catch(() => {});
-        }
-
-        // One-shot seed-notes → noteLog migration. The demoScrub above blanks
-        // the legacy `notes` string field but never moved that content into
-        // the chronological noteLog the AI rescan actually reads. After scrub
-        // the AI saw zero per-buyer narrative intel and could only reason
-        // from profile + comps, producing generic "PE-backed scale buyer"
-        // output across the board. Inject each buyer's seed notes as a single
-        // backdated noteLog entry anchored to the Reagan list date (4/30/26)
-        // so the AI sees it as pre-process context ordered before all NDAs
-        // and CIMs. Idempotent: skip if the same text is already logged.
-        const SEED_NOTES_KEY = 'kennion.seedNotesToNoteLog.v1';
-        const didSeedNotes = !localStorage.getItem(SEED_NOTES_KEY);
-        if (didSeedNotes) {
-          const SEED_NOTE_TS = '2026-04-30T00:00:00.000Z';
-          cleaned = cleaned.map(b => {
-            const seed = SEED_BY_ID[b.id];
-            const seedText = seed?.notes?.trim();
-            if (!seedText) return b;
-            const existing = Array.isArray(b.noteLog) ? b.noteLog : [];
-            if (existing.some(e => e.text === seedText)) return b;
-            const entry = {
-              id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'n_' + Math.random().toString(36).slice(2, 10),
-              ts: SEED_NOTE_TS,
-              text: seedText,
-            };
-            return { ...b, noteLog: [entry, ...existing] };
-          });
-          try { localStorage.setItem(SEED_NOTES_KEY, new Date().toISOString()); } catch {}
-          pushBuyers(cleaned).catch(() => {});
-        }
-
-        // One-shot Business Insurance "100 Largest Brokers of U.S. Business"
-        // (July/August 2025 edition) rank backfill. Field provided per buyer
-        // in src/data.js — copies it into the persisted record so the badge
-        // renders and the AI rescan sees ranking as a credibility signal.
-        // null = explicitly "not in the BI 100" (Cason, Kelly); undefined =
-        // no data yet (dropped). v3 key forces re-apply over v1/v2 values
-        // (v1 was a draft IJ list, v2 was a corrected IJ list, v3 is the
-        // recommended Business Insurance source for Reagan benchmarking).
-        const TOP100_KEY = 'kennion.top100Backfill.v3';
-        const didTop100 = !localStorage.getItem(TOP100_KEY);
-        if (didTop100) {
-          cleaned = cleaned.map(b => {
-            const seed = SEED_BY_ID[b.id];
-            if (!seed || !('top100_rank' in seed)) return b;
-            // Force overwrite to the seed value (v2 correction may downgrade
-            // or remove ranks set by v1). Keep undefined behavior for buyers
-            // not in the seed's named set.
-            return { ...b, top100_rank: seed.top100_rank };
-          });
-          try { localStorage.setItem(TOP100_KEY, new Date().toISOString()); } catch {}
-          pushBuyers(cleaned).catch(() => {});
-        }
-
-        setBuyers(cleaned);
-        if (didBackfill || didPeCurate || didSeedNotes || didTop100) {
-          const reasons = [];
-          if (didBackfill) reasons.push('Backfilled CIM delivered milestone (2026-05-14) for IMA, OneDigital, Kelly, Cason, Oakbridge per Reagan 5/14/26 update.');
-          if (didPeCurate) reasons.push('Curated PE designation: only OneDigital, Alliant, Oakbridge, IMA are flagged PE-backed. HUB / Higginbotham / Cason demoted to non-PE per user direction.');
-          if (didTop100) reasons.push('Swapped scale-rank source to Business Insurance "100 Largest Brokers of U.S. Business" (July/August 2025): Alliant #5, OneDigital #17, IMA #20, C&B #29, Oakbridge #50. Kelly and Cason not ranked. This is a broker-of-business revenue ranking (broader than just P/C), the recommended source for Reagan acquisition benchmarking.');
-          if (didSeedNotes) reasons.push('Restored pre-process buyer-intel notes (Reagan/Hunter context from the 4/30/26 buyer list) to each noteLog so per-buyer reasoning grounds in actual history instead of profile + comps.');
-          rescanAll(reasons.join(' ')).catch(() => {});
-        }
+        // Server-side runStartupMigrations (server.js) handles all structural
+        // data corrections — demoScrub, CIM backfill, PE curation, seed notes,
+        // Top 100 ranks. The client just trusts what comes from /api/workspace.
+        // History: prior versions ran these as localStorage-gated client
+        // migrations that re-fired in every fresh browser and pushed the full
+        // buyer array back to Postgres, which clobbered any state the booting
+        // browser hadn't seen yet (chat-added notes, deletions, drops). Moved
+        // to the server in PR #17; client side is now a pure consumer.
+        setBuyers(result.buyers);
       } else {
         // Server is empty — push our local state up as the seed.
         await pushBuyers(buyers);
@@ -358,13 +208,39 @@ export default function App() {
     });
   }, [ebitda, caseMode, market, marketMeta, rationales, process, globalIntel, pinnedRules]);
 
-  // Buyers sync — bulk replace (rescans typically touch many buyers at once).
+  // Buyers sync — per-buyer PATCH for changed rows, DELETE for removed rows.
+  // Replaces the prior bulk-replace pattern (PUT /api/buyers) which let a
+  // stale browser clobber rows it had never seen. Diff is computed against
+  // the last successfully-written snapshot; first post-hydration tick just
+  // captures the baseline without writing anything.
+  const lastSyncedBuyersRef = useRef(null);
   useEffect(() => {
     if (!hydrated.current) return;
+    if (lastSyncedBuyersRef.current === null) {
+      lastSyncedBuyersRef.current = buyers;
+      return;
+    }
     setSyncStatus('syncing');
     debouncedPush('buyers', async () => {
-      const ok = await pushBuyers(buyers);
-      setSyncStatus(ok ? 'synced' : 'offline');
+      const prev = lastSyncedBuyersRef.current || [];
+      const prevById = new Map(prev.map(b => [b.id, b]));
+      const currentById = new Map(buyers.map(b => [b.id, b]));
+      const toPatch = [];
+      for (const b of buyers) {
+        const old = prevById.get(b.id);
+        if (!old || JSON.stringify(old) !== JSON.stringify(b)) toPatch.push(b);
+      }
+      const toDelete = [];
+      for (const old of prev) {
+        if (!currentById.has(old.id)) toDelete.push(old.id);
+      }
+      const results = await Promise.all([
+        ...toPatch.map(b => patchBuyer(b)),
+        ...toDelete.map(id => deleteBuyer(id)),
+      ]);
+      const allOk = results.length === 0 || results.every(r => r);
+      if (allOk) lastSyncedBuyersRef.current = buyers;
+      setSyncStatus(allOk ? 'synced' : 'offline');
     });
   }, [buyers]);
 

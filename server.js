@@ -1514,7 +1514,10 @@ app.put('/api/workspace', async (req, res) => {
   }
 });
 
-// Bulk replace buyers (used after rescans + on initial migration from localStorage).
+// Bulk replace buyers. Only used on the initial-seed path when the server is
+// empty and the client uploads its localStorage buyers. Everyday writes go
+// through PATCH /api/buyers/:id below, which can't clobber buyers the caller
+// hasn't seen and which preserves noteLog history via union-merge.
 app.put('/api/buyers', async (req, res) => {
   if (!ensureDb(res)) return;
   const buyers = Array.isArray(req.body?.buyers) ? req.body.buyers : null;
@@ -1538,6 +1541,70 @@ app.put('/api/buyers', async (req, res) => {
     res.status(500).json({ error: err.message });
   } finally {
     c.release();
+  }
+});
+
+// Upsert a single buyer. Replaces the buyer's stored JSON with the incoming
+// JSON, EXCEPT for noteLog, which is union-merged by entry id so a stale
+// browser that doesn't know about a recently-added note (e.g. chat-derived
+// intel) can't accidentally drop it on the next write. New notes appear at
+// the position the client specified; any older noteLog entry whose id is not
+// in the incoming log is preserved at the tail.
+app.patch('/api/buyers/:id', async (req, res) => {
+  if (!ensureDb(res)) return;
+  const { id } = req.params;
+  const incoming = req.body;
+  if (!incoming || typeof incoming !== 'object' || incoming.id !== id) {
+    return res.status(400).json({ error: 'buyer payload missing or id mismatch' });
+  }
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    const existing = await c.query(
+      `SELECT data FROM buyers WHERE workspace_id = $1 AND id = $2 FOR UPDATE`,
+      [WORKSPACE_ID, id]
+    );
+    let merged = incoming;
+    if (existing.rowCount > 0) {
+      const old = existing.rows[0].data || {};
+      const oldLog = Array.isArray(old.noteLog) ? old.noteLog : [];
+      const newLog = Array.isArray(incoming.noteLog) ? incoming.noteLog : [];
+      const incomingIds = new Set(newLog.map(n => n?.id).filter(Boolean));
+      const retained = oldLog.filter(n => n?.id && !incomingIds.has(n.id));
+      merged = { ...incoming, noteLog: [...newLog, ...retained] };
+    }
+    await c.query(
+      `INSERT INTO buyers (workspace_id, id, data, updated_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (workspace_id, id) DO UPDATE SET
+         data = EXCLUDED.data, updated_at = now()`,
+      [WORKSPACE_ID, id, merged]
+    );
+    await c.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => {});
+    console.error('PATCH /api/buyers/:id error:', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    c.release();
+  }
+});
+
+// Explicit per-buyer deletion. Deletes only the named buyer — stale browsers
+// can no longer drop buyers by sending an array that's missing some entries.
+app.delete('/api/buyers/:id', async (req, res) => {
+  if (!ensureDb(res)) return;
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `DELETE FROM buyers WHERE workspace_id = $1 AND id = $2`,
+      [WORKSPACE_ID, id]
+    );
+    res.json({ ok: true, deleted: result.rowCount });
+  } catch (err) {
+    console.error('DELETE /api/buyers/:id error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
