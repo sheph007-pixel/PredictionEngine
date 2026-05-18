@@ -100,6 +100,7 @@ async function initDb() {
 async function runStartupMigrations() {
   const all = [
     { id: 'repair_state_2026_05_15', fn: repairStateMigration },
+    { id: 'oakbridge_ceo_reagan_note_2026_05_18', fn: oakbridgeCeoNoteMigration },
   ];
   for (const m of all) {
     try {
@@ -219,6 +220,31 @@ async function repairStateMigration() {
   } finally {
     c.release();
   }
+}
+
+// Re-injects the chat-derived intel that the Oakbridge CEO previously spent
+// years at Reagan Consulting (relationship anchor for outreach), which was
+// originally added via chat and got clobbered when stale state was pushed
+// back. Idempotent — skips if any noteLog entry already mentions it.
+async function oakbridgeCeoNoteMigration() {
+  const NOTE_TEXT = 'Oakbridge CEO previously spent years at Reagan Consulting. Strong relationship anchor for outreach; Reagan flagged as material to the buyer-side conversation.';
+  const NOTE_TS = '2026-05-01T00:00:00.000Z';
+  const row = await pool.query(
+    `SELECT data FROM buyers WHERE workspace_id = $1 AND id = $2`,
+    [WORKSPACE_ID, 'oakbridge']
+  );
+  if (row.rowCount === 0) return { skipped: 'oakbridge_not_found' };
+  const b = { ...row.rows[0].data };
+  const log = Array.isArray(b.noteLog) ? [...b.noteLog] : [];
+  const already = log.some(e => /reagan/i.test(e.text || '') && /ceo/i.test(e.text || ''));
+  if (already) return { skipped: 'already_present' };
+  log.push({ id: crypto.randomUUID(), ts: NOTE_TS, text: NOTE_TEXT });
+  b.noteLog = log;
+  await pool.query(
+    `UPDATE buyers SET data = $1, updated_at = now() WHERE workspace_id = $2 AND id = $3`,
+    [b, WORKSPACE_ID, 'oakbridge']
+  );
+  return { injected: NOTE_TEXT };
 }
 
 
