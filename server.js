@@ -102,6 +102,7 @@ async function runStartupMigrations() {
     { id: 'repair_state_2026_05_15', fn: repairStateMigration },
     { id: 'oakbridge_ceo_reagan_note_2026_05_18', fn: oakbridgeCeoNoteMigration },
     { id: 'purge_seed_opinion_2026_05_18', fn: purgeSeedOpinionMigration },
+    { id: 'backfill_pe_facts_2026_05_18', fn: backfillPeFactsMigration },
   ];
   for (const m of all) {
     try {
@@ -246,6 +247,35 @@ async function oakbridgeCeoNoteMigration() {
     [b, WORKSPACE_ID, 'oakbridge']
   );
   return { injected: NOTE_TEXT };
+}
+
+// Backfills the verifiable public-record PE-backed flag + sponsor name on
+// the four buyers whose PE status is a matter of public record. The prior
+// purge migration stripped the old `ownership` label entirely; this restores
+// the discrete PE fact as a first-class field on the same shelf as
+// top100_rank. Idempotent — re-running is a no-op once fields are present.
+async function backfillPeFactsMigration() {
+  const PE = {
+    alliant:    { pe_backed: true, sponsor: 'Stone Point' },
+    onedigital: { pe_backed: true, sponsor: 'Onex / New Mountain' },
+    ima:        { pe_backed: true, sponsor: 'New Mountain' },
+    oakbridge:  { pe_backed: true },
+  };
+  const summary = { updated: [] };
+  for (const [id, patch] of Object.entries(PE)) {
+    const row = await pool.query(
+      `SELECT data FROM buyers WHERE workspace_id = $1 AND id = $2`,
+      [WORKSPACE_ID, id]
+    );
+    if (row.rowCount === 0) continue;
+    const b = { ...row.rows[0].data, ...patch };
+    await pool.query(
+      `UPDATE buyers SET data = $1, updated_at = now() WHERE workspace_id = $2 AND id = $3`,
+      [b, WORKSPACE_ID, id]
+    );
+    summary.updated.push(id);
+  }
+  return summary;
 }
 
 // Removes subjective seed-derived fields and seed-narrative noteLog entries
@@ -394,7 +424,9 @@ Each buyer's \`notes_timeline\` field is a chronological log of field intel, one
 - multiple_override: null OR { low, mid, high, source: "LOI"|"term-sheet"|"verbal-offer", evidence: "doc filename or note quote" }. Set ONLY when hard-evidence number exists. Most buyers should have null here.
 
 # Buyer profile facts (READ FIRST)
-You see only identity facts on each buyer (name, HQ, revenue, headcount, offices, BI Top 100 rank) plus stage / process dates and the user's noteLog. You do NOT see ownership labels, sponsor names, or buyer-type categories. If the user wants those signals to shape your reasoning, they will write them as noteLog entries. Do not infer PE-backed status, sponsor identity, or strategic-fit categorization from training-data priors on individual firms; if the user hasn't put it in the noteLog or library, treat it as unknown and ground your reasoning in the facts that are present.
+You see only identity facts on each buyer (name, HQ, revenue, headcount, offices, BI Top 100 rank, pe_backed, sponsor) plus stage / process dates and the user's noteLog. \`pe_backed: true\` and \`sponsor\` (when set) are verifiable public-record facts (announced sponsor, Pitchbook, sponsor portfolio pages) — treat them as factual. \`pe_backed: false\` means we do not have a public PE record for this buyer; it is NOT a claim that the buyer is private — they could be public, family-owned, mutual, or simply not yet researched. You do NOT see "buyer type" categories (captive specialist, regional broker, etc.). Do not infer such categorizations from training-data priors on individual firms; if the user wants those signals to shape your reasoning, they will write them as noteLog entries. Ground reasoning in the facts that are present.
+
+When pe_backed is true: treat the PE flag as a credibility lift for "bid capacity" and "deployment cadence" — sponsors actively deploying are more likely than peers of similar size to write the check at market clears. When pe_backed is false: model the buyer on their own capital base; do not impute PE-cycle urgency.
 
 # Broker scale ranking (\`top100_rank\`, Business Insurance "100 Largest Brokers of U.S. Business," July/August 2025 edition)
 \`buyer.top100_rank\` is the firm's 2025 ranking in Business Insurance's annual "100 Largest Brokers of U.S. Business" list — a broker-of-business revenue ranking (broader than just P/C, which is exactly the right scope for a benefits-program sale and the recommended source for Reagan acquisition benchmarking). Anchors among our live set: Alliant #5, OneDigital #17, IMA #20, Cottingham & Butler #29, Oakbridge #50. Treat top100_rank as a secondary credibility signal alongside revenue: a top-25 ranked buyer is more likely to clear at market multiples; a buyer ranked #30-60 may show interest but execution capacity is the open question; a buyer outside the Top 100 (\`null\`) is materially smaller-scale, which for our size bucket means meaningful execution risk on a stretch deal — not a disqualifier but a real drag on bid-capacity confidence. \`undefined\`/missing means the field wasn't populated yet — do not assume.
@@ -877,6 +909,8 @@ app.post('/api/ai/rescan', async (req, res) => {
     id: b.id, name: b.name, hq: b.hq, revenue: b.revenue, headcount: b.headcount,
     offices: b.offices,
     top100_rank: b.top100_rank ?? null,
+    pe_backed: b.pe_backed === true,
+    sponsor: b.sponsor || null,
     stage: b.stage, nda_signed: b.nda_signed || null, cim_delivered: b.cim_delivered || null, chemistry_date: b.chemistry_date || null, ioi_received: b.ioi_received || null,
     // Chronological field-intel log. Each line: "[YYYY-MM-DD] text". Recent
     // entries should weigh more than old ones. Falls back to legacy single-
@@ -900,6 +934,8 @@ app.post('/api/ai/rescan', async (req, res) => {
   });
   const compactSummary = (b) => ({
     id: b.id, name: b.name, stage: b.stage,
+    pe_backed: b.pe_backed === true,
+    sponsor: b.sponsor || null,
     probability: b.probability, thesis: b.thesis,
     multipleOverride: b.multipleOverride || null,
   });
@@ -918,6 +954,8 @@ app.post('/api/ai/rescan', async (req, res) => {
       id: b.id, name: b.name, hq: b.hq, revenue: b.revenue, headcount: b.headcount,
       offices: b.offices,
       top100_rank: b.top100_rank ?? null,
+      pe_backed: b.pe_backed === true,
+      sponsor: b.sponsor || null,
       stage: b.stage,
       nda_signed: b.nda_signed || null,
       cim_delivered: b.cim_delivered || null,

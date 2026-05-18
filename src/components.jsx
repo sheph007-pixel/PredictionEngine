@@ -956,6 +956,9 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
           {buyer.top100_rank === null && (
             <span className="top100-badge top100-badge-nr" title="Not in Business Insurance's 100 Largest Brokers of U.S. Business (July/August 2025)">NR</span>
           )}
+          {buyer.pe_backed && (
+            <span className="pe-badge" title={`PE-backed${buyer.sponsor ? ` · ${buyer.sponsor}` : ''}`}>PE</span>
+          )}
           {rescanning && <span className="row-rescanning-tag" style={{ marginLeft: 10 }}>AI re-scoring…</span>}
         </div>
         {!isDropped && (
@@ -1225,6 +1228,9 @@ export function BuyerModal({ buyer, onClose, onAdvance, onDrop, onDelete, onAppe
               )}
               {buyer.top100_rank === null && (
                 <span className="top100-badge top100-badge-modal top100-badge-nr" title="Not in Business Insurance's 100 Largest Brokers of U.S. Business (July/August 2025)">NR</span>
+              )}
+              {buyer.pe_backed && (
+                <span className="pe-badge pe-badge-modal" title={`PE-backed${buyer.sponsor ? ` · ${buyer.sponsor}` : ''}`}>PE</span>
               )}
             </div>
             <div className="modal-title">
