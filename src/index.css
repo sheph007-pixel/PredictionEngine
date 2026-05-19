@@ -333,26 +333,9 @@ body { font-size: 14px; }
 .convo-thread-action:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .pipeline-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 14px; border-bottom: 1px solid var(--rule); }
 .pipeline-head-actions { display: flex; align-items: center; gap: 16px; }
-.btn-add { font-size: 10.5px; padding: 8px 12px; }
 .btn-danger { color: var(--neg) !important; border-color: var(--rule-2) !important; }
 .btn-danger:hover { background: var(--neg) !important; color: var(--bg) !important; border-color: var(--neg) !important; }
 
-/* ---------- add buyer form ---------- */
-.modal-add { max-width: 540px; padding: 24px 28px 26px; }
-.add-form { display: flex; flex-direction: column; gap: 14px; }
-.add-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.add-field { display: flex; flex-direction: column; gap: 6px; }
-.add-field label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
-.add-field input[type="text"] { border: 1px solid var(--rule-2); background: var(--bg-card); padding: 9px 12px; font-family: var(--sans); font-size: 14px; border-radius: 2px; outline: none; color: var(--ink); }
-.add-field input[type="text"]:focus { border-color: var(--accent); }
-.add-field input:disabled { opacity: 0.5; }
-.add-radio-group { display: flex; gap: 6px; flex-wrap: wrap; }
-.add-radio { font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; padding: 7px 12px; border: 1px solid var(--rule-2); border-radius: 2px; cursor: pointer; color: var(--ink-2); background: var(--bg-card); }
-.add-radio input { display: none; }
-.add-radio.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-.add-error { font-family: var(--mono); font-size: 11px; color: var(--neg); padding: 8px 10px; background: oklch(0.55 0.13 25 / 0.08); border-radius: 2px; }
-.add-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
-.add-actions .btn { min-width: 160px; }
 .pipeline-title { font-family: var(--mono); font-size: 13px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
 .pipeline-sub { font-family: var(--sans); font-size: 12px; color: var(--ink-3); }
 
@@ -775,7 +758,6 @@ body.dark .ai { background: #0a0907; }
   .topbar,
   .sysbar,
   .pipeline-head,
-  .pipeline-head .btn-add,
   .row-add-btn,
   .row-input,
   .convo, .conversation, .convo-fab,
