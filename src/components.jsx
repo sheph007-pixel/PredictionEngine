@@ -44,12 +44,18 @@ export function derivePhase(buyers) {
 
   let phase = 'Marketing Phase 1', phaseIdx = 1, weeksToClose = 17, weeksToOffer = 7;
   if (live.length === 0) {
-    return { phase: 'Preparation', phaseIdx: 0, weeksToClose: 22, weeksToOffer: 12, distribution: {}, distributionText: 'no live buyers', droppedCount };
+    return { phase: 'Building Materials', phaseIdx: 0, weeksToClose: 22, weeksToOffer: 12, distribution: {}, distributionText: 'no live buyers', droppedCount };
   }
   const maxStageIdx = Math.max(...live.map(b => STAGE_INDEX[b.stage] ?? 0));
+  // Per the Reagan timeline, LOIs are RECEIVED in Marketing Phase 2 and
+  // Exclusivity starts only after the seller selects a winner. We don't have
+  // an explicit "selected" stage, so model selection as "exactly one live
+  // buyer at LOI or beyond" — the natural correlate, since the losers get
+  // dropped/cooled when a winner is picked.
+  const liveAtLoiOrBeyond = live.filter(b => (STAGE_INDEX[b.stage] ?? 0) >= STAGE_INDEX.loi).length;
   if (maxStageIdx >= STAGE_INDEX.closed) { phase = 'Close'; phaseIdx = 4; weeksToClose = 0; weeksToOffer = 0; }
-  else if (maxStageIdx >= STAGE_INDEX.loi) { phase = 'Exclusivity'; phaseIdx = 3; weeksToClose = 7; weeksToOffer = 0; }
-  else if (maxStageIdx >= STAGE_INDEX.chemistry) { phase = 'Marketing Phase 2'; phaseIdx = 2; weeksToClose = 13; weeksToOffer = 3; }
+  else if (liveAtLoiOrBeyond === 1) { phase = 'Exclusivity'; phaseIdx = 3; weeksToClose = 7; weeksToOffer = 0; }
+  else if (maxStageIdx >= STAGE_INDEX.chemistry || maxStageIdx >= STAGE_INDEX.loi) { phase = 'Marketing Phase 2'; phaseIdx = 2; weeksToClose = 13; weeksToOffer = 3; }
 
   const c = {
     outreach:  live.filter(b => b.stage === 'outreach').length,

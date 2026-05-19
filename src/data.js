@@ -18,29 +18,32 @@ export const STAGES = [
 export const STAGE_INDEX = Object.fromEntries(STAGES.map((s, i) => [s.id, i]));
 
 export const PROCESS_TASKS = [
-  { id: "data",        label: "Gather Data",                    phase: "Preparation",        weeksFromStart: 0 },
-  { id: "proforma",    label: "Pro Forma & Model",              phase: "Preparation",        weeksFromStart: 2 },
-  { id: "cim_draft",   label: "Draft CIM",                      phase: "Preparation",        weeksFromStart: 3 },
-  { id: "cim_final",   label: "Finalize CIM / Materials",       phase: "Preparation",        weeksFromStart: 4 },
-  { id: "outreach",    label: "Reach out to Buyers / NDAs",     phase: "Marketing Phase 1",  weeksFromStart: 5 },
-  { id: "cim_deliver", label: "Deliver CIM",                    phase: "Marketing Phase 1",  weeksFromStart: 6 },
-  { id: "qa",          label: "Q&A Calls with Reagan",          phase: "Marketing Phase 2",  weeksFromStart: 8 },
-  { id: "chemistry",   label: "Chemistry Meetings",             phase: "Marketing Phase 2",  weeksFromStart: 9 },
-  { id: "lois",        label: "Receive Letters of Intent",      phase: "Marketing Phase 2",  weeksFromStart: 12 },
-  { id: "select",      label: "Select Final Buyer",             phase: "Exclusivity",        weeksFromStart: 14 },
-  { id: "loi_exec",    label: "Negotiate & Execute LOI",        phase: "Exclusivity",        weeksFromStart: 15 },
-  { id: "diligence",   label: "Confirmatory Diligence / Legal", phase: "Exclusivity",        weeksFromStart: 17 },
-  { id: "close",       label: "Closing and Funding",            phase: "Close",              weeksFromStart: 22 },
+  { id: "data",            label: "Gather Data",                                    phase: "Building Materials", weeksFromStart: 0 },
+  { id: "proforma",        label: "Draft Pro Forma & Model",                        phase: "Building Materials", weeksFromStart: 2 },
+  { id: "cim_draft",       label: "Draft CIM",                                      phase: "Building Materials", weeksFromStart: 3 },
+  { id: "cim_final",       label: "Finalize Market Materials",                      phase: "Building Materials", weeksFromStart: 4 },
+  { id: "outreach",        label: "Reach out to Buyers / Execute NDAs",             phase: "Marketing Phase 1",  weeksFromStart: 5 },
+  { id: "cim_deliver",     label: "Deliver CIM",                                    phase: "Marketing Phase 1",  weeksFromStart: 6 },
+  { id: "initial_qa",      label: "Initial Q&A over Email",                         phase: "Marketing Phase 1",  weeksFromStart: 7 },
+  { id: "chemistry",       label: "Chemistry Meetings / Management Presentations",  phase: "Marketing Phase 2",  weeksFromStart: 9 },
+  { id: "process_letter",  label: "Deliver Process Letter / Guidelines",            phase: "Marketing Phase 2",  weeksFromStart: 11 },
+  { id: "lois",            label: "Receive Letters of Intent",                      phase: "Marketing Phase 2",  weeksFromStart: 12 },
+  { id: "select",          label: "Select Final Buyer",                             phase: "Marketing Phase 2",  weeksFromStart: 14 },
+  { id: "loi_exec",        label: "Execute LOI",                                    phase: "Exclusivity",        weeksFromStart: 15 },
+  { id: "data_room",       label: "Prepare Data Room",                              phase: "Exclusivity",        weeksFromStart: 16 },
+  { id: "diligence",       label: "Confirmatory Diligence",                         phase: "Exclusivity",        weeksFromStart: 17 },
+  { id: "legal_finalize",  label: "Finalize Legal Documents",                       phase: "Exclusivity",        weeksFromStart: 19 },
+  { id: "close",           label: "Closing and Funding",                            phase: "Close",              weeksFromStart: 22 },
 ];
 
-export const PHASES = ["Preparation", "Marketing Phase 1", "Marketing Phase 2", "Exclusivity", "Close"];
+export const PHASES = ["Building Materials", "Marketing Phase 1", "Marketing Phase 2", "Exclusivity", "Close"];
 
 export const PHASE_DESCRIPTIONS = {
-  "Preparation":       "Gather data · model · draft CIM",
-  "Marketing Phase 1": "Outreach · NDAs · deliver CIM",
-  "Marketing Phase 2": "Q&A calls · chemistry · first LOIs",
-  "Exclusivity":       "Negotiate LOI · confirmatory diligence",
-  "Close":             "Closing and funding",
+  "Building Materials": "Gather data · pro forma · draft CIM · finalize materials",
+  "Marketing Phase 1":  "Outreach · NDAs · deliver CIM · initial Q&A",
+  "Marketing Phase 2":  "Chemistry/mgmt presentations · process letter · LOIs · select winner",
+  "Exclusivity":        "Execute LOI · data room · diligence · legal",
+  "Close":              "Closing and funding",
 };
 
 export const PROCESS_DEFAULT = {
