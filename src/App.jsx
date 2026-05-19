@@ -3,7 +3,7 @@ import { STAGES, STAGE_INDEX, PROCESS_DEFAULT, BUYERS } from './data.js';
 import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
   Conversation, winnerProbabilities, AIHistoryButton, AIHistoryModal,
-  BrainButton, BrainModal, AddBuyerForm, PrintButton, STAGE_PROB_RANGE,
+  BrainButton, BrainModal, PrintButton, STAGE_PROB_RANGE,
 } from './components.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
@@ -107,13 +107,7 @@ export default function App() {
   const [pinnedRules, setPinnedRules] = usePersistedState('pinnedRules', []);
 
   const [openId, setOpenId] = useState(null);
-  const [showAdd, setShowAdd] = useState(false);
   const [showDropped, setShowDropped] = useState(false);
-  const addBuyer = (newBuyer) => {
-    setBuyers(bs => [...bs, newBuyer]);
-    setShowAdd(false);
-    setOpenId(newBuyer.id);
-  };
   const [openIntent, setOpenIntent] = useState(null);
   const [showLibrary, setShowLibrary] = useState(false);
   const [showBrain, setShowBrain] = useState(false);
@@ -682,7 +676,6 @@ export default function App() {
         />
         <div className="pipeline-head">
           <div className="pipeline-sub">{buyers.length} firms · ranked by win probability · type intel above to update predictions</div>
-          <button className="btn btn-add" onClick={() => setShowAdd(true)}>+ Add buyer</button>
         </div>
         <div className="rows">
           {orderedLive.map((b, i) => (
@@ -779,14 +772,6 @@ export default function App() {
           onOpenBuyer={(id) => { setShowBrain(false); openBuyer(id); }}
           onOpenLibrary={() => { setShowBrain(false); setShowLibrary(true); }}
           onRescanAll={rescanAll}
-        />
-      )}
-
-      {showAdd && (
-        <AddBuyerForm
-          onAdd={addBuyer}
-          onCancel={() => setShowAdd(false)}
-          existingBuyers={buyers}
         />
       )}
 
