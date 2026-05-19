@@ -102,7 +102,7 @@ export default function App() {
   const [caseMode, setCaseMode] = usePersistedState('caseMode', 'mid');
   const [market, setMarket] = usePersistedState('market', DEFAULT_MARKET);
   const [marketMeta, setMarketMeta] = usePersistedState('marketMeta', 'AI · sector deal flow + public comp drift · 2 min ago');
-  const [rationales, setRationales] = usePersistedState('rationales', { close_date: null, confidence: null, clearing_price: null, p_no_deal: null, p_no_deal_rationale: null, offer_date: null, offer_estimate: null });
+  const [rationales, setRationales] = usePersistedState('rationales', { close_date: null, confidence: null, clearing_price: null, p_no_deal: null, p_no_deal_rationale: null, offer_date: null, offer_estimate: null, verdict: null });
   const [globalIntel, setGlobalIntel] = usePersistedState('globalIntel', []);
   const [pinnedRules, setPinnedRules] = usePersistedState('pinnedRules', []);
 
@@ -289,6 +289,7 @@ export default function App() {
       close_estimate: result.close_estimate ?? prev.close_estimate ?? null,
       offer_date: result.offer_date_rationale ?? prev.offer_date ?? null,
       offer_estimate: result.offer_estimate ?? prev.offer_estimate ?? null,
+      verdict: (typeof result.verdict === 'string' && result.verdict.trim()) ? result.verdict.trim() : (prev.verdict ?? null),
       two_model: !!result.two_model,
       models: result.models || prev.models || null,
       ts: result.ts || new Date().toISOString(),
@@ -328,20 +329,24 @@ export default function App() {
     }
   };
 
-  // Per-buyer rescan — used by note submission and doc-tagged updates.
-  // opts.triggerNoteId — when a rescan is triggered by a fresh note append,
-  // pass the new note's id so applyRescanToBuyers tags the resulting
-  // aiHistory entry. Lets the timeline UI show "AI re-scored after this note".
+  // Per-buyer rescan trigger — used by note submission, stage changes, and
+  // per-buyer "rescan" buttons. With a small pipeline (7 live buyers) we
+  // always re-score the WHOLE field so ranks stay internally consistent.
+  // Re-scoring a single buyer in isolation lets their fresh probability
+  // sort against stale peers, which produces visibly wrong rankings.
+  //
+  // opts.triggerNoteId — when triggered by a fresh note append, pass the new
+  // note's id so applyRescanToBuyers tags the buyer's aiHistory entry. Lets
+  // the timeline UI show "AI re-scored after this note".
   const rescanOne = async (buyerId, opts = {}) => {
     setRescanError(null);
     stampAttempt();
     try {
-      const result = await rescanBuyer({
+      const result = await rescanPipeline({
         buyers: buyersRef.current,
         ebitda,
         fileIds,
         priorMarket: market,
-        buyerId,
         globalIntel,
         extraIntel: opts.extraIntel || null,
         pinnedRules,
@@ -350,6 +355,8 @@ export default function App() {
         ? { buyerId, noteId: opts.triggerNoteId }
         : null;
       setBuyers(bs => applyRescanToBuyers(bs, result, { trigger }));
+      setMarket(result.market);
+      setMarketMeta(fmtMetaFromRescan(result, result.buyers.length));
       captureRationales(result);
       return result;
     } catch (e) {
@@ -674,6 +681,12 @@ export default function App() {
           onLogBatchEvent={logBatchEvent}
           onRescanAll={rescanAll}
         />
+        {rationales?.verdict && (
+          <div className="verdict-banner" role="status" aria-live="polite">
+            <div className="verdict-label">AI verdict · as of today</div>
+            <div className="verdict-text">{rationales.verdict}</div>
+          </div>
+        )}
         <div className="pipeline-head">
           <div className="pipeline-sub">{buyers.length} firms · ranked by win probability · type intel above to update predictions</div>
         </div>
