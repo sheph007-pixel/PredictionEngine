@@ -540,6 +540,13 @@ This is the probability that the asset does NOT sell within the planned process 
 - Process timeline pressure (further from LOI deadline = lower urgency = higher no-deal risk)
 For Kennion's profile (captive benefits, sub-mid-market) a healthy floor is 10–20% even with strong buyers. Do not let it go below 5% absent firm-evidence LOIs from multiple buyers. **Structural-pass calibration**: each buyer the noteLog records as having formally passed (regardless of whether the reason is buyer-side structural like "small-accts focus" or "no-retail mandate") thins the bidder pool and raises no-deal risk. Two or more passes from the original top-half of the list → floor 12–18%. Four or more passes → floor 15–22%. Do not discount these passes just because the reason is "not about us"; a thinner pool is a thinner pool. \`p_no_deal_rationale\`: max 25 words, plain English, name the single biggest no-deal risk.
 
+# Top-buyer verdict (\`verdict\`, single sentence)
+After you finish writing every per-buyer probability and the close_estimate, look at the buyers[] array you just produced and identify the highest-probability LIVE (non-dropped) buyer. Compose ONE sentence using the exact format in the schema description. Three rules:
+1. The buyer name in the verdict MUST be the highest-probability LIVE buyer in buyers[]. Not the highest-fit buyer, not last rescan's leader. Look at the array you just wrote.
+2. The probability cited MUST equal that buyer's probability in this response, integer percent.
+3. The month cited MUST equal close_estimate in this response, formatted "Month YYYY" (e.g. "September 2026").
+If the top two live buyers are within 5 points of each other, use the "Two-way race:" variant. If every live buyer is below 10%, use the "No clear leader." variant. Pick ONE risk for the "Main risk:" tail — the single most likely thing that derails the deal as of today (buyer-side cooling, capacity drag, sponsor pass, regulatory, etc.). Plain English, 8th-grade level, no jargon. Max 35 words.
+
 # Output discipline
 Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence. If evidence is insufficient to move a number, leave it stable and say so in reasoning.
 
@@ -570,7 +577,7 @@ const RESCAN_TOOL = {
   description: 'Apply a re-evaluation of one or more buyers in the pipeline based on all available context (buyer profiles, attached documents, user field intelligence, prior reasoning).',
   input_schema: {
     type: 'object',
-    required: ['market', 'buyers', 'summary', 'close_date_rationale', 'confidence_rationale', 'clearing_price_rationale', 'p_no_deal', 'p_no_deal_rationale', 'close_estimate', 'offer_estimate', 'offer_date_rationale'],
+    required: ['market', 'buyers', 'summary', 'verdict', 'close_date_rationale', 'confidence_rationale', 'clearing_price_rationale', 'p_no_deal', 'p_no_deal_rationale', 'close_estimate', 'offer_estimate', 'offer_date_rationale'],
     properties: {
       market: {
         type: 'object',
@@ -651,6 +658,10 @@ const RESCAN_TOOL = {
         },
       },
       summary: { type: 'string', description: 'ONE sentence, max 25 words, on how the overall pipeline view shifted vs prior state.' },
+      verdict: {
+        type: 'string',
+        description: 'Plain-English single-sentence "as-of-today" call on the auction. Format strictly: "Top pick: <BuyerName> at <P>%. Likely closes <Month YYYY>. Main risk: <one risk>." Max 35 words. If the top two live buyers are within 5 probability points, use: "Two-way race: <A> and <B> at <P_A>/<P_B>%. Likely closes <Month YYYY>. Main risk: <one risk>." The <BuyerName(s)>, <P>%, and <Month YYYY> MUST be the highest-probability LIVE buyer(s) and close_estimate you set in this same response — re-check after writing buyers[] before composing this string. No jargon ("LOI cycle", "exclusivity stage", "Reagan timeline"), 8th-grade language. If every live buyer is below 10%, write "No clear leader. Likely closes <Month YYYY>. Main risk: <one risk>."',
+      },
       close_date_rationale: {
         type: 'string',
         description: 'Plain-English one-liner explaining the projected close date. Max 25 words, two short sentences max. State what is driving the timing and the biggest risk. No jargon ("LOI cycle", "exclusivity", "process phase").',
@@ -1429,6 +1440,7 @@ function blendPredictions(claude, openai) {
     close_estimate: blendedClose || claude.close_estimate || openai.close_estimate || null,
     offer_estimate: blendedOffer || claude.offer_estimate || openai.offer_estimate || null,
     summary: reconcile(claude.summary),
+    verdict: reconcile(claude.verdict || ''),
     close_date_rationale: reconcile(claude.close_date_rationale),
     confidence_rationale: reconcile(claude.confidence_rationale),
     clearing_price_rationale: reconcile(claude.clearing_price_rationale),
