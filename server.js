@@ -541,12 +541,8 @@ This is the probability that the asset does NOT sell within the planned process 
 - Process timeline pressure (further from LOI deadline = lower urgency = higher no-deal risk)
 For Kennion's profile (captive benefits, sub-mid-market) a healthy floor is 10–20% even with strong buyers. Do not let it go below 5% absent firm-evidence LOIs from multiple buyers. **Structural-pass calibration**: each buyer the noteLog records as having formally passed (regardless of whether the reason is buyer-side structural like "small-accts focus" or "no-retail mandate") thins the bidder pool and raises no-deal risk. Two or more passes from the original top-half of the list → floor 12–18%. Four or more passes → floor 15–22%. Do not discount these passes just because the reason is "not about us"; a thinner pool is a thinner pool. \`p_no_deal_rationale\`: max 25 words, plain English, name the single biggest no-deal risk.
 
-# Top-buyer verdict (\`verdict\`, single sentence)
-After you finish writing every per-buyer probability and the close_estimate, look at the buyers[] array you just produced and identify the highest-probability LIVE (non-dropped) buyer. Compose ONE sentence using the exact format in the schema description. Three rules:
-1. The buyer name in the verdict MUST be the highest-probability LIVE buyer in buyers[]. Not the highest-fit buyer, not last rescan's leader. Look at the array you just wrote.
-2. The probability cited MUST equal that buyer's probability in this response, integer percent.
-3. The month cited MUST equal close_estimate in this response, formatted "Month YYYY" (e.g. "September 2026").
-If the top two live buyers are within 5 points of each other, use the "Two-way race:" variant. If every live buyer is below 10%, use the "No clear leader." variant. Pick ONE risk for the "Main risk:" tail — the single most likely thing that derails the deal as of today (buyer-side cooling, capacity drag, sponsor pass, regulatory, etc.). Plain English, 8th-grade level, no jargon. Max 35 words.
+# Top risk (\`top_risk\`, one short phrase)
+Identify the single most likely thing that derails the deal from closing within the projected window. ONE short phrase, max 15 words, plain English, 8th-grade level. Do NOT name the leading buyer as the risk — name a risk to deal closure (cooling top buyers, structural passes, sponsor capacity, regulatory, captive-niche illiquidity, etc.). Do NOT prepend "Main risk:" — the server adds that and assembles the surrounding sentence from buyers[] and close_estimate. Do NOT include the close month or any probability number in your phrase.
 
 # Output discipline
 Call apply_rescan exactly once. Do not output prose outside the tool call. Be opinionated but every claim must trace to evidence. If evidence is insufficient to move a number, leave it stable and say so in reasoning.
@@ -578,7 +574,7 @@ const RESCAN_TOOL = {
   description: 'Apply a re-evaluation of one or more buyers in the pipeline based on all available context (buyer profiles, attached documents, user field intelligence, prior reasoning).',
   input_schema: {
     type: 'object',
-    required: ['market', 'buyers', 'summary', 'verdict', 'close_date_rationale', 'confidence_rationale', 'clearing_price_rationale', 'p_no_deal', 'p_no_deal_rationale', 'close_estimate', 'offer_estimate', 'offer_date_rationale'],
+    required: ['market', 'buyers', 'summary', 'top_risk', 'close_date_rationale', 'confidence_rationale', 'clearing_price_rationale', 'p_no_deal', 'p_no_deal_rationale', 'close_estimate', 'offer_estimate', 'offer_date_rationale'],
     properties: {
       market: {
         type: 'object',
@@ -659,9 +655,9 @@ const RESCAN_TOOL = {
         },
       },
       summary: { type: 'string', description: 'ONE sentence, max 25 words, on how the overall pipeline view shifted vs prior state.' },
-      verdict: {
+      top_risk: {
         type: 'string',
-        description: 'Plain-English single-sentence "as-of-today" call on the auction. Format strictly: "Top pick: <BuyerName> at <P>%. Likely closes <Month YYYY>. Main risk: <one risk>." Max 35 words. If the top two live buyers are within 5 probability points, use: "Two-way race: <A> and <B> at <P_A>/<P_B>%. Likely closes <Month YYYY>. Main risk: <one risk>." The <BuyerName(s)>, <P>%, and <Month YYYY> MUST be the highest-probability LIVE buyer(s) and close_estimate you set in this same response — re-check after writing buyers[] before composing this string. No jargon ("LOI cycle", "exclusivity stage", "Reagan timeline"), 8th-grade language. If every live buyer is below 10%, write "No clear leader. Likely closes <Month YYYY>. Main risk: <one risk>."',
+        description: 'ONE short phrase (max 15 words; do NOT prepend "Main risk:", the server adds that) naming the single most likely thing that derails this deal from closing within the projected window. Examples: "captive-niche thesis cools after MP2", "top buyers stall through process letter delivery", "PE pool too thin for sub-$5M EBITDA". Plain English, 8th-grade level. Do NOT name the leading buyer as the risk (the verdict already names the leader on the other side of the sentence). Do NOT include the close month or any probability number; those are filled in around your phrase by the server.',
       },
       close_date_rationale: {
         type: 'string',
@@ -924,6 +920,42 @@ Baseline arithmetic (use these as your starting point, then adjust):
 ${offerLine}
   - weeks_to_close = ${close.weeksFromStart} − ${curWeek} = ${closeWeeks}
 Today's date: ${todayISO}. Adding the baselines to today gives offer ~${offerYM} and close ~${closeYM}. These are the un-adjusted defaults — apply the buyer-momentum rules below to compress or extend.`;
+}
+
+// Formats a "YYYY-MM" close_estimate as "September 2026". Used by the
+// server-synthesized verdict sentence so it reads naturally to a human.
+function fmtCloseMonthLong(ym) {
+  if (typeof ym !== 'string') return null;
+  const m = ym.match(/^(\d{4})-(\d{1,2})$/);
+  if (!m) return ym;
+  const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, 1);
+  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+// Build the verdict-banner sentence from the deterministic parts (top buyer,
+// probabilities, close month) plus the AI-authored top_risk fragment.
+// Three sentence shapes:
+//   - Top pick: <name> at <P>%. ...                    (top is 5+ pts above #2)
+//   - Two-way race: <A> and <B> at <P_A>/<P_B>%. ...   (top two within 5 pts)
+//   - No clear leader. ...                             (every live buyer < 10%)
+// Synthesizing this server-side means the named buyer(s) cannot disagree
+// with the ranked list, since both are derived from the same buyers[] array.
+function synthesizeVerdict({ blendedBuyers, nameById, closeEstimate, topRisk }) {
+  const live = (blendedBuyers || [])
+    .filter(b => typeof b.probability === 'number')
+    .map(b => ({ id: b.id, p: b.probability, name: (nameById && nameById[b.id]) || b.id }));
+  if (live.length === 0) return '';
+  const sorted = [...live].sort((a, b) => b.p - a.p);
+  const closeYM = fmtCloseMonthLong(closeEstimate) || 'an estimated month';
+  const risk = (topRisk || '').trim().replace(/\.+$/, '');
+  const riskTail = risk ? ` Main risk: ${risk}.` : '';
+  if (sorted[0].p < 10) return `No clear leader. Likely closes ${closeYM}.${riskTail}`;
+  const top = sorted[0];
+  const second = sorted[1];
+  if (second && (top.p - second.p) <= 5) {
+    return `Two-way race: ${top.name} and ${second.name} at ${top.p}/${second.p}%. Likely closes ${closeYM}.${riskTail}`;
+  }
+  return `Top pick: ${top.name} at ${top.p}%. Likely closes ${closeYM}.${riskTail}`;
 }
 
 // Re-evaluate the buyer pipeline with full context (buyers + docs + notes + prior reasoning).
@@ -1208,7 +1240,10 @@ ${focusInstruction}`;
     // Blend Claude's full rescan with OpenAI's numerical second opinion. If
     // OpenAI returned null (unavailable / failed / parse error), the blend
     // gracefully falls back to Claude alone with `models.openai = null`.
-    const blended = blendPredictions(toolUse.input, openaiPred);
+    // nameById is passed in so synthesizeVerdict can name buyers (the AI
+    // tool response only carries ids in buyers[], names live in the request).
+    const nameById = Object.fromEntries((buyers || []).map(b => [b.id, b.name || b.id]));
+    const blended = blendPredictions(toolUse.input, openaiPred, { nameById });
 
     // Per-model probability log so we can verify Claude and OpenAI are
     // genuinely returning different numbers (not a wiring bug). Shows in
@@ -1437,7 +1472,7 @@ Return JSON matching the provided schema.`;
 // average market bands, per-buyer probability (matched by id), and p_no_deal.
 // Claude's per-buyer thesis/reasoning/fit/confidence/citations pass through
 // unchanged, GPT only votes on numbers.
-function blendPredictions(claude, openai) {
+function blendPredictions(claude, openai, ctx = {}) {
   if (!openai) return { ...claude, models: { claude: extractClaudeNumbers(claude), openai: null } };
   const avg = (a, b) => Math.round(((a + b) / 2) * 10) / 10;
   const avgInt = (a, b) => Math.round((a + b) / 2);
@@ -1504,7 +1539,13 @@ function blendPredictions(claude, openai) {
     close_estimate: blendedClose || claude.close_estimate || openai.close_estimate || null,
     offer_estimate: blendedOffer || claude.offer_estimate || openai.offer_estimate || null,
     summary: reconcile(claude.summary),
-    verdict: reconcile(claude.verdict || ''),
+    top_risk: reconcile(claude.top_risk || ''),
+    verdict: synthesizeVerdict({
+      blendedBuyers,
+      nameById: ctx.nameById || {},
+      closeEstimate: blendedClose || claude.close_estimate || openai.close_estimate || null,
+      topRisk: claude.top_risk,
+    }),
     close_date_rationale: reconcile(claude.close_date_rationale),
     confidence_rationale: reconcile(claude.confidence_rationale),
     clearing_price_rationale: reconcile(claude.clearing_price_rationale),
