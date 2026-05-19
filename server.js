@@ -105,6 +105,7 @@ async function runStartupMigrations() {
     { id: 'backfill_pe_facts_2026_05_18', fn: backfillPeFactsMigration },
     { id: 'reset_cb_stage_2026_05_18', fn: resetCbStageMigration },
     { id: 'reset_cb_stage_2026_05_18_v2', fn: resetCbStageMigration },
+    { id: 'migrate_process_task_id_2026_05_18', fn: migrateProcessTaskIdMigration },
   ];
   for (const m of all) {
     try {
@@ -307,6 +308,25 @@ async function resetCbStageMigration() {
     [b, WORKSPACE_ID, 'cb']
   );
   return { reset: 'cb', new_stage: 'outreach', nda_signed_cleared: true };
+}
+
+// Migrates any workspace whose process.currentTaskId references a task we
+// removed when realigning PROCESS_TASKS with the Reagan timeline.
+//   "qa" (formerly "Q&A Calls with Reagan") → "initial_qa" (now in MP1).
+// Idempotent. No-op if currentTaskId is already a valid task id.
+async function migrateProcessTaskIdMigration() {
+  const REMAP = { qa: 'initial_qa' };
+  const row = await pool.query(`SELECT process FROM workspace WHERE id = $1`, [WORKSPACE_ID]);
+  if (row.rowCount === 0 || !row.rows[0].process) return { skipped: 'no_process' };
+  const proc = { ...row.rows[0].process };
+  const oldId = proc.currentTaskId;
+  if (!oldId || !(oldId in REMAP)) return { skipped: 'no_remap_needed', currentTaskId: oldId };
+  proc.currentTaskId = REMAP[oldId];
+  await pool.query(
+    `UPDATE workspace SET process = $1, updated_at = now() WHERE id = $2`,
+    [proc, WORKSPACE_ID]
+  );
+  return { remapped: { from: oldId, to: proc.currentTaskId } };
 }
 
 // Removes subjective seed-derived fields and seed-narrative noteLog entries
@@ -822,12 +842,13 @@ function derivePhaseSummary(buyers) {
   const idx = (s) => Math.max(0, STAGE_ORDER.indexOf(s));
   const live = (buyers || []).filter(b => b.stage !== 'dropped');
   const droppedCount = (buyers || []).filter(b => b.stage === 'dropped').length;
-  if (live.length === 0) return { phase: 'Preparation', text: 'Preparation · no live buyers', droppedCount };
+  if (live.length === 0) return { phase: 'Building Materials', text: 'Building Materials · no live buyers', droppedCount };
   const maxIdx = Math.max(...live.map(b => idx(b.stage)));
+  const liveAtLoiOrBeyond = live.filter(b => idx(b.stage) >= idx('loi')).length;
   let phase;
   if (maxIdx >= idx('closed')) phase = 'Close';
-  else if (maxIdx >= idx('loi')) phase = 'Exclusivity';
-  else if (maxIdx >= idx('chemistry')) phase = 'Marketing Phase 2';
+  else if (liveAtLoiOrBeyond === 1) phase = 'Exclusivity';
+  else if (maxIdx >= idx('chemistry') || maxIdx >= idx('loi')) phase = 'Marketing Phase 2';
   else phase = 'Marketing Phase 1';
 
   const c = {
