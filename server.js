@@ -11,6 +11,7 @@ import { dirname, join } from 'path';
 import { existsSync } from 'fs';
 import crypto from 'node:crypto';
 import { PUBLIC_COMP_BANDS, publicCompsSummary } from './src/data/precedents.js';
+import { PROCESS_TASKS } from './src/data.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -518,18 +519,18 @@ Notice: no jargon, no acronyms, no parenthetical buyer lists, every sentence rea
 These rationales must reflect the CURRENT pipeline state in this rescan call. If a per-buyer rescan changed only one buyer, update the rationales only if the change is material to the dashboard number; otherwise echo prior values.
 
 # Close-month estimate (\`close_estimate\`, strict YYYY-MM format)
-Predict the calendar month the deal is most likely to close. Anchor on Reagan's process timeline (Marketing Phase 1 → ~17 weeks to close, Marketing Phase 2 → ~13 weeks, Exclusivity → ~7 weeks, Close → ~0 weeks), then adjust:
-- If multiple top buyers are at LOI or have firm-evidence offers, compress by 2–4 weeks.
-- If the top 3 buyers are all in outreach/NDA with cooling notes or stalls, extend by 4–8 weeks.
-- If chemistry meetings are scheduled but not yet held, anchor on the realistic post-chemistry-to-close interval (~10 weeks).
-Output strictly in "YYYY-MM" format. Example: "2026-09". Do NOT add quotes or extra prose.
+Start from the \`weeks_to_close\` baseline computed in the "Current process step" block at the top of the user message. That is your default. Then adjust ONLY when you have specific evidence:
+- Multiple top buyers at LOI or with firm-evidence offers → compress 2–4 weeks.
+- Top 3 buyers all in outreach/NDA with cooling notes or stalls → extend 4–8 weeks.
+- Chemistry meetings scheduled but not yet held → use chemistry-date + ~10 weeks instead of the arithmetic baseline.
+Hard cap: adjustments may not extend the baseline by more than 8 weeks total — anything larger requires you to cite at least three specific cooling signals from notes_timeline in close_date_rationale. Output strictly in "YYYY-MM" format. Example: "2026-09". Do NOT add quotes or extra prose. \`close_date_rationale\` (max 22 words, plain English): name the current task week, the baseline weeks_to_close from the block above, and what (if anything) you adjusted.
 
 # First-offer estimate (\`offer_estimate\`, strict YYYY-MM format)
-Predict the calendar month a first written offer (LOI / term sheet / written verbal) most likely lands. Anchor on Reagan's process step (Receive Letters of Intent step is week 12 from process start; Marketing Phase 1 → ~7 weeks to first offer, Marketing Phase 2 pre-LOI → ~3 weeks, Exclusivity onward → already past). Adjust:
-- If any top buyer already has firm-evidence pricing in notes/docs, the first offer is in hand, set to current month.
-- If chemistry meetings are scheduled but not held, anchor at chemistry-date + ~3-5 weeks.
-- If top buyers are stalling in outreach/NDA, extend by 3-6 weeks.
-Must be ≤ \`close_estimate\`. Output strictly in "YYYY-MM". Write \`offer_date_rationale\` (max 22 words, plain English, same discipline as close_date_rationale) explaining what's driving the timing.
+Start from the \`weeks_to_first_offer\` baseline computed in the "Current process step" block at the top of the user message. That is your default. Then adjust ONLY when you have specific evidence:
+- Any top buyer already has firm-evidence pricing in notes/docs → first offer is in hand, set to current month.
+- Chemistry meetings scheduled but not held → use chemistry-date + 3–5 weeks instead of the arithmetic baseline.
+- Top buyers stalling in outreach/NDA with cooling notes → extend 3–6 weeks (no more — anything larger requires citing at least two specific stall signals from notes_timeline in offer_date_rationale).
+Hard cap: adjustments may not extend the baseline by more than 6 weeks total. Must be ≤ \`close_estimate\`. Output strictly in "YYYY-MM". \`offer_date_rationale\` (max 22 words, plain English, same discipline as close_date_rationale): name the current task week, the baseline weeks_to_first_offer from the block above, and what (if anything) you adjusted.
 
 # No-deal probability (\`p_no_deal\`, 0–100)
 This is the probability that the asset does NOT sell within the planned process window. It reflects market/process risk, not the inverse of buyer probabilities. Consider:
@@ -884,6 +885,47 @@ function derivePhaseSummary(buyers) {
   return { phase, text, droppedCount };
 }
 
+// Builds the "Current process step" prompt block that anchors close_estimate
+// and offer_estimate on the actual process week the user is at, rather than
+// the flat phase average. The AI gets exact arithmetic baselines and is told
+// to adjust from those, not from a fuzzy "MP1 → ~17 weeks" rule of thumb.
+//
+// Inputs:
+//   currentTaskId — workspace.process.currentTaskId from Postgres. Falls back
+//     to "cim_deliver" if missing so we never produce an empty block.
+//   today — Date object, defaults to now. Used so the example calendar months
+//     in the prompt reflect today, not a hardcoded date.
+function buildCurrentStepBlock(currentTaskId, today = new Date()) {
+  const taskById = Object.fromEntries(PROCESS_TASKS.map(t => [t.id, t]));
+  const current = taskById[currentTaskId] || taskById['cim_deliver'];
+  const lois = taskById['lois'];
+  const close = taskById['close'];
+  if (!current || !lois || !close) return '';
+  const curWeek = current.weeksFromStart;
+  const offerWeeksRaw = lois.weeksFromStart - curWeek;
+  const closeWeeks = Math.max(0, close.weeksFromStart - curWeek);
+  const offerLine = offerWeeksRaw <= 0
+    ? `  - weeks_to_first_offer = 0 (LOI milestone at week ${lois.weeksFromStart} is already past — first offer should be in hand or set to current month if not)`
+    : `  - weeks_to_first_offer = max(0, ${lois.weeksFromStart} − ${curWeek}) = ${offerWeeksRaw}`;
+  const addWeeks = (n) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() + n * 7);
+    return d.toISOString().slice(0, 7);
+  };
+  const offerYM = offerWeeksRaw <= 0 ? today.toISOString().slice(0, 7) : addWeeks(offerWeeksRaw);
+  const closeYM = addWeeks(closeWeeks);
+  const todayISO = today.toISOString().slice(0, 10);
+  return `# Current process step (READ FIRST — anchor close_estimate and offer_estimate on this, NOT the phase average)
+Current task: ${current.id} · "${current.label}" · process week ${curWeek} of ${close.weeksFromStart}
+Milestone weeks (from process start):
+  - Receive Letters of Intent (lois): week ${lois.weeksFromStart} — first-offer anchor
+  - Closing and Funding (close): week ${close.weeksFromStart} — close anchor
+Baseline arithmetic (use these as your starting point, then adjust):
+${offerLine}
+  - weeks_to_close = ${close.weeksFromStart} − ${curWeek} = ${closeWeeks}
+Today's date: ${todayISO}. Adding the baselines to today gives offer ~${offerYM} and close ~${closeYM}. These are the un-adjusted defaults — apply the buyer-momentum rules below to compress or extend.`;
+}
+
 // Re-evaluate the buyer pipeline with full context (buyers + docs + notes + prior reasoning).
 // Used by the top-bar Re-scan, per-buyer note submission, and post-classify doc upload.
 // Rescan memoization: skip the AI call entirely when the request body hashes
@@ -941,6 +983,23 @@ app.post('/api/ai/rescan', async (req, res) => {
   const livePipeline = buyers.filter(b => b.stage !== 'dropped');
   if (livePipeline.length === 0) return res.status(400).json({ error: 'no live buyers' });
 
+  // Read currentTaskId from workspace.process so the AI anchors time
+  // estimates on the actual task you're on (e.g. week 6 = cim_deliver),
+  // not the flat phase average. Falls back to "cim_deliver" if Postgres is
+  // unavailable or the workspace row is missing process state. Pulled BEFORE
+  // the cache key so a task advancement invalidates the cache.
+  let currentTaskId = 'cim_deliver';
+  if (pool) {
+    try {
+      const r = await pool.query(`SELECT process FROM workspace WHERE id = $1`, [WORKSPACE_ID]);
+      if (r.rowCount > 0 && r.rows[0].process && typeof r.rows[0].process.currentTaskId === 'string') {
+        currentTaskId = r.rows[0].process.currentTaskId;
+      }
+    } catch (_e) {
+      // fall through to default — a stale-but-sensible anchor beats throwing
+    }
+  }
+
   // Idempotence: if buyer + market + intel state is byte-identical to the
   // previous call, return the cached response. The user pressing Update
   // without changing anything should NOT shift any number. `force: true`
@@ -955,6 +1014,7 @@ app.post('/api/ai/rescan', async (req, res) => {
     // cache key normalizes it away.
     global_intel: global_intel || [],
     extra_intel: extra_intel || null, pinned_rules: pinned_rules || [],
+    current_task_id: currentTaskId,
   });
   if (!force && inputHash === lastRescanHash && Date.now() - lastRescanAt < RESCAN_CACHE_TTL_MS) {
     return res.json({ ...lastRescanResponse, cached: true });
@@ -1055,10 +1115,14 @@ app.post('/api/ai/rescan', async (req, res) => {
     : ebitda < 50 ? '$20–50M (full mid-market PE / strategic platform)'
     : '>$50M (scaled-platform comps with private discount)';
   const phaseSummary = derivePhaseSummary(livePipeline.concat(buyers.filter(b => b.stage === 'dropped')));
+  const currentStepBlock = buildCurrentStepBlock(currentTaskId);
+
   const userText = `# Pipeline state
 EBITDA: $${ebitda}M (locked, set by Reagan, do not adjust)
 Size bucket: ${sizeBucket}
 **Reminder: anchor the realistic multiple band on this bucket FIRST. Do not apply mid-market or scaled-broker multiples to a sub-$10M asset without explicit hard evidence (LOI, term sheet, written offer).**
+
+${currentStepBlock}
 
 # Process phase (derived from buyer state — use this to anchor close_estimate and offer_estimate)
 ${phaseSummary.text}
