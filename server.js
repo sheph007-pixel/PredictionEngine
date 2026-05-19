@@ -442,33 +442,39 @@ If the user message includes a "Live web intel" section, that's fresh data fetch
 - If live intel is absent or empty, rely on the size-bucket discipline + public comps + buyer profile + notes.
 
 # Global market band setting
-**Size discipline (READ FIRST — anchored on actual private M&A guaranteed-multiple data for insurance brokerage, '23–'25 vintage, then adjusted for niche/illiquidity):**
 
-The bands below are **TOTAL enterprise-value multiples (guaranteed + typical earnout)**, because the dashboard's "Market clearing price" KPI reflects total deal value. Guaranteed-only is ~1.5–2 turns lower in each bucket.
+**Source data (private M&A guaranteed multiples by deal size, '23–'25 vintage, insurance brokerage):**
+  - <$3M EBITDA:    9.9× guaranteed
+  - $3–10M EBITDA: 12.7× guaranteed (bucket mid; at the $3M floor, interpolate toward 9.9×; at the $10M ceiling, stays near 12.7×)
+  - $10–20M EBITDA: 13.7× guaranteed
+  - >$20M EBITDA:  14.9× guaranteed
 
-Source anchor (private M&A guaranteed multiples by deal size, '23–'25 vintage):
-  - <$3M EBITDA:    9.9× guaranteed  → ~7.5–9.0× total EV after small-pool + niche discount
-  - $3–10M EBITDA: 12.7× guaranteed → ~8.5–11.5× total EV across the sub-bucket (lower for $3–5M, higher for $5–10M)
-  - $10–20M EBITDA: 13.7× guaranteed → ~11.5–13.5× total EV
-  - >$20M EBITDA:  14.9× guaranteed → ~12.5–14.5× total EV
+The dashboard's "Market clearing price" KPI displays **total enterprise value** (guaranteed + typical earnout). Derive your TOTAL-EV band in three explicit steps and show your work in clearing_price_rationale.
 
-Apply these total-EV bands by EBITDA bucket:
-  - **EBITDA <$3M**: realistic 7.5–9.0×, conservative 6.0–7.5×, aggressive 9.0–10.5×. Small buyer pool (local strategics + small PE tuck-ins) pulls toward lower half.
-  - **EBITDA $3–5M**: realistic **8.5–10.0×**, conservative 7.0–8.5×, aggressive 10.0–11.5×. **Kennion's bucket at $3.6M EBITDA.** Captive-benefits niche is already priced into the realistic band — do NOT drop below 7.0× absent specific cooling evidence (e.g., multiple structural passes from top of pipeline).
-  - **EBITDA $5–10M**: realistic 10.0–11.5×, conservative 8.5–10.0×, aggressive 11.5–13.0×.
-  - **EBITDA $10–20M**: realistic 11.5–13.5×, conservative 10.0–11.5×, aggressive 13.5–14.5×.
-  - **EBITDA $20–50M**: realistic 13.0–14.5×, conservative 11.5–13.0×, aggressive 14.5–16.0×.
-  - **EBITDA >$50M**: realistic 13.5–15.0×, conservative 12.0–13.5×, aggressive 15.0–17.0×.
+**Step 1: Pick a guaranteed-multiple starting point for this EBITDA.**
+Interpolate between the two adjacent bucket anchors. For example, at $3.6M EBITDA (floor of $3–10M bucket), interpolation between 9.9× (<$3M anchor) and 12.7× ($3–10M anchor) gives a starting point in the 10.0–11.0× guaranteed range; pick a specific decimal based on your read of how the asset compares to the bucket mid.
 
-After picking the size bucket, apply ONLY documented adjustments:
-- **Captive / niche profile** is already baked into the bucket bands above for the $3–5M anchor. Do NOT layer an additional captive discount on top — that double-counts.
-- **Structural-pass discount**: if 2+ top-of-pipeline buyers formally pass with structural reasons, pull realistic by 0.5–1.0×. If 4+ pass, pull by 1.0–1.5×. Cite the passes in the band note.
-- **Firm-evidence lift**: if a top buyer has firm pricing evidence (LOI, term sheet, written offer) above the realistic band, lift toward aggressive by 0.5–1.5× and cite the specific evidence.
-- **Public broker comps** (BRO 16×, AON 14×, MMC 15.5×, etc.) are forward-EBITDA on scaled liquid platforms. Treat them as CONFIRMATORY context only — do NOT additionally discount the private bands above using public-comp arithmetic. The private guaranteed-multiple anchors already reflect the private-market clearing levels and have the public-private gap baked in.
+**Step 2: Apply niche/illiquidity adjustments (judgment call).**
+Two adjustments typically apply for sub-$10M private M&A — pick a specific value within each range based on the noteLog and pipeline state:
+  - Captive / niche profile: 0 to −1.5× guaranteed. For Kennion (captive benefits), the literature supports −0.5 to −1.5×; bias toward the larger discount if multiple top-of-pipeline buyers have structurally passed, lower if the pipeline is broad and healthy.
+  - Small-pool penalty: 0 to −0.5× guaranteed when fewer than 8 live buyers, scaled by how many fewer.
 
-Bands ~2× wide; bands may overlap (conservative.high may equal realistic.low). Update bands only if new evidence shifts them; otherwise echo prior_market values.
+**Step 3: Convert guaranteed → total EV (judgment call).**
+Typical earnout magnitude is +0.5 to +1.5× of EBITDA on TOTAL EV. Pick a specific value based on:
+  - Strong pipeline + multiple firm bids → +1.0 to +1.5×
+  - Average pipeline, no firm pricing yet → +0.5 to +1.0×
+  - Weak pipeline / 2+ structural passes → +0.5×
 
-**Calibration check**: a $3.6M EBITDA captive-benefits broker with a healthy live pipeline should land realistic at **8.5–10.0× → $30.6–36.0M total EV**. Anything below $28M total EV (~7.8×) requires citing at least two specific structural-pass or cooling signals from notes_timeline in clearing_price_rationale. Anything above $40M total EV (~11.1×) requires firm-evidence pricing from at least one top buyer.
+**Reasonable landing zone for $3.6M EBITDA captive-benefits broker:** realistic typically lands 8.0–10.5× total EV ($28.8–37.8M); most defensible reads cluster 8.5–10.0× ($30.6–36M). **Do NOT just pick a canonical midpoint** — pick a specific band that reflects YOUR Step-1/Step-2/Step-3 choices. If your read on the pipeline is genuinely "average across all three steps," still pick a defensible specific decimal (e.g., 8.7–10.1× or 8.4–9.8×, not literally 8.5–10.0×). Two models hitting the exact same decimal bounds suggests both echoed an anchor instead of deriving — that's the signal-zero failure mode.
+
+**Conservative band** = realistic.low − 1.5× (tighten to −1.0× if the pipeline has firm-evidence pricing already).
+**Aggressive band** = realistic.high + 1.5× (lift if a top buyer has firm pricing above the realistic band).
+
+Bands ~2× wide; bands may overlap. Update only if new evidence shifts the Step-1/2/3 choices; otherwise echo prior_market.
+
+**Public broker comps** (BRO 16×, AON 14×, MMC 15.5×, etc.) are CONFIRMATORY only. The private guaranteed-multiple anchors above already reflect the public-to-private gap — do NOT additionally discount your private band using public-comp arithmetic; that double-counts.
+
+**Calibration check (post-derivation)**: anything below 7.8× total EV ($28M at $3.6M EBITDA) requires citing at least two structural-pass or cooling signals from notes_timeline in clearing_price_rationale. Anything above 11.0× total EV ($40M) requires firm-evidence pricing (LOI / term sheet / written offer) from at least one top buyer.
 
 # Notes timeline (treat as field intelligence over time, not as a static brief)
 Each buyer's \`notes_timeline\` field is a chronological log of field intel, one line per entry, prefixed with \`[YYYY-MM-DD]\` and optionally a user-tagged signal classification \`[warming|cooling|firm|stalling|passed]\`. Signal-tagged notes carry direct user judgment about the trajectory, weight them more heavily than untagged free-text notes (\`firm\` is hardest evidence, then \`passed\`, then \`warming\`/\`cooling\`/\`stalling\`). Read it as a story, not a list:
@@ -1150,19 +1156,19 @@ app.post('/api/ai/rescan', async (req, res) => {
   const liveIntel = null;
 
   const sizeBucket =
-    ebitda < 3 ? '<$3M (sub-scale, local strategics + small PE tuck-ins; realistic 7.5–9.0× total EV)'
-    : ebitda < 5 ? '$3–5M (Kennion bucket per Reagan private-M&A data; realistic 8.5–10.0× total EV, niche already priced in)'
-    : ebitda < 10 ? '$5–10M (lower-mid private M&A; realistic 10.0–11.5× total EV)'
-    : ebitda < 20 ? '$10–20M (mid-market private M&A; realistic 11.5–13.5× total EV)'
-    : ebitda < 50 ? '$20–50M (upper-mid private M&A; realistic 13.0–14.5× total EV)'
-    : '>$50M (scaled-broker private comps; realistic 13.5–15.0× total EV)';
+    ebitda < 3 ? '<$3M (sub-scale, local strategics + small PE tuck-ins)'
+    : ebitda < 5 ? '$3–5M (Kennion bucket, captive-benefits niche; derive total-EV band using the 3-step procedure in system prompt — do not echo a canonical answer)'
+    : ebitda < 10 ? '$5–10M (lower-mid private M&A, broader PE platform interest)'
+    : ebitda < 20 ? '$10–20M (mid-market private M&A)'
+    : ebitda < 50 ? '$20–50M (upper-mid private M&A / strategic platforms)'
+    : '>$50M (scaled-broker private comps)';
   const phaseSummary = derivePhaseSummary(livePipeline.concat(buyers.filter(b => b.stage === 'dropped')));
   const currentStepBlock = buildCurrentStepBlock(currentTaskId);
 
   const userText = `# Pipeline state
 EBITDA: $${ebitda}M (locked, set by Reagan, do not adjust)
 Size bucket: ${sizeBucket}
-**Reminder: anchor the realistic multiple band on the size-bucket data in the system prompt FIRST. These are TOTAL EV multiples (guaranteed + earnout) from private M&A '23-'25 vintage data. The niche / captive-benefits adjustment is already baked in for sub-$10M buckets — do NOT layer additional captive or public-comp discounts on top, that double-counts. Adjust only for documented evidence (structural passes pull down 0.5–1.5×; firm-evidence pricing lifts toward aggressive).**
+**Reminder: derive your TOTAL EV multiple band using the 3-step procedure in the system prompt (Step 1 = pick a guaranteed anchor from the private-M&A data; Step 2 = apply niche/illiquidity discount; Step 3 = add earnout magnitude). Pick specific defensible decimals — do NOT echo a canonical answer. Do NOT layer public-comp discounts on top of the private bands; the private guaranteed-multiple anchors already reflect the public-to-private gap.**
 
 ${currentStepBlock}
 
@@ -1396,13 +1402,23 @@ async function getOpenAIPredictions({ ebitda, groundedBuyers, liveIntel, sizeBuc
 
 Claude is producing the primary analysis IN PARALLEL, you do not see its output and it does not see yours. The system averages your numbers with Claude's after both finish. The point is for you to reach a SECOND, INDEPENDENT view from the same ground-truth data. If you simply mirror what a typical analyst would say, you add no signal. Bring your own read on signal strength, momentum, and bidder discipline. Do not be surprised if your number differs from a hypothetical "consensus", that's the value.
 
-# Size discipline (TOTAL EV multiples — guaranteed + earnout — anchored on private M&A '23-'25 vintage data for insurance brokerage)
-- EBITDA <$3M: realistic 7.5–9.0×, conservative 6.0–7.5×, aggressive 9.0–10.5×
-- EBITDA $3–5M: realistic 8.5–10.0×, conservative 7.0–8.5×, aggressive 10.0–11.5×  ← Kennion's bucket; niche already baked in, do NOT double-discount
-- EBITDA $5–10M: realistic 10.0–11.5×, conservative 8.5–10.0×, aggressive 11.5–13.0×
-- EBITDA $10–20M: realistic 11.5–13.5×, conservative 10.0–11.5×, aggressive 13.5–14.5×
-- EBITDA $20–50M: realistic 13.0–14.5×, conservative 11.5–13.0×, aggressive 14.5–16.0×
-- EBITDA >$50M: realistic 13.5–15.0×, conservative 12.0–13.5×, aggressive 15.0–17.0×
+# Size discipline (derive total-EV band in 3 steps — do NOT echo a canonical answer)
+
+**Source data (private M&A guaranteed multiples by deal size, '23–'25 vintage, insurance brokerage):**
+- <$3M EBITDA:    9.9× guaranteed
+- $3–10M EBITDA: 12.7× guaranteed
+- $10–20M EBITDA: 13.7× guaranteed
+- >$20M EBITDA:  14.9× guaranteed
+
+**The dashboard's "Market clearing price" KPI displays TOTAL enterprise value (guaranteed + typical earnout).** Derive your total-EV band in three explicit steps, then pick specific decimals for each band:
+
+1. **Pick a guaranteed-multiple starting point.** Interpolate between the two adjacent bucket anchors. At $3.6M EBITDA you sit at the floor of the $3–10M bucket — interpolation between 9.9× and 12.7× gives a 10.0–11.0× starting range; pick a specific decimal.
+2. **Apply niche/illiquidity discount (judgment call).** Captive/niche: 0 to −1.5× guaranteed (bias larger if structural passes are stacking, smaller if the pipeline is broad/healthy). Small-pool penalty: 0 to −0.5× guaranteed when fewer than 8 live buyers.
+3. **Convert guaranteed → total EV (judgment call).** Typical earnout magnitude: +0.5 to +1.5×. Strong pipeline + firm bids → +1.0 to +1.5×; average pipeline, no firm pricing → +0.5 to +1.0×; weak / 2+ structural passes → +0.5×.
+
+**Reasonable landing zone at $3.6M EBITDA captive-benefits:** realistic typically lands 8.0–10.5× total EV ($28.8–37.8M); most defensible reads cluster 8.5–10.0× ($30.6–36M). **Do NOT just pick a canonical midpoint.** Pick a specific defensible decimal pair (e.g., 8.3–9.7× or 8.9–10.4×) based on YOUR Step-1/2/3 read. Conservative = realistic.low − 1.5×; aggressive = realistic.high + 1.5×, adjust if evidence supports.
+
+If you are tempted to echo "8.5–10.0×" verbatim, you are anchoring on a hint instead of deriving — re-do the steps and pick a band that reflects your own read of the pipeline. The point of running you in parallel with Claude is to triangulate from independent reasoning, not to echo the same canonical number.
 
 # Stage discipline (probability ranges, final, no post-processing)
 - outreach: 8–22%
