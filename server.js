@@ -108,6 +108,7 @@ async function runStartupMigrations() {
     { id: 'reset_cb_stage_2026_05_18', fn: resetCbStageMigration },
     { id: 'reset_cb_stage_2026_05_18_v2', fn: resetCbStageMigration },
     { id: 'migrate_process_task_id_2026_05_18', fn: migrateProcessTaskIdMigration },
+    { id: 'add_trucordia_2026_05_20', fn: addTrucordiaMigration },
   ];
   for (const m of all) {
     try {
@@ -329,6 +330,44 @@ async function migrateProcessTaskIdMigration() {
     [proc, WORKSPACE_ID]
   );
   return { remapped: { from: oldId, to: proc.currentTaskId } };
+}
+
+// Inserts Trucordia (formerly PCF Insurance Services) into the live workspace
+// as a new buyer at "outreach" with Reagan's NDA-sent note from 2026-05-20.
+// Identity facts per user-provided context: >$1B revenue, Lehi UT, Carlyle-
+// backed. Idempotent — no-op if a row already exists.
+async function addTrucordiaMigration() {
+  const BUYER_ID = 'trucordia';
+  const NOTE_TEXT = 'Reagan sent NDA. >$1B revenue, based in Utah, Carlyle-backed. Historically open to opportunities outside the middle of the fairway for brokers.';
+  const NOTE_TS = '2026-05-20T00:00:00.000Z';
+  const existing = await pool.query(
+    `SELECT 1 FROM buyers WHERE workspace_id = $1 AND id = $2`,
+    [WORKSPACE_ID, BUYER_ID]
+  );
+  if (existing.rowCount > 0) return { skipped: 'trucordia_already_present' };
+  const data = {
+    id: BUYER_ID,
+    name: 'Trucordia',
+    website: 'https://www.trucordia.com',
+    hq: 'Lehi, UT',
+    revenue: '>$1B',
+    headcount: '4,000+',
+    offices: '200+',
+    pe_backed: true,
+    sponsor: 'Carlyle',
+    stage: 'outreach',
+    fit: { size: 0, benefits: 0, pe: 0, precedent: 0 },
+    thesis: '',
+    probability: 0,
+    noteLog: [
+      { id: crypto.randomUUID(), ts: NOTE_TS, text: NOTE_TEXT },
+    ],
+  };
+  await pool.query(
+    `INSERT INTO buyers (workspace_id, id, data, updated_at) VALUES ($1, $2, $3, now())`,
+    [WORKSPACE_ID, BUYER_ID, data]
+  );
+  return { inserted: BUYER_ID, note_ts: NOTE_TS };
 }
 
 // Removes subjective seed-derived fields and seed-narrative noteLog entries
