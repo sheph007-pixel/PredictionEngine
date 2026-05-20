@@ -109,6 +109,7 @@ async function runStartupMigrations() {
     { id: 'reset_cb_stage_2026_05_18_v2', fn: resetCbStageMigration },
     { id: 'migrate_process_task_id_2026_05_18', fn: migrateProcessTaskIdMigration },
     { id: 'add_trucordia_2026_05_20', fn: addTrucordiaMigration },
+    { id: 'trucordia_top100_rank_2026_05_20', fn: trucordiaTop100RankMigration },
   ];
   for (const m of all) {
     try {
@@ -368,6 +369,25 @@ async function addTrucordiaMigration() {
     [WORKSPACE_ID, BUYER_ID, data]
   );
   return { inserted: BUYER_ID, note_ts: NOTE_TS };
+}
+
+// Backfills Trucordia's Business Insurance Top 100 rank (#18) on the existing
+// buyer row. The original add_trucordia migration omitted top100_rank because
+// the rank wasn't confirmed at insert time. Idempotent.
+async function trucordiaTop100RankMigration() {
+  const row = await pool.query(
+    `SELECT data FROM buyers WHERE workspace_id = $1 AND id = $2`,
+    [WORKSPACE_ID, 'trucordia']
+  );
+  if (row.rowCount === 0) return { skipped: 'trucordia_not_found' };
+  const b = { ...row.rows[0].data };
+  if (b.top100_rank === 18) return { skipped: 'rank_already_set' };
+  b.top100_rank = 18;
+  await pool.query(
+    `UPDATE buyers SET data = $1, updated_at = now() WHERE workspace_id = $2 AND id = $3`,
+    [b, WORKSPACE_ID, 'trucordia']
+  );
+  return { set: { top100_rank: 18 } };
 }
 
 // Removes subjective seed-derived fields and seed-narrative noteLog entries
