@@ -733,7 +733,7 @@ const RESCAN_TOOL = {
       summary: { type: 'string', description: 'ONE sentence, max 25 words, on how the overall pipeline view shifted vs prior state.' },
       top_risk: {
         type: 'string',
-        description: 'ONE short phrase (max 15 words; do NOT prepend "Main risk:", the server adds that) naming the single most likely thing that derails this deal from closing within the projected window. Examples: "captive-niche thesis cools after MP2", "top buyers stall through process letter delivery", "PE pool too thin for sub-$5M EBITDA". Plain English, 8th-grade level. Do NOT name the leading buyer as the risk (the verdict already names the leader on the other side of the sentence). Do NOT include the close month or any probability number; those are filled in around your phrase by the server.',
+        description: 'ONE short phrase (max 15 words; do NOT prepend "Main risk:", the server adds that) naming the single most likely thing that derails this deal from closing within the projected window. Examples: "captive-niche thesis cools after MP2", "top buyers stall through process letter delivery", "PE pool too thin for sub-$5M EBITDA". Plain English, 8th-grade level. Do NOT name the leading buyer as the risk (the verdict already names the leader on the other side of the sentence). Do NOT include the close month or any probability number; those are filled in around your phrase by the server. Do NOT include angle-bracket tags, parameter tags, or any structural / XML formatting in your phrase — write a plain English sentence. The server validates and will reject your top_risk if it contains "<" or ">" characters, which causes the verdict banner to render without the "Main risk:" tail.',
       },
       close_date_rationale: {
         type: 'string',
@@ -1032,6 +1032,29 @@ function synthesizeVerdict({ blendedBuyers, nameById, closeEstimate, topRisk }) 
     return `Two-way race: ${top.name} and ${second.name} at ${top.p}/${second.p}%. Likely closes ${closeYM}.${riskTail}`;
   }
   return `Top pick: ${top.name} at ${top.p}%. Likely closes ${closeYM}.${riskTail}`;
+}
+
+// Defends against malformed model output (XML/tool-tag bleed between fields,
+// runaway length). Returns the cleaned string or null if too damaged to
+// recover — downstream callers treat null as "field absent" and fall back
+// (synthesizeVerdict drops the "Main risk:" tail; captureRationales on the
+// client keeps the prior persisted value for rationale fields).
+function sanitizeAiString(s, opts = {}) {
+  const { maxWords = 35 } = opts;
+  if (typeof s !== 'string') return null;
+  let v = s.trim();
+  if (!v) return null;
+  // Hard reject: any XML-style tag means the model bled between fields.
+  if (/<\/?[a-zA-Z_][\w-]*(\s[^>]*)?>/.test(v)) return null;
+  // Hard reject: literal tool-call openings even if not well-formed.
+  if (/<parameter\s|<\/?invoke\b|<\/?function\b/i.test(v)) return null;
+  // Defensive truncate at maxWords. Most fields have their own word caps in
+  // the schema description; this is a backstop for when the model overshoots.
+  const words = v.split(/\s+/);
+  if (words.length > maxWords) {
+    v = words.slice(0, maxWords).join(' ').replace(/[.,;:]$/, '') + '…';
+  }
+  return v;
 }
 
 // Re-evaluate the buyer pipeline with full context (buyers + docs + notes + prior reasoning).
@@ -1617,6 +1640,23 @@ function blendPredictions(claude, openai, ctx = {}) {
     return out;
   };
 
+  // Sanitize AI-authored strings against tool-tag bleed before they reach the
+  // client. sanitizeAiString returns null when the model output is too damaged
+  // to recover; downstream code falls back gracefully (verdict drops the risk
+  // tail; captureRationales keeps prior persisted values). Composed AFTER
+  // reconcile so the em-dash + seed-narrative scrub still runs.
+  const cleanTopRisk = sanitizeAiString(reconcile(claude.top_risk || ''), { maxWords: 20 });
+  if (claude.top_risk && !cleanTopRisk) {
+    console.warn(`Rescan: rejected malformed top_risk (len=${claude.top_risk.length}, preview="${String(claude.top_risk).slice(0, 80)}")`);
+  }
+  const cleanField = (raw, maxWords, name) => {
+    const cleaned = sanitizeAiString(reconcile(raw), { maxWords });
+    if (raw && !cleaned) {
+      console.warn(`Rescan: rejected malformed ${name} (len=${String(raw).length})`);
+    }
+    return cleaned;
+  };
+
   return {
     ...claude,
     market: blendedMarket,
@@ -1624,19 +1664,19 @@ function blendPredictions(claude, openai, ctx = {}) {
     p_no_deal: blendedPNoDeal,
     close_estimate: blendedClose || claude.close_estimate || openai.close_estimate || null,
     offer_estimate: blendedOffer || claude.offer_estimate || openai.offer_estimate || null,
-    summary: reconcile(claude.summary),
-    top_risk: reconcile(claude.top_risk || ''),
+    summary: cleanField(claude.summary, 30, 'summary'),
+    top_risk: cleanTopRisk || '',
     verdict: synthesizeVerdict({
       blendedBuyers,
       nameById: ctx.nameById || {},
       closeEstimate: blendedClose || claude.close_estimate || openai.close_estimate || null,
-      topRisk: claude.top_risk,
+      topRisk: cleanTopRisk,  // null → synthesizeVerdict drops the "Main risk:" tail
     }),
-    close_date_rationale: reconcile(claude.close_date_rationale),
-    confidence_rationale: reconcile(claude.confidence_rationale),
-    clearing_price_rationale: reconcile(claude.clearing_price_rationale),
-    p_no_deal_rationale: reconcile(claude.p_no_deal_rationale),
-    offer_date_rationale: reconcile(claude.offer_date_rationale),
+    close_date_rationale: cleanField(claude.close_date_rationale, 30, 'close_date_rationale'),
+    confidence_rationale: cleanField(claude.confidence_rationale, 30, 'confidence_rationale'),
+    clearing_price_rationale: cleanField(claude.clearing_price_rationale, 30, 'clearing_price_rationale'),
+    p_no_deal_rationale: cleanField(claude.p_no_deal_rationale, 30, 'p_no_deal_rationale'),
+    offer_date_rationale: cleanField(claude.offer_date_rationale, 25, 'offer_date_rationale'),
     models: {
       claude: extractClaudeNumbers(claude),
       openai: {
