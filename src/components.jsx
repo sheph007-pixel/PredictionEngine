@@ -264,9 +264,34 @@ function fmtCloseMonth(s) {
   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
+// Returns the current Date and ticks every `intervalMs`. Used by the hero
+// KPIs to drive a live countdown to projected offer / close. 60s cadence is
+// intentional: at a multi-week horizon, ticking seconds is visual noise and
+// re-renders the hero unnecessarily; minutes still feel alive on the page.
+function useNow(intervalMs = 60_000) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+// Formats a future Date as "Xd Yh Zm" from `now`. Returns "overdue" if the
+// target is already past. Consumed by the hero foot-line countdown text.
+function fmtCountdown(target, now) {
+  if (!target) return null;
+  const ms = target.getTime() - now.getTime();
+  if (ms <= 0) return 'overdue';
+  const d = Math.floor(ms / 86400000);
+  const h = Math.floor((ms % 86400000) / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return `${d}d ${h}h ${m}m`;
+}
+
 export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales }) {
   const derived = derivePhase(buyers);
-  const today = new Date();
+  const today = useNow(60_000);
   const weeksToClose = derived.weeksToClose;
   const weeksToOffer = derived.weeksToOffer;
   const projectedClose = new Date(today);
@@ -341,13 +366,13 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
       <div className="hero-kpi">
         <div className="hero-kpi-label">Projected offer</div>
         <div className="hero-kpi-value hero-kpi-close">{headlineOffer}</div>
-        <div className="hero-kpi-foot" title={`${weeksToOfferDisplay} weeks to first offer · ${derived.phase}`}><b>{weeksToOfferDisplay}</b> weeks to first offer · <b>{derived.phase}</b></div>
+        <div className="hero-kpi-foot" title={`${fmtCountdown(aiOfferDate || projectedOffer, today)} to first offer · ${derived.phase}`}><b>{fmtCountdown(aiOfferDate || projectedOffer, today)}</b> to first offer · <b>{derived.phase}</b></div>
         {offerChips && <ModelVote claudeVal={offerChips.claude} openaiVal={offerChips.openai} avgVal={offerChips.avg} />}
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Projected close</div>
         <div className="hero-kpi-value hero-kpi-close">{headlineClose}</div>
-        <div className="hero-kpi-foot" title={`${weeksRemaining} weeks remaining · ${derived.phase}`}><b>{weeksRemaining}</b> weeks remaining · <b>{derived.phase}</b></div>
+        <div className="hero-kpi-foot" title={`${fmtCountdown(aiCloseDate || projectedClose, today)} remaining · ${derived.phase}`}><b>{fmtCountdown(aiCloseDate || projectedClose, today)}</b> remaining · <b>{derived.phase}</b></div>
         {closeChips && <ModelVote claudeVal={closeChips.claude} openaiVal={closeChips.openai} avgVal={closeChips.avg} />}
       </div>
       <div className="hero-kpi">
