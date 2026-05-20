@@ -1,3 +1,4 @@
+// Deploy marker: 2026-05-20 — Railway redeploy nudge after webhook gap.
 import { File as BufferFile } from 'node:buffer';
 if (typeof globalThis.File === 'undefined') globalThis.File = BufferFile;
 
