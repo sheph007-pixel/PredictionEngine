@@ -134,7 +134,7 @@ body { font-size: 14px; }
 .hero-kpi-confidence { color: var(--pos); }
 .hero-kpi-pipeline { color: var(--ink); }
 .hero-kpi-foot { font-family: var(--sans); font-size: 12.5px; color: var(--ink-3); margin-top: 10px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hero-kpi-foot b { color: var(--ink); font-weight: 500; }
+.hero-kpi-foot b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
 .hero-kpi > .model-vote { margin-top: 12px; flex-wrap: nowrap; gap: 4px; }
 .hero-kpi > .model-vote .model-chip { padding: 3px 7px; font-size: 10.5px; gap: 4px; }
 .hero-kpi > .model-vote .model-chip-mark { width: 14px; height: 14px; font-size: 8.5px; }
