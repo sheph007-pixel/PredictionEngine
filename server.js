@@ -636,6 +636,9 @@ Before submitting, verify: any percentage, multiple, or month cited in summary, 
 - If your top buyer this rescan is 15%, the rationale says "15% odds", not "20%+".
 The audit log shows both the rationale text and the buyers[] array side by side; mismatches are immediately visible to the user.
 
+# Milestone-recency self-check (NON-NEGOTIABLE)
+**Before submitting, walk every buyer in your buyers[] array. For each buyer where \`cim_delivered\` is set to a date, scan that buyer's \`thesis\` and \`reasoning\` text for any of these phrases or close paraphrases: "very early NDA", "just arrived at NDA", "fresh to NDA", "recent NDA arrival", "newly in NDA", "early stage", "early in NDA". If found, REWRITE the thesis and reasoning to reflect the buyer's current milestone state without recency framing. This check is independent of the STABILITY RULE — even if you intended to echo a prior thesis, the prior thesis is STALE the moment \`cim_delivered\` flips; rewriting is required, not optional.** Same check for \`chemistry_date\` set + "very early chemistry" / "just arrived at chemistry" phrases, and \`ioi_received\` set + "very early IOI" phrases. The verdict banner and the row thesis must not contradict the milestone badge the user sees on the dashboard.
+
 # Evidence discipline, only assert events that have happened
 Do NOT assert that buyer milestones (chemistry meetings, NDAs, LOIs, exclusivity, closes) HAVE happened, ARE scheduled, or are "set" / "on the calendar" / "next week" unless one of the following is true:
 - The buyer's current stage reflects it (a buyer at \`chemistry\` stage means a chemistry meeting was held; \`loi\` means an LOI is in hand; \`closed\` means closed).
@@ -1065,6 +1068,12 @@ function sanitizeAiString(s, opts = {}) {
 // user expects from the Update button. Cache is in-memory + per-process; a
 // Railway restart drops it and the next call rebuilds it on the fly.
 const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
+// Bump this when the rescan system prompt or tool schema changes so the
+// in-memory cache invalidates on the next request. The cache key includes
+// this constant, so a deploy with a new PROMPT_VERSION guarantees stale
+// responses don't get served. Sync the number with the most recent prompt
+// change to make this human-auditable.
+const PROMPT_VERSION = 4;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
@@ -1146,6 +1155,7 @@ app.post('/api/ai/rescan', async (req, res) => {
     global_intel: global_intel || [],
     extra_intel: extra_intel || null, pinned_rules: pinned_rules || [],
     current_task_id: currentTaskId,
+    prompt_version: PROMPT_VERSION,
   });
   if (!force && inputHash === lastRescanHash && Date.now() - lastRescanAt < RESCAN_CACHE_TTL_MS) {
     return res.json({ ...lastRescanResponse, cached: true });
