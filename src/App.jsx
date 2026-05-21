@@ -8,7 +8,7 @@ import {
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
 import { fetchWorkspace, pushWorkspace, pushBuyers, patchBuyer, deleteBuyer, deleteNote, debouncedPush } from './lib/sync.js';
-import { migrateNoteLog, appendNote, removeNote, latestNoteId, EVENT_SPECS } from './lib/notes.js';
+import { migrateNoteLog, appendNote, removeNote, latestNoteId, EVENT_SPECS, relativeTime } from './lib/notes.js';
 
 const STATE_KEY = 'kennion.state.v1';
 
@@ -110,6 +110,19 @@ export default function App() {
   const [showDropped, setShowDropped] = useState(false);
   const [openIntent, setOpenIntent] = useState(null);
   const [showLibrary, setShowLibrary] = useState(false);
+
+  // Deploy / prompt-version badge, fetched once at mount. Lets the user
+  // confirm whether the latest merge is actually running on Railway. If
+  // /api/health is down or returns non-JSON, the footer just doesn't render.
+  const [build, setBuild] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/health')
+      .then(r => r.ok ? r.json() : null)
+      .then(b => { if (!cancelled) setBuild(b); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   const [showBrain, setShowBrain] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [docs, setDocs] = useLibrary();
@@ -786,6 +799,25 @@ export default function App() {
           onOpenLibrary={() => { setShowBrain(false); setShowLibrary(true); }}
           onRescanAll={rescanAll}
         />
+      )}
+
+      {build && (
+        <div className="build-footer" title={build.commit_message || ''}>
+          <span className="build-sha">build {build.version}</span>
+          {' · '}
+          <span className="build-prompt">prompt v{build.prompt_version}</span>
+          {build.started_at && (
+            <>
+              {' · '}
+              <span className="build-started" title={build.started_at}>
+                deployed {relativeTime(build.started_at)}
+              </span>
+            </>
+          )}
+          {build.branch && build.branch !== 'main' && (
+            <span className="build-branch"> · branch {build.branch}</span>
+          )}
+        </div>
       )}
 
     </div>
