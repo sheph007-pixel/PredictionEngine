@@ -781,7 +781,21 @@ const upload = multer({
   limits: { fileSize: 32 * 1024 * 1024, files: 20 },
 });
 
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+// Captured at boot so the UI can show "deployed Xm ago" without Railway's
+// queue timestamps (which lag because Railway counts queue time, not the
+// moment the new build started serving traffic).
+const SERVER_START_TIME = new Date().toISOString();
+
+app.get('/api/health', (_req, res) => res.json({
+  ok: true,
+  version: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) || 'local',
+  commit_sha: process.env.RAILWAY_GIT_COMMIT_SHA || null,
+  commit_message: (process.env.RAILWAY_GIT_COMMIT_MESSAGE || '').split('\n')[0].slice(0, 100) || null,
+  branch: process.env.RAILWAY_GIT_BRANCH || null,
+  deployment_id: process.env.RAILWAY_DEPLOYMENT_ID || null,
+  prompt_version: PROMPT_VERSION,
+  started_at: SERVER_START_TIME,
+}));
 
 app.post('/api/ai/complete', async (req, res) => {
   const { prompt } = req.body;
