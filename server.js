@@ -1074,6 +1074,45 @@ function sanitizeAiString(s, opts = {}) {
   return v;
 }
 
+// Strip recency-framing phrases from a buyer's thesis or reasoning when the
+// corresponding milestone flag is set. The AI keeps evading prompt anti-
+// patterns by varying the phrasing ("very early NDA" -> "early NDA stage"
+// -> "early-stage NDA"...) — server-side post-validation is more reliable
+// than chasing every variant in the prompt. Only fires when a milestone is
+// SET (so the phrase actually contradicts reality); buyers genuinely early
+// in the process keep their original text.
+const RECENCY_STRIP_PATTERNS = [
+  /\s*(?:,|but|and)\s+(?:very\s+)?early[-\s]+(?:NDA|nda|chemistry|IOI|ioi)\s+stage\.?/gi,
+  /\s*(?:,|but|and)\s+(?:very\s+)?early[-\s]+stage\b(?!\s+\w)\.?/gi,
+  /\s*(?:,|but|and)\s+just\s+arrived\s+at\s+(?:NDA|nda|chemistry|IOI|ioi)\.?/gi,
+  /\s*(?:,|but|and)\s+fresh\s+to\s+(?:NDA|nda|chemistry|IOI|ioi)\.?/gi,
+  /\s*(?:,|but|and)\s+(?:very\s+)?recent\s+(?:NDA|nda|chemistry|IOI|ioi)\s+arrival\.?/gi,
+  /\s*(?:,|but|and)\s+newly\s+(?:in|at|arrived)\s+(?:NDA|nda|chemistry|IOI|ioi)\.?/gi,
+  /\s*(?:,|but|and)\s+early\s+in\s+(?:NDA|nda|chemistry|IOI|ioi)\.?/gi,
+];
+
+function stripRecencyPhrases(text, milestones) {
+  if (typeof text !== 'string' || !text) return text;
+  // Only enforce when at least one process milestone is set — otherwise an
+  // honest "they just arrived at NDA" for a buyer that genuinely just got
+  // there could get stripped, which is wrong.
+  if (!milestones?.cim_delivered && !milestones?.chemistry_date && !milestones?.ioi_received) return text;
+  let v = text;
+  let stripped = false;
+  for (const re of RECENCY_STRIP_PATTERNS) {
+    if (re.test(v)) {
+      v = v.replace(re, '');
+      stripped = true;
+    }
+  }
+  if (!stripped) return text;
+  v = v.replace(/\s+/g, ' ').trim();
+  // Re-add terminal period if the strip removed it.
+  if (v && !/[.!?]$/.test(v)) v += '.';
+  console.warn(`Recency phrase stripped (milestones set); original="${text.slice(0, 100)}"`);
+  return v;
+}
+
 // Re-evaluate the buyer pipeline with full context (buyers + docs + notes + prior reasoning).
 // Used by the top-bar Re-scan, per-buyer note submission, and post-classify doc upload.
 // Rescan memoization: skip the AI call entirely when the request body hashes
@@ -1087,7 +1126,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 4;
+const PROMPT_VERSION = 5;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
@@ -1366,7 +1405,14 @@ ${focusInstruction}`;
     // nameById is passed in so synthesizeVerdict can name buyers (the AI
     // tool response only carries ids in buyers[], names live in the request).
     const nameById = Object.fromEntries((buyers || []).map(b => [b.id, b.name || b.id]));
-    const blended = blendPredictions(toolUse.input, openaiPred, { nameById });
+    // Milestone flags piped through so stripRecencyPhrases can target only
+    // buyers where the recency framing actually contradicts the badge.
+    const milestonesById = Object.fromEntries((buyers || []).map(b => [b.id, {
+      cim_delivered: !!b.cim_delivered,
+      chemistry_date: !!b.chemistry_date,
+      ioi_received: !!b.ioi_received,
+    }]));
+    const blended = blendPredictions(toolUse.input, openaiPred, { nameById, milestonesById });
 
     // Per-model probability log so we can verify Claude and OpenAI are
     // genuinely returning different numbers (not a wiring bug). Shows in
@@ -1684,7 +1730,14 @@ function blendPredictions(claude, openai, ctx = {}) {
   return {
     ...claude,
     market: blendedMarket,
-    buyers: blendedBuyers.map(b => ({ ...b, thesis: reconcile(b.thesis) })),
+    buyers: blendedBuyers.map(b => {
+      const m = ctx.milestonesById?.[b.id] || {};
+      return {
+        ...b,
+        thesis: stripRecencyPhrases(reconcile(b.thesis), m),
+        reasoning: stripRecencyPhrases(reconcile(b.reasoning), m),
+      };
+    }),
     p_no_deal: blendedPNoDeal,
     close_estimate: blendedClose || claude.close_estimate || openai.close_estimate || null,
     offer_estimate: blendedOffer || claude.offer_estimate || openai.offer_estimate || null,
