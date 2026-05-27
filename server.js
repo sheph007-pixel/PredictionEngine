@@ -110,6 +110,7 @@ async function runStartupMigrations() {
     { id: 'migrate_process_task_id_2026_05_18', fn: migrateProcessTaskIdMigration },
     { id: 'add_trucordia_2026_05_20', fn: addTrucordiaMigration },
     { id: 'trucordia_top100_rank_2026_05_20', fn: trucordiaTop100RankMigration },
+    { id: 'add_scott_insurance_2026_05_21', fn: addScottInsuranceMigration },
   ];
   for (const m of all) {
     try {
@@ -388,6 +389,45 @@ async function trucordiaTop100RankMigration() {
     [b, WORKSPACE_ID, 'trucordia']
   );
   return { set: { top100_rank: 18 } };
+}
+
+// Inserts Scott Insurance into the live workspace. Reagan added them
+// yesterday, NDA signed and CIM delivered. Identity facts: regional
+// Southeast broker, employee-owned, Lynchburg VA. Idempotent.
+async function addScottInsuranceMigration() {
+  const BUYER_ID = 'scott';
+  const NDA_DATE = '2026-05-20';
+  const CIM_DATE = '2026-05-20';
+  const NOTE_TEXT = 'Reagan added Scott Insurance. NDA accepted, CIM delivered. Regional Southeast broker, employee-owned, based in Lynchburg VA.';
+  const NOTE_TS = '2026-05-21T00:00:00.000Z';
+  const existing = await pool.query(
+    `SELECT 1 FROM buyers WHERE workspace_id = $1 AND id = $2`,
+    [WORKSPACE_ID, BUYER_ID]
+  );
+  if (existing.rowCount > 0) return { skipped: 'scott_already_present' };
+  const data = {
+    id: BUYER_ID,
+    name: 'Scott Insurance',
+    website: 'https://www.scottins.com',
+    hq: 'Lynchburg, VA',
+    revenue: '~$125M',
+    headcount: '~400',
+    offices: 'Multiple',
+    stage: 'nda',
+    nda_signed: NDA_DATE,
+    cim_delivered: CIM_DATE,
+    fit: { size: 0, benefits: 0, pe: 0, precedent: 0 },
+    thesis: '',
+    probability: 0,
+    noteLog: [
+      { id: crypto.randomUUID(), ts: NOTE_TS, text: NOTE_TEXT },
+    ],
+  };
+  await pool.query(
+    `INSERT INTO buyers (workspace_id, id, data, updated_at) VALUES ($1, $2, $3, now())`,
+    [WORKSPACE_ID, BUYER_ID, data]
+  );
+  return { inserted: BUYER_ID, stage: 'nda', cim_delivered: CIM_DATE };
 }
 
 // Removes subjective seed-derived fields and seed-narrative noteLog entries
