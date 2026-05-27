@@ -68,6 +68,7 @@ const _IDENTITY = [
   { id: "br",         name: "Brown & Riding",      website: "https://www.brownandriding.com",     hq: "Sherman Oaks, CA",  revenue: "~$300M",       headcount: "400+",       offices: "National" },
   { id: "kelly",      name: "Kelly Benefits",      website: "https://www.kellybenefits.com",      hq: "Sparks, MD",        revenue: "$250M",        headcount: "280",        offices: "4" },
   { id: "cason",      name: "The Cason Group",     website: "https://www.thecasongroup.com/",     hq: "Columbia, SC",      revenue: "$168M",        headcount: "~233",       offices: "10" },
+  { id: "scott",      name: "Scott Insurance",     website: "https://www.scottins.com",           hq: "Lynchburg, VA",     revenue: "~$125M",       headcount: "~400",       offices: "Multiple" },
   { id: "oakbridge",  name: "Oakbridge",           website: "https://oakbridgeinsurance.com/",    hq: "Atlanta, GA",       revenue: "~$100-150M",   headcount: "313",        offices: "30",         top100_rank: 50, pe_backed: true },
 ];
 
