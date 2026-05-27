@@ -41,6 +41,13 @@ const pool = dbUrl
   : null;
 const WORKSPACE_ID = 'default';
 
+// Identity fields set by server-side migrations (BI Top 100 rank, PE backing,
+// sponsor) or by the seeded buyer dataset. Stale clients that loaded before a
+// migration set these would otherwise wipe them by sending null/missing
+// values on the next sync — so PUT /api/buyers and PATCH /api/buyers/:id
+// keep the server's value when the incoming payload omits it.
+const IDENTITY_FIELDS = ['top100_rank', 'pe_backed', 'sponsor'];
+
 async function initDb() {
   if (!pool) {
     console.log('No DATABASE_URL, running without persistence layer');
@@ -112,6 +119,7 @@ async function runStartupMigrations() {
     { id: 'trucordia_top100_rank_2026_05_20', fn: trucordiaTop100RankMigration },
     { id: 'add_scott_insurance_2026_05_21', fn: addScottInsuranceMigration },
     { id: 'scott_top100_rank_2026_05_21', fn: scottTop100RankMigration },
+    { id: 'scott_top100_rank_reapply_2026_05_22', fn: scottTop100RankMigration },
   ];
   for (const m of all) {
     try {
@@ -1186,7 +1194,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 5;
+const PROMPT_VERSION = 6;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
@@ -2068,12 +2076,28 @@ app.put('/api/buyers', async (req, res) => {
   const c = await pool.connect();
   try {
     await c.query('BEGIN');
+    // Identity fields are set by server-side migrations (BI Top 100 rank, PE
+    // backing, sponsor). A stale client that loaded before the migration ran
+    // would otherwise wipe them by sending null/missing values in this bulk
+    // push. Read existing rows first, then for each incoming buyer fill in
+    // any identity field the client doesn't have using the server's value.
+    const existingRows = await c.query(
+      `SELECT id, data FROM buyers WHERE workspace_id = $1`, [WORKSPACE_ID]
+    );
+    const existingById = Object.fromEntries(existingRows.rows.map(r => [r.id, r.data || {}]));
     await c.query(`DELETE FROM buyers WHERE workspace_id = $1`, [WORKSPACE_ID]);
     for (const b of buyers) {
       if (!b?.id) continue;
+      const old = existingById[b.id] || {};
+      const merged = { ...b };
+      for (const k of IDENTITY_FIELDS) {
+        if ((merged[k] == null || merged[k] === '') && old[k] != null && old[k] !== '') {
+          merged[k] = old[k];
+        }
+      }
       await c.query(
         `INSERT INTO buyers (workspace_id, id, data) VALUES ($1, $2, $3)`,
-        [WORKSPACE_ID, b.id, b]
+        [WORKSPACE_ID, b.id, merged]
       );
     }
     await c.query('COMMIT');
@@ -2135,6 +2159,17 @@ app.patch('/api/buyers/:id', async (req, res) => {
         for (const k of PROCESS_FIELDS) {
           if (k in old) merged[k] = old[k];
           else delete merged[k];
+        }
+      }
+
+      // Identity-field preservation (unconditional, not gated on staleness).
+      // The previous bug: a startup migration sets Scott's top100_rank=55,
+      // the client (which loaded before the migration) syncs without the
+      // field, and PATCH wipes it. Identity fields are server-of-record;
+      // only an explicit client value (non-null, non-empty) overrides.
+      for (const k of IDENTITY_FIELDS) {
+        if ((merged[k] == null || merged[k] === '') && old[k] != null && old[k] !== '') {
+          merged[k] = old[k];
         }
       }
     }
