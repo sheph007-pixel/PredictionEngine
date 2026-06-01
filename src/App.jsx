@@ -636,10 +636,20 @@ export default function App() {
   // allocated — that's the question the user actually asks at row scope.
   const winnerData = winnerProbabilities(buyers, ebitda, caseMode);
 
+  // Sort by the same winner-allocated share displayed on each row. Sorting
+  // by raw buyer.probability disagrees with the displayed share when integer
+  // rounding inverts the order (e.g., Oakbridge raw 31 / share 20 ranks
+  // ABOVE Trucordia raw 32 / share 19 by share, but raw sort flips them).
+  // Falls back to raw probability when shares tie, then to name.
+  const shareOf = (b) => winnerData.winnerByBuyer[b.id] ?? 0;
   const ordered = [...buyers].sort((a, b) => {
     if (a.stage === 'dropped' && b.stage !== 'dropped') return 1;
     if (b.stage === 'dropped' && a.stage !== 'dropped') return -1;
-    return (b.probability || 0) - (a.probability || 0);
+    const ds = shareOf(b) - shareOf(a);
+    if (ds !== 0) return ds;
+    const dp = (b.probability || 0) - (a.probability || 0);
+    if (dp !== 0) return dp;
+    return (a.name || '').localeCompare(b.name || '');
   });
   const orderedLive = ordered.filter(b => b.stage !== 'dropped');
   const orderedDropped = ordered.filter(b => b.stage === 'dropped');
