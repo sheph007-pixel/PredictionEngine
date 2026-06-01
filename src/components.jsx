@@ -227,7 +227,7 @@ export const STAGE_PROB_RANGE = {
 // Two-model voting strip, shows Claude's and GPT's individual predictions
 // side by side with an "avg" pill, letting the user see both reads at once
 // instead of just the blended number.
-function ModelVote({ claudeVal, openaiVal, avgVal, claudeReasoning, openaiReasoning }) {
+function ModelVote({ claudeVal, openaiVal, avgVal, claudeReasoning, openaiReasoning, avgTitle: avgTitleOverride }) {
   const has = claudeVal != null || openaiVal != null;
   if (!has) return null;
   const claudeTitle = claudeReasoning
@@ -236,7 +236,11 @@ function ModelVote({ claudeVal, openaiVal, avgVal, claudeReasoning, openaiReason
   const openaiTitle = openaiReasoning
     ? `GPT-4o said ${openaiVal}: ${openaiReasoning}`
     : `GPT-4o (OpenAI) prediction: ${openaiVal ?? '-'}`;
-  const avgTitle = `Averaged: Claude ${claudeVal ?? '-'} + GPT ${openaiVal ?? '-'} → ${avgVal}. Drives the headline number.`;
+  // Caller may override avgTitle when avgVal isn't a simple (C+G)/2 average —
+  // e.g., the buyer row passes a winner-share value here, which is computed
+  // from blended raw probabilities normalized so all rows + no-deal = 100.
+  const avgTitle = avgTitleOverride
+    || `Averaged: Claude ${claudeVal ?? '-'} + GPT ${openaiVal ?? '-'} → ${avgVal}. Drives the headline number.`;
   return (
     <div className="model-vote">
       <span className="model-chip model-chip-claude" title={claudeTitle}>
@@ -833,11 +837,15 @@ export function PipelineStats({ buyers, ebitda, caseMode, market, process }) {
 //   - Submit appends a tagged note + triggers a per-buyer rescan, which
 //     re-ranks the entire list (App.jsx re-sorts on every render).
 //   - Up/down arrow shows last AI re-score's probability change (from aiHistory).
-export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuyer, rescanning, displayRank }) {
+export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuyer, rescanning, displayRank, winShare }) {
   const isDropped = buyer.stage === "dropped";
-  // Standalone P(close with this group), what the user actually wants per
-  // row. Headline "Deal confidence" KPI handles the pipeline-wide P(any deal).
-  const showProb = isDropped ? 0 : probabilityFor(buyer);
+  // Winner-allocated share of the deal-closes probability. Per-buyer
+  // shares + no-deal sum to 100, so the user's mental math adds up.
+  // `winShare` is passed in by App.jsx via winnerProbabilities. The raw
+  // AI probability stays accessible via the chip tooltips for debugging
+  // and per-model divergence visibility, but the headline number is the
+  // share.
+  const showProb = isDropped ? 0 : (typeof winShare === 'number' ? winShare : probabilityFor(buyer));
   const stageLabel = STAGES.find(s => s.id === buyer.stage)?.label || buyer.stage;
 
   const updatedAt = buyer.lastAnalyzed ? relativeTime(buyer.lastAnalyzed) : null;
@@ -945,7 +953,8 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
           <ModelVote
             claudeVal={typeof buyer.modelVote.claude === 'number' ? `${buyer.modelVote.claude}%` : null}
             openaiVal={typeof buyer.modelVote.openai === 'number' ? `${buyer.modelVote.openai}%` : null}
-            avgVal={`${buyer.probability ?? '?'}%`}
+            avgVal={`${showProb}%`}
+            avgTitle={`${showProb}% is this buyer's share of the deal-closing probability. All buyer shares + no-deal sum to 100. Claude ${buyer.modelVote.claude ?? '-'}% and GPT ${buyer.modelVote.openai ?? '-'}% are raw model votes before normalization.`}
             claudeReasoning={buyer.modelVote.claudeReasoning}
             openaiReasoning={buyer.modelVote.openaiReasoning}
           />

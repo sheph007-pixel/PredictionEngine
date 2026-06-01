@@ -710,6 +710,7 @@ export default function App() {
               buyer={b}
               displayRank={i + 1}
               selected={b.id === openId}
+              winShare={winnerData.winnerByBuyer[b.id]}
               onSelect={() => openBuyer(b.id)}
               onAppendNote={appendBuyerNote}
               onRescanBuyer={rescanOne}
@@ -732,6 +733,7 @@ export default function App() {
               buyer={b}
               displayRank={'-'}
               selected={b.id === openId}
+              winShare={0}
               onSelect={() => openBuyer(b.id)}
               onAppendNote={appendBuyerNote}
               onRescanBuyer={rescanOne}
@@ -759,7 +761,7 @@ export default function App() {
             return rescanOne(id, { triggerNoteId: nid });
           }}
           onRescanBuyer={rescanOne}
-          winnerPct={open.probability || 0}
+          winnerPct={winnerData.winnerByBuyer[open.id] ?? 0}
         />
       )}
 
