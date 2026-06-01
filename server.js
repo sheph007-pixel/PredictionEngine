@@ -19,14 +19,14 @@ const app = express();
 app.use(express.json({ limit: '8mb' }));
 
 const client = new Anthropic();
-// Upgraded from claude-haiku-4-5: Haiku couldn't reliably discriminate
-// same-stage buyers by compound qualitative signals (PE + sponsor history
-// + multi-principal engagement vs. single "CEO-led request" signal). It
-// would echo broad averages and tie nuanced rankings even with explicit
-// prompt instructions to spread them. Sonnet has the reasoning headroom
-// to actually weigh stacked signals against each other. ~5x cost per
-// rescan; the accuracy lift is worth it for an M&A pipeline tool.
-const MODEL = 'claude-sonnet-4-6';
+// Upgraded haiku-4-5 -> sonnet-4-6 -> opus-4-8 for the top-tier
+// reasoning Anthropic offers. Opus is best at compound qualitative
+// judgment (PE + sponsor history + multi-principal engagement vs single
+// "CEO-led" signal), which is the engine's primary job. ~25x cost per
+// rescan token vs Haiku, ~5x vs Sonnet. For a 13-buyer pipeline with
+// periodic rescans, the absolute spend is small and accuracy is what
+// matters in an M&A advisor context.
+const MODEL = 'claude-opus-4-8';
 const FILES_BETA = 'files-api-2025-04-14';
 
 // OpenAI is used ONLY for live web search before each rescan, feeding fresh
@@ -869,6 +869,7 @@ app.get('/api/health', (_req, res) => res.json({
   branch: process.env.RAILWAY_GIT_BRANCH || null,
   deployment_id: process.env.RAILWAY_DEPLOYMENT_ID || null,
   prompt_version: PROMPT_VERSION,
+  model: MODEL,
   started_at: SERVER_START_TIME,
 }));
 
@@ -1254,7 +1255,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 11;
+const PROMPT_VERSION = 12;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
