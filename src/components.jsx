@@ -951,17 +951,32 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
         <div className="row-prob-num">
           {isDropped ? '-' : showProb}<span>{isDropped ? '' : '%'}</span>
         </div>
-        {!isDropped && buyer.modelVote && (typeof buyer.modelVote.claude === 'number' || typeof buyer.modelVote.openai === 'number') && (
-          <ModelVote
-            claudeVal={typeof buyer.modelVote.claude === 'number' ? `${buyer.modelVote.claude}%` : null}
-            openaiVal={typeof buyer.modelVote.openai === 'number' ? `${buyer.modelVote.openai}%` : null}
-            avgVal={`${showProb}%`}
-            avgLabel="share"
-            avgTitle={`${showProb}% is this buyer's share of the deal-closing probability. All buyer shares + no-deal sum to 100. Claude ${buyer.modelVote.claude ?? '-'}% and GPT ${buyer.modelVote.openai ?? '-'}% are raw model votes — NOT averaged into this share (the share is winner-allocated from blended raw values, normalized so all buyer shares + no-deal sum to 100%).`}
-            claudeReasoning={buyer.modelVote.claudeReasoning}
-            openaiReasoning={buyer.modelVote.openaiReasoning}
-          />
-        )}
+        {!isDropped && buyer.modelVote && (typeof buyer.modelVote.claude === 'number' || typeof buyer.modelVote.openai === 'number') && (() => {
+          // Scale each model's raw per-buyer probability by the same factor
+          // that maps the blended raw to the row's winner share. With all
+          // three numbers in the same "share of deal-closing probability"
+          // space, the user's natural arithmetic — avg(C, G) ≈ share —
+          // actually holds. Tooltips preserve the raw model votes.
+          const rawC = buyer.modelVote.claude;
+          const rawG = buyer.modelVote.openai;
+          const blendedRaw = typeof buyer.probability === 'number' ? buyer.probability : null;
+          const scale = (typeof blendedRaw === 'number' && blendedRaw > 0 && showProb > 0)
+            ? showProb / blendedRaw
+            : 1;
+          const cShare = typeof rawC === 'number' ? Math.round(rawC * scale) : null;
+          const gShare = typeof rawG === 'number' ? Math.round(rawG * scale) : null;
+          return (
+            <ModelVote
+              claudeVal={cShare != null ? `${cShare}%` : null}
+              openaiVal={gShare != null ? `${gShare}%` : null}
+              avgVal={`${showProb}%`}
+              avgLabel="share"
+              avgTitle={`${showProb}% is this buyer's share of the deal-closing probability. All buyer shares + no-deal sum to 100%. Each chip shows the same share lens: Claude raw ${rawC ?? '-'}% → ${cShare ?? '-'}% share, GPT raw ${rawG ?? '-'}% → ${gShare ?? '-'}% share, blended share ${showProb}%.`}
+              claudeReasoning={buyer.modelVote.claudeReasoning ? `Raw ${rawC}% → ${cShare}% share. ${buyer.modelVote.claudeReasoning}` : `Claude raw ${rawC}% → ${cShare}% share (winner-allocated).`}
+              openaiReasoning={buyer.modelVote.openaiReasoning ? `Raw ${rawG}% → ${gShare}% share. ${buyer.modelVote.openaiReasoning}` : `GPT raw ${rawG}% → ${gShare}% share (winner-allocated).`}
+            />
+          );
+        })()}
         {updatedAt && !isDropped && (
           <div className="row-prob-foot" title={`Last AI re-score: ${new Date(buyer.lastAnalyzed).toLocaleString()}`}>updated {updatedAt}</div>
         )}
