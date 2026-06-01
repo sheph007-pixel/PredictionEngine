@@ -1101,19 +1101,60 @@ function fmtCloseMonthLong(ym) {
 //   - No clear leader. ...                             (every live buyer < 10%)
 // Synthesizing this server-side means the named buyer(s) cannot disagree
 // with the ranked list, since both are derived from the same buyers[] array.
+// Mirrors src/components.jsx::winnerProbabilities so the verdict's cited
+// percentages match the per-row big numbers exactly. Without this, the
+// verdict and rows show different numbers for the same buyers.
+function computeWinnerShares(blendedBuyers) {
+  const live = (blendedBuyers || []).filter(b => typeof b.probability === 'number');
+  if (live.length === 0) return { winnerByBuyer: {} };
+  // probabilityFor() in the client caps at 95 — replicate so shares match.
+  const capped = live.map(b => ({
+    id: b.id,
+    p: Math.max(0, Math.min(95, Math.round(b.probability))),
+  }));
+  const dealClosesProb = 1 - capped.reduce((acc, b) => acc * (1 - b.p / 100), 1);
+  const dealClosesPct = Math.round(dealClosesProb * 100);
+  const totalProb = capped.reduce((s, b) => s + b.p, 0) || 1;
+  const winnerByBuyer = {};
+  let assigned = 0;
+  capped.forEach((b, i) => {
+    if (i === capped.length - 1) {
+      winnerByBuyer[b.id] = Math.max(0, dealClosesPct - assigned);
+    } else {
+      const pct = Math.round((b.p / totalProb) * dealClosesPct);
+      winnerByBuyer[b.id] = pct;
+      assigned += pct;
+    }
+  });
+  return { winnerByBuyer };
+}
+
 function synthesizeVerdict({ blendedBuyers, nameById, closeEstimate, topRisk }) {
-  const live = (blendedBuyers || [])
-    .filter(b => typeof b.probability === 'number')
-    .map(b => ({ id: b.id, p: b.probability, name: (nameById && nameById[b.id]) || b.id }));
+  const live = (blendedBuyers || []).filter(b => typeof b.probability === 'number');
   if (live.length === 0) return '';
-  const sorted = [...live].sort((a, b) => b.p - a.p);
+  // Use winner-allocated shares for the verdict so it cites the same
+  // numbers the row UI displays. The verdict previously sorted on raw
+  // AI probability and named "Oakbridge at 32%" while the row showed
+  // "Oakbridge 19%" — same buyer, different number, confusing.
+  const { winnerByBuyer } = computeWinnerShares(blendedBuyers);
+  const ranked = live
+    .map(b => ({
+      id: b.id,
+      p: winnerByBuyer[b.id] ?? 0,
+      name: (nameById && nameById[b.id]) || b.id,
+    }))
+    .sort((a, b) => b.p - a.p);
   const closeYM = fmtCloseMonthLong(closeEstimate) || 'an estimated month';
   const risk = (topRisk || '').trim().replace(/\.+$/, '');
   const riskTail = risk ? ` Main risk: ${risk}.` : '';
-  if (sorted[0].p < 10) return `No clear leader. Likely closes ${closeYM}.${riskTail}`;
-  const top = sorted[0];
-  const second = sorted[1];
-  if (second && (top.p - second.p) <= 5) {
+  // Threshold scaled with the new semantics: winner shares are uniformly
+  // lower than raw probabilities (sum to dealClosesPct, not unbounded).
+  // 6% share ≈ "no clear leader" — top buyer's share is barely above
+  // even-split-of-deal-closes for a wide field.
+  if (ranked[0].p < 6) return `No clear leader. Likely closes ${closeYM}.${riskTail}`;
+  const top = ranked[0];
+  const second = ranked[1];
+  if (second && (top.p - second.p) <= 3) {
     return `Two-way race: ${top.name} and ${second.name} at ${top.p}/${second.p}%. Likely closes ${closeYM}.${riskTail}`;
   }
   return `Top pick: ${top.name} at ${top.p}%. Likely closes ${closeYM}.${riskTail}`;
@@ -1194,7 +1235,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 6;
+const PROMPT_VERSION = 7;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
