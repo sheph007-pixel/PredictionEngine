@@ -1255,7 +1255,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 12;
+const PROMPT_VERSION = 13;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;

@@ -1,0 +1,108 @@
+name: Check for newer Anthropic Opus model
+
+# Polls Anthropic's /v1/models endpoint once a day and opens a PR
+# bumping `MODEL` in server.js if a newer Opus has shipped.
+#
+# Requires the `ANTHROPIC_API_KEY` repository secret to be set
+# (Settings → Secrets and variables → Actions → New repository secret).
+# Without it the workflow exits cleanly without opening anything.
+
+on:
+  schedule:
+    - cron: '0 13 * * *'  # 13:00 UTC daily (~8am EST)
+  workflow_dispatch: {}    # allow manual run from the Actions tab
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check-newest-opus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bail if ANTHROPIC_API_KEY is missing
+        if: ${{ secrets.ANTHROPIC_API_KEY == '' }}
+        run: |
+          echo "ANTHROPIC_API_KEY secret is not set. Skipping check."
+          echo "Add it under Settings → Secrets and variables → Actions to enable."
+          exit 0
+
+      - name: Find newest Opus from Anthropic
+        id: latest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -e
+          RESP=$(curl -sS https://api.anthropic.com/v1/models \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01")
+          echo "Response: $RESP" | head -c 500
+          NEWEST=$(echo "$RESP" \
+            | jq -r '.data
+                | map(select(.id | startswith("claude-opus-")))
+                | sort_by(.created_at)
+                | reverse
+                | .[0].id // empty')
+          if [ -z "$NEWEST" ]; then
+            echo "No Opus model found in API response. Exiting cleanly."
+            exit 0
+          fi
+          echo "Newest Opus: $NEWEST"
+          echo "newest=$NEWEST" >> "$GITHUB_OUTPUT"
+
+      - name: Read current MODEL from server.js
+        id: current
+        run: |
+          CURRENT=$(grep -oP "const MODEL = '\K[^']+" server.js)
+          echo "Current MODEL: $CURRENT"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+
+      - name: Open PR if a newer Opus is available
+        if: ${{ steps.latest.outputs.newest != '' && steps.latest.outputs.newest != steps.current.outputs.current }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEWEST: ${{ steps.latest.outputs.newest }}
+          CURRENT: ${{ steps.current.outputs.current }}
+        run: |
+          set -e
+          BRANCH="auto/upgrade-model-$NEWEST"
+
+          # If a branch + PR already exists for this bump, skip silently.
+          EXISTING_PR=$(gh pr list --state open --head "$BRANCH" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING_PR" ]; then
+            echo "PR already open for $NEWEST: #$EXISTING_PR. Skipping."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+
+          # Bump MODEL.
+          sed -i "s|const MODEL = '$CURRENT'|const MODEL = '$NEWEST'|" server.js
+
+          # Bump PROMPT_VERSION so the rescan cache invalidates and the
+          # first request after deploy actually hits the new model rather
+          # than serving a cached response from the previous build.
+          CUR_VER=$(grep -oP "const PROMPT_VERSION = \K[0-9]+" server.js)
+          NEXT_VER=$((CUR_VER + 1))
+          sed -i "s|const PROMPT_VERSION = $CUR_VER|const PROMPT_VERSION = $NEXT_VER|" server.js
+
+          git add server.js
+          git commit -m "Auto-upgrade MODEL: $CURRENT → $NEWEST"
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --title "Auto-upgrade MODEL to $NEWEST" \
+            --body "Anthropic shipped a newer Opus model. This PR bumps \`MODEL\` from \`$CURRENT\` → \`$NEWEST\` and \`PROMPT_VERSION\` $CUR_VER → $NEXT_VER (cache invalidation).
+
+          Opened automatically by .github/workflows/check-anthropic-models.yml.
+
+          ## Test plan
+          - [ ] Smoke test: trigger a rescan, confirm no schema errors
+          - [ ] Spot-check output quality against the prior model
+          - [ ] Footer shows \`... · $NEWEST · ...\` after deploy
+
+          If the new model misbehaves, close this PR. The next cron run will reopen it after another model release (or you can run the workflow manually from the Actions tab)."
