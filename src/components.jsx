@@ -227,7 +227,7 @@ export const STAGE_PROB_RANGE = {
 // Two-model voting strip, shows Claude's and GPT's individual predictions
 // side by side with an "avg" pill, letting the user see both reads at once
 // instead of just the blended number.
-function ModelVote({ claudeVal, openaiVal, avgVal, claudeReasoning, openaiReasoning, avgTitle: avgTitleOverride }) {
+function ModelVote({ claudeVal, openaiVal, avgVal, claudeReasoning, openaiReasoning, avgTitle: avgTitleOverride, avgLabel = 'avg' }) {
   const has = claudeVal != null || openaiVal != null;
   if (!has) return null;
   const claudeTitle = claudeReasoning
@@ -239,6 +239,8 @@ function ModelVote({ claudeVal, openaiVal, avgVal, claudeReasoning, openaiReason
   // Caller may override avgTitle when avgVal isn't a simple (C+G)/2 average —
   // e.g., the buyer row passes a winner-share value here, which is computed
   // from blended raw probabilities normalized so all rows + no-deal = 100.
+  // Also overrides the chip label so "avg" doesn't mislead (the buyer row
+  // uses "share").
   const avgTitle = avgTitleOverride
     || `Averaged: Claude ${claudeVal ?? '-'} + GPT ${openaiVal ?? '-'} → ${avgVal}. Drives the headline number.`;
   return (
@@ -252,7 +254,7 @@ function ModelVote({ claudeVal, openaiVal, avgVal, claudeReasoning, openaiReason
         <span className="model-chip-val">{openaiVal ?? '-'}</span>
       </span>
       <span className="model-chip model-chip-avg" title={avgTitle}>
-        <span className="model-chip-mark">avg</span>
+        <span className="model-chip-mark">{avgLabel}</span>
         <span className="model-chip-val">{avgVal}</span>
       </span>
     </div>
@@ -954,7 +956,8 @@ export function BuyerRow({ buyer, selected, onSelect, onAppendNote, onRescanBuye
             claudeVal={typeof buyer.modelVote.claude === 'number' ? `${buyer.modelVote.claude}%` : null}
             openaiVal={typeof buyer.modelVote.openai === 'number' ? `${buyer.modelVote.openai}%` : null}
             avgVal={`${showProb}%`}
-            avgTitle={`${showProb}% is this buyer's share of the deal-closing probability. All buyer shares + no-deal sum to 100. Claude ${buyer.modelVote.claude ?? '-'}% and GPT ${buyer.modelVote.openai ?? '-'}% are raw model votes before normalization.`}
+            avgLabel="share"
+            avgTitle={`${showProb}% is this buyer's share of the deal-closing probability. All buyer shares + no-deal sum to 100. Claude ${buyer.modelVote.claude ?? '-'}% and GPT ${buyer.modelVote.openai ?? '-'}% are raw model votes — NOT averaged into this share (the share is winner-allocated from blended raw values, normalized so all buyer shares + no-deal sum to 100%).`}
             claudeReasoning={buyer.modelVote.claudeReasoning}
             openaiReasoning={buyer.modelVote.openaiReasoning}
           />
