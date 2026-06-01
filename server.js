@@ -629,8 +629,8 @@ When pe_backed is true: treat the PE flag as a credibility lift for "bid capacit
 
 # Stage discipline (probability anchors, these are the FINAL displayed ranges, not a base to be lifted)
 - outreach: prob 8–22%
-- nda: prob 12–28%. CIM-delivered checkpoint within this band: if buyer.cim_delivered is set and the notes_timeline shows no objections, pullback, or cooling signals dated AFTER cim_delivered, lift within-NDA probability into the upper half (20–28). CIM delivered + chemistry scheduled (i.e. chemistry_date set) → lean 24–28 with stage advance imminent. CIM delivered followed by stalling or objection notes → mid-band (16–22). Absent cim_delivered, stay in the lower half (12–20).
-- chemistry: prob 18–38%. IOI-received checkpoint within this band: if buyer.ioi_received is set (a soft, non-binding indication of interest), lift within-chemistry probability into the upper half (28–38). IOI received with corroborating warming notes after → lean 32–38 with an LOI plausible inside 4–6 weeks. IOI received followed by stalling/pushback → mid-band (24–30). Absent ioi_received, stay in the lower half (18–28).
+- nda: prob 12–28%. CIM-delivered checkpoint: with cim_delivered set and no post-CIM objections, lift to 20–28 (24–28 if chemistry scheduled, mid 16–22 if post-CIM stalling). Within whichever sub-band applies: **discriminate by engagement-stack quality** — top of the sub-band for buyers with PE-backed + sponsor having multi-deal history with the seller's broker (per noteLog) + multiple principals engaged or named, mid for two of three, bottom for one or none. **Two same-stage buyers with materially different engagement signals MUST NOT receive the same probability.**
+- chemistry: prob 18–38%. IOI-received checkpoint: with ioi_received set, lift to 28–38 (32–38 with warming notes; 24–30 with stalling). Without ioi_received: **discriminate within the 18–28 sub-band by engagement-stack quality** — top (26–28) for buyers with ALL of: PE-backed AND sponsor with multi-deal history with the seller's broker (per noteLog, e.g., "six-deal Reagan history") AND multiple principals engaged post-CIM (in-person held or scheduled, second meeting requested or imminent); upper-mid (22–26) with two of three; mid-low (19–22) with one or none. **Two same-stage buyers with materially different engagement-stack quality MUST NOT receive the same probability** — separating them based on the noteLog evidence is the engine's primary job; a flat tied ranking with one strong-stack and one weak-stack buyer is a failure mode.
 - loi: prob 28–58% (and almost always has multiple_override)
 - closed: prob 90+%
 - dropped: filter out, do not include in output
@@ -1235,7 +1235,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 8;
+const PROMPT_VERSION = 9;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
@@ -1684,8 +1684,8 @@ If you are tempted to echo "8.5–10.0×" verbatim, you are anchoring on a hint 
 
 # Stage discipline (probability ranges, final, no post-processing)
 - outreach: 8–22%
-- nda: 12–28%. If buyer.cim_delivered is set with no objection/cooling notes after that date, lift into upper half (20–28); CIM delivered + chemistry_date set → 24–28; CIM delivered with stalling notes after → mid-band 16–22; no cim_delivered → stay 12–20.
-- chemistry: 18–38%. If buyer.ioi_received is set with no pushback notes after, lift into upper half (28–38); IOI + warming notes after → 32–38; IOI + stalling/pushback after → mid-band 24–30; no ioi_received → stay 18–28.
+- nda: 12–28%. cim_delivered set + no post-CIM cooling → upper half (20–28); +chemistry_date → 24–28; +stalling notes → mid 16–22; no cim_delivered → 12–20. Within sub-band, discriminate by engagement stack: top with PE + sponsor having multi-deal history with seller's broker + multiple principals engaged.
+- chemistry: 18–38%. ioi_received set + no post-IOI pushback → upper half (28–38); +warming → 32–38; +stalling → mid 24–30; no ioi_received → 18–28. Within 18–28, discriminate by engagement stack: top (26–28) for PE + sponsor having multi-deal history with seller's broker (per noteLog) + multiple principals engaged post-CIM (in-person held/scheduled, second meeting requested); 22–26 with two of three; 19–22 with one or none. Same-stage buyers with materially different engagement quality MUST get different probabilities — flat ties are a failure mode.
 - loi: 28–58%
 - closed: 90+%
 - dropped: omit
