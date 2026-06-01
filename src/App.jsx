@@ -818,6 +818,12 @@ export default function App() {
           <span className="build-sha">build {build.version}</span>
           {' · '}
           <span className="build-prompt">prompt v{build.prompt_version}</span>
+          {build.model && (
+            <>
+              {' · '}
+              <span className="build-model">{build.model}</span>
+            </>
+          )}
           {build.started_at && (
             <>
               {' · '}
