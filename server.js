@@ -1235,7 +1235,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 7;
+const PROMPT_VERSION = 8;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
@@ -2188,7 +2188,16 @@ app.patch('/api/buyers/:id', async (req, res) => {
       const old = existing.rows[0].data || {};
       const serverUpdatedAt = existing.rows[0].updated_at ? new Date(existing.rows[0].updated_at) : null;
       const clientUpdatedAt = incoming.updated_at ? new Date(incoming.updated_at) : null;
-      staleClient = !!(serverUpdatedAt && clientUpdatedAt && serverUpdatedAt > clientUpdatedAt);
+      // 10-minute staleness window. Previous "any-server-write-newer = stale"
+      // rule reverted every PATCH after the first one in a session because
+      // the server bumps updated_at on every write while the client's local
+      // updated_at stays from initial fetch. Chat tool calls (set_buyer_stage,
+      // etc.) got silently reverted as a result. The window catches the real
+      // failure mode (user idle for many minutes while a migration changes
+      // the server) without nuking legitimate user intent.
+      const STALENESS_THRESHOLD_MS = 10 * 60 * 1000;
+      staleClient = !!(serverUpdatedAt && clientUpdatedAt
+        && (serverUpdatedAt.getTime() - clientUpdatedAt.getTime()) > STALENESS_THRESHOLD_MS);
 
       const oldLog = Array.isArray(old.noteLog) ? old.noteLog : [];
       const newLog = Array.isArray(incoming.noteLog) ? incoming.noteLog : [];
