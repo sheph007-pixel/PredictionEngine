@@ -1148,9 +1148,21 @@ function synthesizeVerdict({ blendedBuyers, nameById, closeEstimate, topRisk }) 
     .map(b => ({
       id: b.id,
       p: winnerByBuyer[b.id] ?? 0,
+      rawP: typeof b.probability === 'number' ? b.probability : 0,
       name: (nameById && nameById[b.id]) || b.id,
     }))
-    .sort((a, b) => b.p - a.p);
+    // Tiebreaker matches the row sort in src/App.jsx: shares descending,
+    // then raw probability descending, then name ascending. Without this
+    // the verdict could name a different #2 buyer than the row order
+    // when shares tie (e.g., Oakbridge and Kelly both at 18% — row shows
+    // Oakbridge above Kelly by raw probability, verdict should too).
+    .sort((a, b) => {
+      const ds = b.p - a.p;
+      if (ds !== 0) return ds;
+      const dp = b.rawP - a.rawP;
+      if (dp !== 0) return dp;
+      return (a.name || '').localeCompare(b.name || '');
+    });
   const closeYM = fmtCloseMonthLong(closeEstimate) || 'an estimated month';
   const risk = (topRisk || '').trim().replace(/\.+$/, '');
   const riskTail = risk ? ` Main risk: ${risk}.` : '';
@@ -1242,7 +1254,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 10;
+const PROMPT_VERSION = 11;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
