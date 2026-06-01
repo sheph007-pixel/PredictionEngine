@@ -1255,7 +1255,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 13;
+const PROMPT_VERSION = 14;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
@@ -1490,12 +1490,12 @@ ${focusInstruction}`;
       client.beta.messages.create({
         model: MODEL,
         max_tokens: 8192,
-        // Default temperature is 1.0 which re-rolls probabilities by 5-10%
-        // on every rescan with identical inputs and reorders the buyer list,
-        // destroying user trust. Pin to 0 so identical inputs yield
-        // ~identical outputs; the only intentional drift comes from new
-        // notes / docs / intel actually changing the input.
-        temperature: 0,
+        // Opus 4+ deprecated the `temperature` parameter (Anthropic returns
+        // an error if it's set). For other model families (haiku, sonnet)
+        // we keep temperature: 0 because the default 1.0 re-rolls
+        // probabilities by 5-10% per rescan with identical inputs and
+        // reorders the buyer list, destroying user trust.
+        ...(MODEL.startsWith('claude-opus') ? {} : { temperature: 0 }),
         system: [
           { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
         ],
