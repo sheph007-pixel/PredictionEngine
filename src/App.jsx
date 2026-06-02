@@ -141,7 +141,6 @@ export default function App() {
     mq.addEventListener?.('change', onChange);
     return () => mq.removeEventListener?.('change', onChange);
   }, []);
-  const [showChatModal, setShowChatModal] = useState(false);
 
   // When the user is running as an iOS home-screen webapp (PWA mode) and
   // returns to the app from background, do a hard reload so they see the
@@ -886,49 +885,6 @@ export default function App() {
             <span className="build-branch"> · branch {build.branch}</span>
           )}
         </div>
-      )}
-
-      {isNarrow && (
-        <>
-          <button
-            type="button"
-            className="mobile-chat-fab"
-            onClick={() => setShowChatModal(true)}
-            aria-label="Open advisor chat"
-          >
-            <span aria-hidden="true">💬</span>
-          </button>
-          {showChatModal && (
-            <div className="modal-backdrop mobile-chat-backdrop" onClick={() => setShowChatModal(false)}>
-              <div className="mobile-chat-sheet" onClick={(e) => e.stopPropagation()}>
-                <div className="mobile-chat-handle" />
-                <button
-                  type="button"
-                  className="mobile-chat-close"
-                  onClick={() => setShowChatModal(false)}
-                  aria-label="Close chat"
-                >×</button>
-                <Conversation
-                  buyers={buyers}
-                  pinnedRules={pinnedRules}
-                  globalIntel={globalIntel}
-                  market={market}
-                  rationales={rationales}
-                  ebitda={ebitda}
-                  onAddBuyerNote={routeIntelToBuyer}
-                  onAppendGlobal={appendGlobalIntel}
-                  onSetStage={setBuyerStage}
-                  onOverrideProbability={overrideBuyerProbability}
-                  onInvalidatePriors={invalidateBuyerPriors}
-                  onInvalidatePipelinePriors={invalidatePipelinePriors}
-                  onCorrectWebsite={correctBuyerWebsite}
-                  onLogBatchEvent={logBatchEvent}
-                  onRescanAll={rescanAll}
-                />
-              </div>
-            </div>
-          )}
-        </>
       )}
 
     </div>
