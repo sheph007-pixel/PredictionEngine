@@ -1112,7 +1112,7 @@ function fmtCloseMonthLong(ym) {
 // Mirrors src/components.jsx::winnerProbabilities so the verdict's cited
 // percentages match the per-row big numbers exactly. Without this, the
 // verdict and rows show different numbers for the same buyers.
-function computeWinnerShares(blendedBuyers) {
+function computeWinnerShares(blendedBuyers, aiNoDeal) {
   const live = (blendedBuyers || []).filter(b => typeof b.probability === 'number');
   if (live.length === 0) return { winnerByBuyer: {} };
   // probabilityFor() in the client caps at 95 — replicate so shares match.
@@ -1120,8 +1120,16 @@ function computeWinnerShares(blendedBuyers) {
     id: b.id,
     p: Math.max(0, Math.min(95, Math.round(b.probability))),
   }));
-  const dealClosesProb = 1 - capped.reduce((acc, b) => acc * (1 - b.p / 100), 1);
-  const dealClosesPct = Math.round(dealClosesProb * 100);
+  // Anchor on AI's p_no_deal when present so verdict shares match the row
+  // shares (the client uses the same anchor in winnerProbabilities). Fall
+  // back to the union formula otherwise.
+  let dealClosesPct;
+  if (typeof aiNoDeal === 'number' && Number.isFinite(aiNoDeal)) {
+    dealClosesPct = Math.max(0, Math.min(100, 100 - Math.round(aiNoDeal)));
+  } else {
+    const dealClosesProb = 1 - capped.reduce((acc, b) => acc * (1 - b.p / 100), 1);
+    dealClosesPct = Math.round(dealClosesProb * 100);
+  }
   const totalProb = capped.reduce((s, b) => s + b.p, 0) || 1;
   const winnerByBuyer = {};
   let assigned = 0;

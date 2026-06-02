@@ -102,12 +102,24 @@ export function probabilityFor(buyer) {
 // buyers (1 − ∏(1 − pᵢ)). The slice each buyer wins is proportional to
 // their AI probability, no extra stage re-weighting (the AI already bakes
 // stage into the number).
-export function winnerProbabilities(buyers /*, ebitda, caseMode */) {
+// `aiNoDeal` is the AI-reported p_no_deal (0-100) when available. Passing it
+// lets the row's no-deal value AND the KPI's deal-confidence value agree
+// (both derive from the same source). Without it, the row falls back to a
+// computed independent-union estimate which can drift 2-3 points from the
+// AI's number — small but visible inconsistency the user notices.
+export function winnerProbabilities(buyers, _ebitda, _caseMode, aiNoDeal) {
   const live = buyers.filter(b => b.stage !== "dropped");
   if (live.length === 0) return { winnerByBuyer: {}, noDealPct: 100, dealClosesPct: 0 };
 
-  const dealClosesProb = 1 - live.reduce((acc, b) => acc * (1 - probabilityFor(b) / 100), 1);
-  const dealClosesPct = Math.round(dealClosesProb * 100);
+  // Anchor on AI's p_no_deal when present so the row + KPI agree. Otherwise
+  // fall back to the computed union-of-independent-events estimate.
+  let dealClosesPct;
+  if (typeof aiNoDeal === 'number' && Number.isFinite(aiNoDeal)) {
+    dealClosesPct = Math.max(0, Math.min(100, 100 - Math.round(aiNoDeal)));
+  } else {
+    const dealClosesProb = 1 - live.reduce((acc, b) => acc * (1 - probabilityFor(b) / 100), 1);
+    dealClosesPct = Math.round(dealClosesProb * 100);
+  }
   const noDealPct = 100 - dealClosesPct;
 
   const totalProb = live.reduce((s, b) => s + probabilityFor(b), 0) || 1;
@@ -305,8 +317,8 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
   const projectedOffer = new Date(today);
   projectedOffer.setDate(projectedOffer.getDate() + weeksToOffer * 7);
 
-  const computed = winnerProbabilities(buyers, ebitda, caseMode);
   const aiNoDeal = typeof rationales?.p_no_deal === 'number' ? rationales.p_no_deal : null;
+  const computed = winnerProbabilities(buyers, ebitda, caseMode, aiNoDeal);
   const dealClosesPct = aiNoDeal != null ? Math.max(0, 100 - aiNoDeal) : computed.dealClosesPct;
   const confLevel = dealClosesPct >= 85 ? "High" : dealClosesPct >= 65 ? "Solid" : dealClosesPct >= 40 ? "Moderate" : "Low";
 
