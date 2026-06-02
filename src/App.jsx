@@ -127,6 +127,42 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [docs, setDocs] = useLibrary();
   const [rescanError, setRescanError] = useState(null);
+
+  // Mobile detection — drives the chat-as-FAB/modal rendering. Re-evaluates
+  // when the viewport crosses the 600px breakpoint (e.g., browser resize on
+  // desktop) so the right shape renders at the right size.
+  const [isNarrow, setIsNarrow] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 600px)').matches
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 600px)');
+    const onChange = (e) => setIsNarrow(e.matches);
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+  const [showChatModal, setShowChatModal] = useState(false);
+
+  // When the user is running as an iOS home-screen webapp (PWA mode) and
+  // returns to the app from background, do a hard reload so they see the
+  // latest server state. Gated to PWA mode + >30s away so desktop users
+  // tabbing away don't get reloaded every time they switch tabs.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const isPWA = window.navigator.standalone === true
+      || window.matchMedia('(display-mode: standalone)').matches;
+    if (!isPWA) return;
+    let leftAt = null;
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') {
+        leftAt = Date.now();
+      } else if (document.visibilityState === 'visible' && leftAt && Date.now() - leftAt > 30_000) {
+        window.location.reload();
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
   const [syncStatus, setSyncStatus] = useState('local'); // 'local' | 'syncing' | 'synced' | 'offline'
   const hydrated = useRef(false);
   // Mirror of `buyers` that's always up-to-date synchronously. Rescan calls
@@ -695,23 +731,29 @@ export default function App() {
       <ProcessTracker process={process} onUpdate={setProcess} buyers={buyers} ebitda={ebitda} caseMode={caseMode} />
 
       <div className="pipeline">
-        <Conversation
-          buyers={buyers}
-          pinnedRules={pinnedRules}
-          globalIntel={globalIntel}
-          market={market}
-          rationales={rationales}
-          ebitda={ebitda}
-          onAddBuyerNote={routeIntelToBuyer}
-          onAppendGlobal={appendGlobalIntel}
-          onSetStage={setBuyerStage}
-          onOverrideProbability={overrideBuyerProbability}
-          onInvalidatePriors={invalidateBuyerPriors}
-          onInvalidatePipelinePriors={invalidatePipelinePriors}
-          onCorrectWebsite={correctBuyerWebsite}
-          onLogBatchEvent={logBatchEvent}
-          onRescanAll={rescanAll}
-        />
+        {/* Conversation lives inline on desktop; on mobile we render it
+            inside a slide-up modal triggered by the floating chat button
+            so the dashboard stays a clean read-only surface. Same model
+            (Opus 4.8), same tools, same messages (localStorage). */}
+        {!isNarrow && (
+          <Conversation
+            buyers={buyers}
+            pinnedRules={pinnedRules}
+            globalIntel={globalIntel}
+            market={market}
+            rationales={rationales}
+            ebitda={ebitda}
+            onAddBuyerNote={routeIntelToBuyer}
+            onAppendGlobal={appendGlobalIntel}
+            onSetStage={setBuyerStage}
+            onOverrideProbability={overrideBuyerProbability}
+            onInvalidatePriors={invalidateBuyerPriors}
+            onInvalidatePipelinePriors={invalidatePipelinePriors}
+            onCorrectWebsite={correctBuyerWebsite}
+            onLogBatchEvent={logBatchEvent}
+            onRescanAll={rescanAll}
+          />
+        )}
         {rationales?.verdict && (
           <div className="verdict-banner" role="status" aria-live="polite">
             <div className="verdict-label">AI verdict · as of today</div>
@@ -844,6 +886,49 @@ export default function App() {
             <span className="build-branch"> · branch {build.branch}</span>
           )}
         </div>
+      )}
+
+      {isNarrow && (
+        <>
+          <button
+            type="button"
+            className="mobile-chat-fab"
+            onClick={() => setShowChatModal(true)}
+            aria-label="Open advisor chat"
+          >
+            <span aria-hidden="true">💬</span>
+          </button>
+          {showChatModal && (
+            <div className="modal-backdrop mobile-chat-backdrop" onClick={() => setShowChatModal(false)}>
+              <div className="mobile-chat-sheet" onClick={(e) => e.stopPropagation()}>
+                <div className="mobile-chat-handle" />
+                <button
+                  type="button"
+                  className="mobile-chat-close"
+                  onClick={() => setShowChatModal(false)}
+                  aria-label="Close chat"
+                >×</button>
+                <Conversation
+                  buyers={buyers}
+                  pinnedRules={pinnedRules}
+                  globalIntel={globalIntel}
+                  market={market}
+                  rationales={rationales}
+                  ebitda={ebitda}
+                  onAddBuyerNote={routeIntelToBuyer}
+                  onAppendGlobal={appendGlobalIntel}
+                  onSetStage={setBuyerStage}
+                  onOverrideProbability={overrideBuyerProbability}
+                  onInvalidatePriors={invalidateBuyerPriors}
+                  onInvalidatePipelinePriors={invalidatePipelinePriors}
+                  onCorrectWebsite={correctBuyerWebsite}
+                  onLogBatchEvent={logBatchEvent}
+                  onRescanAll={rescanAll}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
     </div>
