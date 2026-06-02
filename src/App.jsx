@@ -664,10 +664,15 @@ export default function App() {
           <div className="brand-mark">Prediction <span className="accent">Engine</span></div>
         </div>
         <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <PrintButton />
-          <BrainButton onClick={() => setShowBrain(true)} />
-          <AIHistoryButton onClick={() => setShowHistory(true)} syncStatus={syncStatus} />
-          <LibraryButton count={docs.length} onClick={() => setShowLibrary(true)} />
+          {/* topbar-buttons wraps the four mobile-hidden buttons so the
+              SystemBar (Update + EBITDA) stays visible on mobile next to
+              the brand mark. */}
+          <div className="topbar-buttons" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <PrintButton />
+            <BrainButton onClick={() => setShowBrain(true)} />
+            <AIHistoryButton onClick={() => setShowHistory(true)} syncStatus={syncStatus} />
+            <LibraryButton count={docs.length} onClick={() => setShowLibrary(true)} />
+          </div>
           <SystemBar
             ebitda={ebitda} onEbitda={setEbitda}
             caseMode={caseMode} onCase={setCaseMode}
