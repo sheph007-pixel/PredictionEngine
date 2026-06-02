@@ -127,6 +127,7 @@ async function runStartupMigrations() {
     { id: 'add_scott_insurance_2026_05_21', fn: addScottInsuranceMigration },
     { id: 'scott_top100_rank_2026_05_21', fn: scottTop100RankMigration },
     { id: 'scott_top100_rank_reapply_2026_05_22', fn: scottTop100RankMigration },
+    { id: 'cb_cim_delivered_2026_05_28', fn: cbCimDeliveredMigration },
   ];
   for (const m of all) {
     try {
@@ -463,6 +464,35 @@ async function scottTop100RankMigration() {
     [b, WORKSPACE_ID, 'scott']
   );
   return { set: { top100_rank: 55 } };
+}
+
+// Stamp Cottingham & Butler's cim_delivered date. User repeatedly tried
+// to log this via chat ("C&B CIM received 5/28") but the chat advisor
+// kept choosing invalidate_buyer_priors instead of log_batch_event (the
+// failure mode PR #64 was meant to fix). One-off backfill so the user
+// isn't blocked. Idempotent — no-op if already set.
+async function cbCimDeliveredMigration() {
+  const row = await pool.query(
+    `SELECT data FROM buyers WHERE workspace_id = $1 AND id = $2`,
+    [WORKSPACE_ID, 'cb']
+  );
+  if (row.rowCount === 0) return { skipped: 'cb_not_found' };
+  const b = { ...row.rows[0].data };
+  if (b.cim_delivered) return { skipped: 'cim_already_set', existing: b.cim_delivered };
+  b.cim_delivered = '2026-05-28';
+  // Also append a note so the AI sees the user-stated fact in context.
+  const log = Array.isArray(b.noteLog) ? [...b.noteLog] : [];
+  log.push({
+    id: crypto.randomUUID(),
+    ts: '2026-05-28T00:00:00.000Z',
+    text: 'CIM received 5/28 — confirmed by user via chat (delayed receipt due to email issue).',
+  });
+  b.noteLog = log;
+  await pool.query(
+    `UPDATE buyers SET data = $1, updated_at = now() WHERE workspace_id = $2 AND id = $3`,
+    [b, WORKSPACE_ID, 'cb']
+  );
+  return { set: { cim_delivered: '2026-05-28' } };
 }
 
 // Removes subjective seed-derived fields and seed-narrative noteLog entries
@@ -1170,14 +1200,14 @@ function computeWinnerShares(blendedBuyers, aiNoDeal) {
   return { winnerByBuyer };
 }
 
-function synthesizeVerdict({ blendedBuyers, nameById, closeEstimate, topRisk }) {
+function synthesizeVerdict({ blendedBuyers, nameById, closeEstimate, topRisk, aiNoDeal }) {
   const live = (blendedBuyers || []).filter(b => typeof b.probability === 'number');
   if (live.length === 0) return '';
   // Use winner-allocated shares for the verdict so it cites the same
   // numbers the row UI displays. The verdict previously sorted on raw
   // AI probability and named "Oakbridge at 32%" while the row showed
   // "Oakbridge 19%" — same buyer, different number, confusing.
-  const { winnerByBuyer } = computeWinnerShares(blendedBuyers);
+  const { winnerByBuyer } = computeWinnerShares(blendedBuyers, aiNoDeal);
   const ranked = live
     .map(b => ({
       id: b.id,
@@ -1288,7 +1318,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 16;
+const PROMPT_VERSION = 17;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
@@ -1552,6 +1582,7 @@ ${focusInstruction}`;
       getOpenAIPredictions({
         ebitda, groundedBuyers: openaiBuyers, liveIntel, sizeBucket, only_buyer_id,
         phaseSummaryText: phaseSummary.text,
+        currentStepBlock,
       }),
     ]);
 
@@ -1717,7 +1748,7 @@ const OPENAI_PREDICTION_SCHEMA = {
   },
 };
 
-async function getOpenAIPredictions({ ebitda, groundedBuyers, liveIntel, sizeBucket, only_buyer_id, phaseSummaryText }) {
+async function getOpenAIPredictions({ ebitda, groundedBuyers, liveIntel, sizeBucket, only_buyer_id, phaseSummaryText, currentStepBlock }) {
   if (!openai) return null;
   const sys = `You are a senior M&A analyst providing an independent SECOND OPINION on the Kennion Benefits Program sale (captive-style benefits brokerage, advised by Reagan Consulting, Spring 2026 process).
 
@@ -1753,10 +1784,18 @@ If you are tempted to echo "8.5–10.0×" verbatim, you are anchoring on a hint 
 - dropped: omit
 
 # Close-month estimate (close_estimate, strict YYYY-MM)
-Predict the calendar month the deal is most likely to close. Anchor on the process step + buyer momentum. Marketing Phase 1 → ~17 weeks to close. Compress if firm offers are landing, extend if top buyers are stalling. Output strictly in "YYYY-MM" format (e.g. "2026-09").
+Use the weeks_to_close baseline from the "Current process step" block in the user message. Adjust ONLY for specific evidence:
+- Multiple top buyers at LOI / firm offers → compress 2–4 weeks.
+- Top 3 in outreach/NDA with cooling notes → extend 4–6 weeks.
+- Chemistry meetings scheduled but not held → MAX(baseline, chemistry_date + ~8 weeks). Only extend beyond baseline if chemistry is genuinely far out.
+Hard cap: extensions ≤ +6 weeks. Output strict "YYYY-MM".
 
 # First-offer estimate (offer_estimate, strict YYYY-MM)
-Predict the month a first written offer (LOI / term sheet / written verbal) most likely lands. Reagan's process puts LOI receipt at ~week 12 from start, so Marketing Phase 1 → ~7 weeks to first offer. Compress if any top buyer has firm-evidence pricing already; extend if top buyers are still in outreach with cooling notes. MUST be <= close_estimate.
+Use the weeks_to_first_offer baseline from the "Current process step" block. Adjust ONLY for specific evidence:
+- Any top buyer has firm-evidence pricing → set to current month.
+- Chemistry meetings scheduled but not held → MAX(baseline, chemistry_date + 1–3 weeks). First offers typically land 1–3 weeks after chemistry. Do NOT extend further unless notes show post-chemistry cooling.
+- Top buyers stalling in outreach/NDA → extend 3–6 weeks (cite ≥2 stall signals if larger).
+MUST be ≤ close_estimate. Output strict "YYYY-MM".
 
 # No-deal probability
 For Kennion's profile (captive-niche, sub-mid-market) a healthy floor is 10–20% even with strong buyers. Reflect buyer-pool depth, sponsor capacity, note trajectory, captive illiquidity.
@@ -1917,6 +1956,7 @@ function blendPredictions(claude, openai, ctx = {}) {
     verdict: synthesizeVerdict({
       blendedBuyers,
       nameById: ctx.nameById || {},
+      aiNoDeal: blendedPNoDeal,
       closeEstimate: blendedClose || claude.close_estimate || openai.close_estimate || null,
       topRisk: cleanTopRisk,  // null → synthesizeVerdict drops the "Main risk:" tail
     }),
