@@ -634,7 +634,10 @@ export default function App() {
   // line and for the headline P(any deal closes) shown on Hero KPIs. Per-row
   // numbers are now the AI's standalone P(close with THIS group), not winner-
   // allocated — that's the question the user actually asks at row scope.
-  const winnerData = winnerProbabilities(buyers, ebitda, caseMode);
+  // Pass the AI's p_no_deal so the row's no-deal % matches the KPI's
+  // deal-confidence %. Without it the row computes a slightly different
+  // number from the independent-union formula.
+  const winnerData = winnerProbabilities(buyers, ebitda, caseMode, rationales?.p_no_deal);
 
   // Sort by the same winner-allocated share displayed on each row. Sorting
   // by raw buyer.probability disagrees with the displayed share when integer
