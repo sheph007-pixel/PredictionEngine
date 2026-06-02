@@ -1436,7 +1436,7 @@ const CONVO_TOOLS = [
   },
   {
     name: 'invalidate_buyer_priors',
-    description: 'Wipe stale AI-derived fields (thesis + last AI reasoning) on one or more buyers when the user pushes back on a claim that came from those fields ("you say OneDigital is pure-benefits, not true" / "you\'re wrong about X"). The thesis and last AI reasoning shown to you below are YOUR OWN prior conclusions, not user-verified facts, when the user disputes them, do NOT defend or apologize, call this tool. It logs the user\'s correction as pipeline-wide intel and forces the auto-rescan that follows to re-derive thesis + reasoning from clean state. Pass every buyer whose stale reasoning depends on the disputed claim.',
+    description: 'Wipe stale AI-derived TEXT fields (thesis + last AI reasoning) on one or more buyers when the user pushes back on a claim that came from those text fields ("you say OneDigital is pure-benefits, not true" / "wrong reasoning about X"). The thesis and last AI reasoning shown to you below are YOUR OWN prior conclusions, not user-verified facts; when the user disputes them, do NOT defend or apologize, call this tool. It logs the user\'s correction as pipeline-wide intel and forces the auto-rescan that follows to re-derive thesis + reasoning from clean state. **DOES NOT update milestone date fields** (cim_delivered, nda_signed, chemistry_date, ioi_received) — the dashboard stage badge "NDA SIGNED · CIM SENT" reads those date fields, not the thesis, so clearing priors will NOT fix a wrong badge or a wrong-date timeline. For date corrections use log_batch_event. For stage corrections use set_buyer_stage.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1557,6 +1557,21 @@ When the user gives you intel, apply it via tools, do not just acknowledge it:
 - user disputes a buyer-level AI-prior (thesis / last reasoning) → invalidate_buyer_priors (every affected buyer + the correction as reason)
 - user disputes a workspace-level AI-prior (close month, close-date / confidence / clearing-price / no-deal rationale) → invalidate_pipeline_priors (the correction as reason)
 - user states a structural milestone affecting MULTIPLE buyers in one message ("CIM delivered to A, B, C on date" / "chemistry confirmed for X and Y" / "NDAs signed by Z and W") → log_batch_event ONCE with all buyer_ids + the event_key. Do NOT call add_buyer_note N times. Event keys: nda_signed, cim_delivered, chemistry_scheduled, ioi_received, loi_received, declined. Only call when the user explicitly states the event; for soft intel ("X seems excited") still use add_buyer_note. Single-buyer milestones can also use this tool with a one-element buyer_ids array.
+- user states a CORRECTION to a milestone date for ONE buyer ("C&B CIM actually received 5/28" / "Alliant NDA was signed 5/14 not 5/16" / "chemistry was 6/4 not 6/3") → log_batch_event with buyer_ids=[that one buyer] + the event_key + the corrected date. This is the SAME tool whether you're stamping a new event or correcting a previously-stamped one — log_batch_event writes (or overwrites) the date field. **Do NOT use invalidate_buyer_priors for date corrections.** invalidate_buyer_priors only clears thesis + last AI reasoning text; it does NOT touch the cim_delivered / nda_signed / chemistry_date / ioi_received fields shown on the buyer row badge. The dashboard badge "NDA SIGNED · CIM SENT" reads those date fields, not the thesis text, so clearing priors will NOT fix a wrong-looking badge.
+
+# Tool disambiguation cheat sheet (READ when picking a tool):
+- "timeline wrong" + a date mentioned → log_batch_event (the dates are the timeline)
+- "reasoning wrong" / "thesis wrong" / "explanation wrong" → invalidate_buyer_priors
+- "stage wrong" / "X is at NDA not chemistry" → set_buyer_stage
+- "probability wrong" → override_probability
+- "close date wrong" / "you said September" → invalidate_pipeline_priors
+
+# On pushback ("still not updated" / "still wrong"):
+If the user pushes back AFTER you've already called a tool, DO NOT ask another clarifying question — the user has given you the info, you misread it last time. Instead:
+1. Re-read what tool you actually called and what fields it writes.
+2. Re-read what the user originally said. If they mentioned a DATE for a milestone, you almost certainly should have called log_batch_event for that milestone. Call it now.
+3. If the user said "timeline" and you called invalidate_buyer_priors: that was wrong — invalidate_priors doesn't update dates. Call log_batch_event with the date the user originally gave.
+4. If you genuinely can't identify the right tool from the prior message, ask ONE specific question naming the candidate tools ("did you mean update the CIM date stamp, or change a written rationale line?"). Not a generic "tell me more."
 
 After tools run, a full pipeline rescan automatically rescores every buyer with the new input. In your reply, briefly state what you did and one sharp implication. If the input is genuinely ambiguous (which buyer? which stage?), ask one clarifying question instead of guessing, but if the user is pushing back on an AI-prior line, invalidating is rarely ambiguous: clear the priors and let the rescan re-derive, even if the user hasn't given you the corrected fact yet.
 
