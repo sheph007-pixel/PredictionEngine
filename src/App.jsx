@@ -660,7 +660,7 @@ export default function App() {
         <div className="brand">
           <div className="brand-mark">Prediction <span className="accent">Engine</span></div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <PrintButton />
           <BrainButton onClick={() => setShowBrain(true)} />
           <AIHistoryButton onClick={() => setShowHistory(true)} syncStatus={syncStatus} />

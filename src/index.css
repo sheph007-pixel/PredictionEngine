@@ -824,71 +824,79 @@ body.dark .ai { background: #0a0907; }
 .build-footer .build-branch { color: var(--accent); }
 
 /* ---------- iPhone / mobile (≤ 600px) ----------
-   Goal: super clean, bold tiles, less density. Desktop layout untouched. */
+   Goal: super clean, bold, centered. Just the main parts. Desktop untouched.
+   Hides: PDF/Brain/AI-History/Library buttons, the chat input, process
+   rails, model-vote chips, thesis text, buyer row "+" buttons. Keeps:
+   logo, EBITDA + Update, KPI tiles, verdict, simplified buyer rows,
+   build footer. Optimized for "Add to Home Screen" iOS install. */
 @media (max-width: 600px) {
-  /* App shell padding tight to edges so big tiles dominate. */
   body, #root { font-size: 15px; }
 
-  /* Hero KPI tiles: bigger numbers, less chrome, hide per-card model chips. */
+  /* Topbar: keep brand + EBITDA/Update, hide the four action buttons. */
+  .topbar { padding: 10px 14px; gap: 8px; flex-wrap: wrap; }
+  .topbar .brand-mark { font-size: 18px; }
+  .topbar-actions { display: none !important; }
+
+  /* Hide the conversation/chat input bar entirely on mobile. */
+  .convo, .convo-fab { display: none !important; }
+
+  /* Hero KPI tiles: centered text, big bold numbers, no model-vote chips. */
   .hero { gap: 0; border-radius: 0; border-left: none; border-right: none; margin: 0 -1px 12px; }
-  .hero-kpi { padding: 18px 18px 16px; }
-  .hero-kpi-label { font-size: 9px; margin-bottom: 6px; letter-spacing: 0.14em; }
-  .hero-kpi-value { font-size: 40px; line-height: 1; }
-  .hero-kpi-foot { font-size: 11.5px; margin-top: 6px; }
+  .hero-kpi { padding: 22px 18px 20px; text-align: center; align-items: center; }
+  .hero-kpi-label { font-size: 9px; margin-bottom: 10px; letter-spacing: 0.16em; }
+  .hero-kpi-value { font-size: 44px; line-height: 1; }
+  .hero-kpi-foot { font-size: 12px; margin-top: 8px; white-space: normal; overflow: visible; text-overflow: clip; }
   .hero-kpi > .model-vote { display: none; }
 
-  /* Verdict banner: bigger, full-bleed. */
-  .verdict-banner { padding: 14px 16px; }
+  /* Verdict banner: centered, slightly larger. */
+  .verdict-banner { padding: 14px 16px; text-align: center; }
   .verdict-label { font-size: 9.5px; }
   .verdict-text { font-size: 15px; line-height: 1.4; }
 
-  /* Pipeline head: drop the "13 firms · ranked..." subtitle and pad less. */
+  /* Pipeline head: tight, no legend strip. */
   .pipeline-head { padding: 14px 16px 10px; }
   .pipeline-sub { font-size: 11px; }
-  .pipeline-legend { display: none; }
+  .pipeline-legend { display: none !important; }
 
-  /* Buyer rows: rank · name + tiny stage label · big share %. Drop thesis,
-     stage pips, and model chips. Bigger touch target. */
+  /* Buyer rows: rank · name + stage · big share %. No thesis / pips / chips. */
   .row {
-    grid-template-columns: 24px minmax(0, 1fr) auto !important;
+    grid-template-columns: 28px minmax(0, 1fr) auto !important;
     gap: 12px !important;
     padding: 16px 16px !important;
   }
-  .row-rank { font-size: 14px; color: var(--ink-3); }
-  .row-name-main { font-size: 19px; line-height: 1.2; }
+  .row-name-block { gap: 3px; }
+  .row-name-main { font-size: 18px; line-height: 1.2; }
   .row-name-ext { display: none; }
   .row-name-thesis { display: none; }
-  .row-stage { flex-direction: row; gap: 8px; }
-  .row-stage-pips { display: none; }
-  .row-stage-label { font-size: 9.5px; letter-spacing: 0.08em; }
-  .row-prob-stack { min-width: 0; gap: 0; }
-  .row-prob-stack .model-vote { display: none; }
-  .row-prob-num { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; }
-  .row-prob-num span { font-size: 13px; font-weight: 500; opacity: 0.6; }
-  .row-add-btn { display: none; }
-  .row-updated, .row-stage-dropped { font-size: 10px; }
 
-  /* No-deal footer row: same simplified treatment. */
-  .row-nodeal-name { font-size: 14px; }
-  .row-nodeal-num { font-size: 22px; }
+  /* Stage column lives inline under the name; pips hidden. */
+  .row-stage { flex-direction: row !important; gap: 8px !important; align-self: center !important; margin-top: 2px; }
+  .row-stage-pips { display: none !important; }
+  .row-stage-label { font-size: 9.5px !important; letter-spacing: 0.08em !important; color: var(--ink-3); }
 
-  /* Process tracker: just the phase summary, hide rails. */
-  .process-rail, .process-rail-phases, .process-task { display: none; }
+  /* Probability column: right-aligned big bold share %. No chips, no buttons. */
+  .row-prob-stack { min-width: 0; gap: 2px; align-items: flex-end; }
+  .row-prob-stack .model-vote { display: none !important; }
+  .row-prob-num { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .row-prob-num span { font-size: 13px; font-weight: 500; opacity: 0.55; margin-left: 1px; }
+  .row-add-btn { display: none !important; }
+  .row-updated { font-size: 9.5px; opacity: 0.5; }
+  .row-stage-dropped { font-size: 10px; }
+
+  /* No-deal footer row: simplified. */
+  .row-nodeal { padding: 14px 16px; }
+  .row-nodeal-name { font-size: 13px; }
+  .row-nodeal-num { font-size: 20px; font-weight: 700; }
+
+  /* Dropped-toggle: smaller. */
+  .dropped-toggle { padding: 12px 16px; font-size: 11px; }
+
+  /* Process tracker: collapsed phase summary only. */
+  .process-rail, .process-rail-phases, .process-task { display: none !important; }
   .process-section { padding: 12px 16px; }
   .process-eyebrow { font-size: 9px; }
   .process-phase-headline { font-size: 14px; }
 
-  /* Conversation bar: more compact. */
-  .convo-fab, .convo-textarea { font-size: 14px; }
-  .convo-input-row { padding: 8px 12px; }
-
-  /* Topbar: stack badges horizontally without overflow. */
-  .topbar { padding: 8px 12px; gap: 6px; flex-wrap: wrap; }
-  .topbar .btn { font-size: 10px; padding: 6px 8px; }
-  .ebitda-display { font-size: 11px; }
-  .rescan-btn { font-size: 11px; padding: 6px 10px; }
-
-  /* Build footer: keep visible on mobile, just smaller. (Earlier media
-     rule for print hides it; this stays for screen.) */
-  .build-footer { display: flex; padding: 12px 16px; font-size: 9.5px; opacity: 0.55; }
+  /* Build footer: visible on mobile, smaller, right-aligned. */
+  .build-footer { display: flex; padding: 14px 16px 20px; font-size: 9.5px; opacity: 0.55; }
 }
