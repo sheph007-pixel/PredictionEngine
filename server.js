@@ -673,13 +673,13 @@ These rationales must reflect the CURRENT pipeline state in this rescan call. If
 Start from the \`weeks_to_close\` baseline computed in the "Current process step" block at the top of the user message. That is your default. Then adjust ONLY when you have specific evidence:
 - Multiple top buyers at LOI or with firm-evidence offers → compress 2–4 weeks.
 - Top 3 buyers all in outreach/NDA with cooling notes or stalls → extend 4–8 weeks.
-- Chemistry meetings scheduled but not yet held → use chemistry-date + ~10 weeks instead of the arithmetic baseline.
-Hard cap: adjustments may not extend the baseline by more than 8 weeks total — anything larger requires you to cite at least three specific cooling signals from notes_timeline in close_date_rationale. Output strictly in "YYYY-MM" format. Example: "2026-09". Do NOT add quotes or extra prose. \`close_date_rationale\` (max 22 words, plain English): name the current task week, the baseline weeks_to_close from the block above, and what (if anything) you adjusted.
+- Chemistry meetings scheduled but not yet held → take MAX(arithmetic baseline, chemistry-date + ~8 weeks). The Reagan timeline puts close ~13 weeks after chemistry meetings; only extend beyond the arithmetic baseline if chemistry is genuinely far out (e.g., chemistry_date is weeks away).
+Hard cap: adjustments may not extend the baseline by more than 6 weeks total — anything larger requires you to cite at least three specific cooling signals from notes_timeline in close_date_rationale. Output strictly in "YYYY-MM" format. Example: "2026-09". Do NOT add quotes or extra prose. \`close_date_rationale\` (max 22 words, plain English): name the current task week, the baseline weeks_to_close from the block above, and what (if anything) you adjusted.
 
 # First-offer estimate (\`offer_estimate\`, strict YYYY-MM format)
 Start from the \`weeks_to_first_offer\` baseline computed in the "Current process step" block at the top of the user message. That is your default. Then adjust ONLY when you have specific evidence:
 - Any top buyer already has firm-evidence pricing in notes/docs → first offer is in hand, set to current month.
-- Chemistry meetings scheduled but not held → use chemistry-date + 3–5 weeks instead of the arithmetic baseline.
+- Chemistry meetings scheduled but not held → take MAX(arithmetic baseline, chemistry-date + 1–3 weeks). Once buyers reach chemistry stage, first offers typically land within 1–3 weeks of the meeting; do NOT extend further unless notes show post-chemistry cooling. If the arithmetic baseline already exceeds chemistry-date + 3 weeks, use the baseline.
 - Top buyers stalling in outreach/NDA with cooling notes → extend 3–6 weeks (no more — anything larger requires citing at least two specific stall signals from notes_timeline in offer_date_rationale).
 Hard cap: adjustments may not extend the baseline by more than 6 weeks total. Must be ≤ \`close_estimate\`. Output strictly in "YYYY-MM". \`offer_date_rationale\` (max 22 words, plain English, same discipline as close_date_rationale): name the current task week, the baseline weeks_to_first_offer from the block above, and what (if anything) you adjusted.
 
@@ -1288,7 +1288,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 15;
+const PROMPT_VERSION = 16;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
