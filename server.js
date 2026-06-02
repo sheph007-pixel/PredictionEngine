@@ -1060,6 +1060,31 @@ function derivePhaseSummary(buyers) {
 //     to "cim_deliver" if missing so we never produce an empty block.
 //   today — Date object, defaults to now. Used so the example calendar months
 //     in the prompt reflect today, not a hardcoded date.
+
+// Derive the most-advanced process task implied by the buyer state. The
+// stored task ID in workspace.process only advances when the user manually
+// steps through the process tracker; if the deal moves faster than the
+// user remembers to advance the tracker, the AI's time math goes stale
+// (e.g., 3 buyers at chemistry stage but stored task still cim_deliver →
+// AI thinks LOI is 6 weeks away when it's actually 3).
+function deriveCurrentTaskId(buyers) {
+  const live = (buyers || []).filter(b => b && b.stage && b.stage !== 'dropped');
+  if (live.length === 0) return 'data';
+  const has = (stage) => live.some(b => b.stage === stage);
+  const anyCimDelivered = live.some(b => b.stage === 'nda' && b.cim_delivered);
+  const anyChemistryDate = live.some(b => b.stage === 'nda' && b.chemistry_date);
+  const liveAtLoiOrBeyond = live.filter(b => b.stage === 'loi' || b.stage === 'closed').length;
+  // Mapping (least-to-most advanced; falls through to most-advanced match):
+  if (has('closed')) return 'close';
+  if (liveAtLoiOrBeyond === 1) return 'select';       // one finalist after LOIs received
+  if (has('loi')) return 'lois';                       // multiple LOIs in hand
+  if (has('chemistry')) return 'process_letter';       // mid-MP2 (after chemistry meetings)
+  if (anyChemistryDate) return 'chemistry';            // chemistry scheduled but not yet attended
+  if (anyCimDelivered) return 'initial_qa';            // late MP1
+  if (has('nda')) return 'cim_deliver';                // mid-MP1
+  return 'outreach';                                   // early MP1
+}
+
 function buildCurrentStepBlock(currentTaskId, today = new Date()) {
   const taskById = Object.fromEntries(PROCESS_TASKS.map(t => [t.id, t]));
   const current = taskById[currentTaskId] || taskById['cim_deliver'];
@@ -1263,7 +1288,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 14;
+const PROMPT_VERSION = 15;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
@@ -1313,22 +1338,31 @@ app.post('/api/ai/rescan', async (req, res) => {
   const livePipeline = buyers.filter(b => b.stage !== 'dropped');
   if (livePipeline.length === 0) return res.status(400).json({ error: 'no live buyers' });
 
-  // Read currentTaskId from workspace.process so the AI anchors time
-  // estimates on the actual task you're on (e.g. week 6 = cim_deliver),
-  // not the flat phase average. Falls back to "cim_deliver" if Postgres is
-  // unavailable or the workspace row is missing process state. Pulled BEFORE
-  // the cache key so a task advancement invalidates the cache.
-  let currentTaskId = 'cim_deliver';
+  // Read currentTaskId from workspace.process AND derive the effective task
+  // from the actual buyer state. Use the MORE-ADVANCED of the two so the AI
+  // time anchor reflects where the deal actually is, not a stale stored value.
+  //
+  // The stored task only advances when the user explicitly clicks through
+  // the process tracker — easy to forget. Without auto-derivation: 3 buyers
+  // at chemistry stage (process week 9) but stored task=cim_deliver (week
+  // 6) makes the AI compute LOI = 12-6 = 6 weeks = 42 days away, when the
+  // actual answer from chemistry is 12-9 = 3 weeks = 21 days.
+  let storedTaskId = 'cim_deliver';
   if (pool) {
     try {
       const r = await pool.query(`SELECT process FROM workspace WHERE id = $1`, [WORKSPACE_ID]);
       if (r.rowCount > 0 && r.rows[0].process && typeof r.rows[0].process.currentTaskId === 'string') {
-        currentTaskId = r.rows[0].process.currentTaskId;
+        storedTaskId = r.rows[0].process.currentTaskId;
       }
     } catch (_e) {
       // fall through to default — a stale-but-sensible anchor beats throwing
     }
   }
+  const derivedTaskId = deriveCurrentTaskId(livePipeline);
+  const taskById = Object.fromEntries(PROCESS_TASKS.map(t => [t.id, t]));
+  const storedWeek = taskById[storedTaskId]?.weeksFromStart ?? 0;
+  const derivedWeek = taskById[derivedTaskId]?.weeksFromStart ?? 0;
+  const currentTaskId = derivedWeek > storedWeek ? derivedTaskId : storedTaskId;
 
   // Idempotence: if buyer + market + intel state is byte-identical to the
   // previous call, return the cached response. The user pressing Update
