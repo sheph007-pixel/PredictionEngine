@@ -22,18 +22,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Bail if ANTHROPIC_API_KEY is missing
-        if: ${{ secrets.ANTHROPIC_API_KEY == '' }}
-        run: |
-          echo "ANTHROPIC_API_KEY secret is not set. Skipping check."
-          echo "Add it under Settings → Secrets and variables → Actions to enable."
-          exit 0
-
       - name: Find newest Opus from Anthropic
         id: latest
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ANTHROPIC_API_KEY secret is not set — set it under Settings → Secrets and variables → Actions. Exiting cleanly."
+            exit 0
+          fi
           set -e
           RESP=$(curl -sS https://api.anthropic.com/v1/models \
             -H "x-api-key: $ANTHROPIC_API_KEY" \
