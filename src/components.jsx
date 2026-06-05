@@ -1492,18 +1492,33 @@ export function Conversation({ buyers, pinnedRules, globalIntel, market, rationa
   // to read them. Keep this generous; Sonnet's context handles it.
   const buildSystem = () => {
     const liveBuyers = (buyersRef.current || []).filter(b => b.stage !== 'dropped');
-    const ranked = [...liveBuyers].sort((a, b) => (b.probability || 0) - (a.probability || 0));
+    // Compute winner-allocated shares the same way the dashboard does, so
+    // the advisor sees the same percentages the user sees on screen. Drop
+    // raw `probability` (different number system, invisible to user) and
+    // AI-derived fields (aiNotes / aiHistory) entirely — the advisor now
+    // only sees what's user-verifiable: stage, milestone dates, the same
+    // thesis line displayed under each buyer row, recent noteLog entries
+    // (user-authored), and recent overrides (user-authored).
+    const { winnerByBuyer } = winnerProbabilities(buyersRef.current || [], ebitdaRef.current, 'mid', rationalesRef.current?.p_no_deal);
+    const ranked = [...liveBuyers].sort((a, b) => (winnerByBuyer[b.id] ?? 0) - (winnerByBuyer[a.id] ?? 0));
     const buyerCtx = ranked.map(b => {
       const recentNotes = (b.noteLog || []).slice(-4).map(n => `    [${(n.ts || '').slice(0,10)}] ${n.text}`).join('\n');
       const overrides = (b.overrides || []).slice(-3).map(o => `    [${(o.ts || '').slice(0,10)}] ${o.kind} ${o.from}→${o.to}: ${o.reason}`).join('\n');
-      // thesis + aiNotes are AI-DERIVED prior conclusions (your own output from
-      // earlier rescans), not user-verified facts. Labeling matters: when the
-      // user disputes one of these, you should call invalidate_buyer_priors,
-      // not defend the line.
-      const reasoning = b.aiNotes ? `\n  AI-prior · last reasoning: ${b.aiNotes}` : '';
-      const thesis = b.thesis ? `\n  AI-prior · thesis: ${b.thesis}` : '';
+      // thesis IS shown on screen under each buyer row, so the advisor can
+      // reference it without confusing the user. Still flagged as AI-prior
+      // so the advisor knows to use invalidate_buyer_priors when the user
+      // disputes it.
+      const thesis = b.thesis ? `\n  AI-prior · thesis (shown on dashboard): ${b.thesis}` : '';
       const site = b.website ? `\n  website: ${b.website}` : '';
-      return `- id="${b.id}" · ${b.name} · stage=${b.stage} · p=${b.probability ?? '?'}%${site}${thesis}${reasoning}${recentNotes ? `\n  Recent notes:\n${recentNotes}` : ''}${overrides ? `\n  Recent overrides:\n${overrides}` : ''}`;
+      const milestones = [
+        b.cim_delivered ? `cim_delivered=${b.cim_delivered}` : null,
+        b.chemistry_date ? `chemistry_date=${b.chemistry_date}` : null,
+        b.ioi_received ? `ioi_received=${b.ioi_received}` : null,
+      ].filter(Boolean).join(' · ');
+      const milestoneLine = milestones ? `\n  milestones: ${milestones}` : '';
+      const share = winnerByBuyer[b.id];
+      const shareLine = typeof share === 'number' ? ` · share=${share}%` : '';
+      return `- id="${b.id}" · ${b.name} · stage=${b.stage}${shareLine}${site}${milestoneLine}${thesis}${recentNotes ? `\n  Recent notes:\n${recentNotes}` : ''}${overrides ? `\n  Recent overrides:\n${overrides}` : ''}`;
     }).join('\n');
 
     const dropped = (buyersRef.current || []).filter(b => b.stage === 'dropped');
