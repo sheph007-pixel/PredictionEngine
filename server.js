@@ -710,8 +710,9 @@ Hard cap: adjustments may not extend the baseline by more than 6 weeks total —
 Start from the \`weeks_to_first_offer\` baseline computed in the "Current process step" block at the top of the user message. That is your default. Then adjust ONLY when you have specific evidence:
 - Any top buyer already has firm-evidence pricing in notes/docs → first offer is in hand, set to current month.
 - Chemistry meetings scheduled but not held → take MAX(arithmetic baseline, chemistry-date + 1–3 weeks). Once buyers reach chemistry stage, first offers typically land within 1–3 weeks of the meeting; do NOT extend further unless notes show post-chemistry cooling. If the arithmetic baseline already exceeds chemistry-date + 3 weeks, use the baseline.
-- Top buyers stalling in outreach/NDA with cooling notes → extend 3–6 weeks (no more — anything larger requires citing at least two specific stall signals from notes_timeline in offer_date_rationale).
-Hard cap: adjustments may not extend the baseline by more than 6 weeks total. Must be ≤ \`close_estimate\`. Output strictly in "YYYY-MM". \`offer_date_rationale\` (max 22 words, plain English, same discipline as close_date_rationale): name the current task week, the baseline weeks_to_first_offer from the block above, and what (if anything) you adjusted.
+- Top buyers stalling with **documented cooling notes after their last positive event** (a "stall signal" is text in notes_timeline like "didn't respond", "going dark", "passed on next meeting", "capacity pulled", "sponsor moving on", DATED after the most recent positive event). "No LOI yet" is NOT a stall signal — pre-LOI silence is the default state at this stage of the process. → extend 3–6 weeks ONLY when you can cite ≥2 such dated stall signals from the top buyers (name buyer+date in offer_date_rationale). Without citable stall signals, do NOT extend; use the baseline.
+- **Buyers actively scheduling / attending chemistry or second meetings = the OPPOSITE of stalling.** If notes show second meetings requested, attended, or pinned (e.g., "second meeting Monday", "principals returning Tuesday"), do NOT apply any stall extension.
+Hard cap: adjustments may not extend the baseline by more than 4 weeks total. Must be ≤ \`close_estimate\`. Output strictly in "YYYY-MM". \`offer_date_rationale\` (max 22 words, plain English, same discipline as close_date_rationale): name the current task week, the baseline weeks_to_first_offer from the block above, and what (if anything) you adjusted.
 
 # No-deal probability (\`p_no_deal\`, 0–100)
 This is the probability that the asset does NOT sell within the planned process window. It reflects market/process risk, not the inverse of buyer probabilities. Consider:
@@ -1318,7 +1319,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 18;
+const PROMPT_VERSION = 19;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
@@ -1794,7 +1795,7 @@ Hard cap: extensions ≤ +6 weeks. Output strict "YYYY-MM".
 Use the weeks_to_first_offer baseline from the "Current process step" block. Adjust ONLY for specific evidence:
 - Any top buyer has firm-evidence pricing → set to current month.
 - Chemistry meetings scheduled but not held → MAX(baseline, chemistry_date + 1–3 weeks). First offers typically land 1–3 weeks after chemistry. Do NOT extend further unless notes show post-chemistry cooling.
-- Top buyers stalling in outreach/NDA → extend 3–6 weeks (cite ≥2 stall signals if larger).
+- Top buyers stalling with documented cooling notes after their last positive event → extend 3–6 weeks (cite ≥2 stall signals). "No LOI yet" is NOT a stall. Buyers actively scheduling second meetings ≠ stalling. Without citable post-positive cooling notes, do NOT extend.
 MUST be ≤ close_estimate. Output strict "YYYY-MM".
 
 # No-deal probability
