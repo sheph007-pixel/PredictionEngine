@@ -542,13 +542,19 @@ export function ProcessTracker({ process, onUpdate, buyers = [], ebitda = 18, ca
 // the seed conservative; the AI rescan tightens the band with real evidence.
 export function marketMultiplesSeed(ebitda) {
   const e = Number(ebitda) || 0;
+  // Bands match the server-side prompt anchors (anchored on Reagan-style
+  // private M&A guaranteed multiples '23-'25 vintage + niche/illiquidity
+  // adjustments — see server.js Global market band setting). Used as the
+  // client-side fallback when the persisted `market` state is missing
+  // (e.g., first load before the first rescan, or a partially-failed
+  // rescan that returned without market data).
   const bucket =
-    e < 3  ? { c: [3.0, 4.5], m: [4.0, 6.0], a: [5.5, 7.5], tag: "<$3M sub-scale" } :
-    e < 5  ? { c: [4.0, 5.5], m: [5.0, 7.0], a: [6.5, 8.5], tag: "$3–5M captive-niche" } :
-    e < 10 ? { c: [5.0, 7.0], m: [6.5, 8.5], a: [8.0, 10.5], tag: "$5–10M lower mid-mkt" } :
-    e < 20 ? { c: [6.5, 8.5], m: [8.0, 10.5], a: [10.0, 13.0], tag: "$10–20M mid-mkt" } :
-    e < 50 ? { c: [8.5, 10.5], m: [10.0, 12.5], a: [12.0, 14.5], tag: "$20–50M mid-mkt PE" } :
-             { c: [9.5, 11.5], m: [11.0, 13.5], a: [13.0, 16.0], tag: ">$50M scaled" };
+    e < 3  ? { c: [6.0, 7.5],  m: [7.5,  9.0],  a: [9.0,  10.5], tag: "<$3M sub-scale" } :
+    e < 5  ? { c: [7.0, 8.5],  m: [8.5,  10.0], a: [10.0, 11.5], tag: "$3–5M captive-niche" } :
+    e < 10 ? { c: [8.5, 10.0], m: [10.0, 11.5], a: [11.5, 13.0], tag: "$5–10M lower mid-mkt" } :
+    e < 20 ? { c: [10.0, 11.5], m: [11.5, 13.5], a: [13.5, 14.5], tag: "$10–20M mid-mkt" } :
+    e < 50 ? { c: [11.5, 13.0], m: [13.0, 14.5], a: [14.5, 16.0], tag: "$20–50M mid-mkt PE" } :
+             { c: [12.0, 13.5], m: [13.5, 15.0], a: [15.0, 17.0], tag: ">$50M scaled" };
   return {
     conservative: { low: bucket.c[0], high: bucket.c[1], label: "Conservative", note: `Bear · ${bucket.tag} · soft market` },
     mid:          { low: bucket.m[0], high: bucket.m[1], label: "Realistic",   note: `Base · ${bucket.tag} · pre-rescan default` },
