@@ -128,6 +128,7 @@ async function runStartupMigrations() {
     { id: 'scott_top100_rank_2026_05_21', fn: scottTop100RankMigration },
     { id: 'scott_top100_rank_reapply_2026_05_22', fn: scottTop100RankMigration },
     { id: 'cb_cim_delivered_2026_05_28', fn: cbCimDeliveredMigration },
+    { id: 'reset_stale_market_band_2026_06_06', fn: resetStaleMarketBandMigration },
   ];
   for (const m of all) {
     try {
@@ -495,6 +496,30 @@ async function cbCimDeliveredMigration() {
   return { set: { cim_delivered: '2026-05-28' } };
 }
 
+// Clears the workspace's stored `market` band when it falls below the
+// calibrated bucket-anchored conservative.low — the band echoed forward
+// by the AI as prior_market on every rescan, locking it into a stale
+// calibration. After clear, the next rescan re-derives from clean state
+// (Step 1/2/3 from the prompt) and persists the new band. Idempotent.
+async function resetStaleMarketBandMigration() {
+  const row = await pool.query(`SELECT market FROM workspace WHERE id = $1`, [WORKSPACE_ID]);
+  if (row.rowCount === 0) return { skipped: 'no_workspace' };
+  const market = row.rows[0].market;
+  // Anything with mid.low < 7.0 for our $3.6M EBITDA bucket is stale
+  // (bucket's conservative.low is 7.0 per the prompt anchors).
+  if (!market || !market.mid || typeof market.mid.low !== 'number') {
+    return { skipped: 'no_market_to_clear' };
+  }
+  if (market.mid.low >= 7.0) {
+    return { skipped: 'market_already_recalibrated', mid_low: market.mid.low };
+  }
+  await pool.query(
+    `UPDATE workspace SET market = NULL, market_meta = NULL, updated_at = now() WHERE id = $1`,
+    [WORKSPACE_ID]
+  );
+  return { cleared: { prior_mid_low: market.mid.low } };
+}
+
 // Removes subjective seed-derived fields and seed-narrative noteLog entries
 // from every buyer in Postgres. Aligns the database with the new identity-only
 // data model where the AI only sees user-authored facts. Idempotent.
@@ -635,7 +660,7 @@ Typical earnout magnitude is +0.5 to +1.5× of EBITDA on TOTAL EV. Pick a specif
 **Conservative band** = realistic.low − 1.5× (tighten to −1.0× if the pipeline has firm-evidence pricing already).
 **Aggressive band** = realistic.high + 1.5× (lift if a top buyer has firm pricing above the realistic band).
 
-Bands ~2× wide; bands may overlap. Update only if new evidence shifts the Step-1/2/3 choices; otherwise echo prior_market.
+Bands ~2× wide; bands may overlap. Update only if new evidence shifts the Step-1/2/3 choices; otherwise echo prior_market — **BUT** if prior_market.mid.low is more than 2 turns below the EBITDA bucket's conservative.low from the source data above (e.g., prior says 5.3× for $3-5M when the bucket starts at 7.0× conservative), prior_market is stale from an older calibration — discard it and re-derive from Step 1/2/3. Do NOT echo a band that contradicts the bucket-anchored source data by more than 2 turns.
 
 **Public broker comps** (BRO 16×, AON 14×, MMC 15.5×, etc.) are CONFIRMATORY only. The private guaranteed-multiple anchors above already reflect the public-to-private gap — do NOT additionally discount your private band using public-comp arithmetic; that double-counts.
 
@@ -707,6 +732,8 @@ Start from the \`weeks_to_close\` baseline computed in the "Current process step
 Hard cap: adjustments may not extend the baseline by more than 6 weeks total — anything larger requires you to cite at least three specific cooling signals from notes_timeline in close_date_rationale. Output strictly in "YYYY-MM" format. Example: "2026-09". Do NOT add quotes or extra prose. \`close_date_rationale\` (max 22 words, plain English): name the current task week, the baseline weeks_to_close from the block above, and what (if anything) you adjusted.
 
 # First-offer estimate (\`offer_estimate\`, strict YYYY-MM format)
+**offer_estimate predicts when the FIRST written offer lands, NOT the median across all buyers.** The first LOI comes from whichever buyer is fastest — typically your highest-engagement buyer. Slower buyers in the same pipeline do NOT push the first-offer date out as long as at least one top-engagement buyer is moving. Only delay if YOUR TOP BUYER (the highest-share / most-engaged one) is stalling.
+
 Start from the \`weeks_to_first_offer\` baseline computed in the "Current process step" block at the top of the user message. That is your default. Then adjust ONLY when you have specific evidence:
 - Any top buyer already has firm-evidence pricing in notes/docs → first offer is in hand, set to current month.
 - Chemistry meetings scheduled but not held → take MAX(arithmetic baseline, chemistry-date + 1–3 weeks). Once buyers reach chemistry stage, first offers typically land within 1–3 weeks of the meeting; do NOT extend further unless notes show post-chemistry cooling. If the arithmetic baseline already exceeds chemistry-date + 3 weeks, use the baseline.
@@ -1319,7 +1346,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 19;
+const PROMPT_VERSION = 20;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
