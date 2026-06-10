@@ -133,6 +133,12 @@ body { font-size: 14px; }
 .hero-kpi-close { color: var(--accent); }
 .hero-kpi-confidence { color: var(--pos); }
 .hero-kpi-pipeline { color: var(--ink); }
+/* Live first-offer countdown: slightly smaller than the other hero values so
+   "15d 12h 32m 08s" fits one line; tabular digits + zero-padding keep the
+   width stable while seconds tick. Unit letters drop to half size in the
+   muted ink so the numbers carry the card. */
+.hero-kpi-timer { font-size: 34px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hero-kpi-timer .hero-timer-unit { font-size: 0.5em; font-weight: 500; color: var(--ink-3); letter-spacing: 0; margin-left: 1px; }
 .hero-kpi-foot { font-family: var(--sans); font-size: 12.5px; color: var(--ink-3); margin-top: 10px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hero-kpi-foot b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
 .hero-kpi > .model-vote { margin-top: 12px; flex-wrap: nowrap; gap: 4px; }

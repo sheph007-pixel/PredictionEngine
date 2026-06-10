@@ -313,9 +313,31 @@ function fmtCountdown(target, now) {
   return `${d}d ${h}h ${m}m`;
 }
 
+// Big segmented live countdown for the hero's first-offer card: days, hours,
+// minutes, seconds with small unit letters. Hours/minutes/seconds zero-pad
+// so the layout doesn't jiggle as the timer ticks once a second.
+function CountdownValue({ target, now }) {
+  if (!target) return null;
+  const ms = target.getTime() - now.getTime();
+  if (ms <= 0) return <>overdue</>;
+  const d = Math.floor(ms / 86400000);
+  const h = Math.floor((ms % 86400000) / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return (
+    <>
+      {d}<span className="hero-timer-unit">d</span> {pad(h)}<span className="hero-timer-unit">h</span> {pad(m)}<span className="hero-timer-unit">m</span> {pad(s)}<span className="hero-timer-unit">s</span>
+    </>
+  );
+}
+
 export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales }) {
   const derived = derivePhase(buyers);
-  const today = useNow(60_000);
+  // 1s tick drives the live first-offer countdown (the fun part). The hero
+  // is a small subtree, so a per-second re-render is cheap; the other three
+  // cards only change values when their underlying numbers move.
+  const today = useNow(1_000);
   const weeksToClose = derived.weeksToClose;
   const weeksToOffer = derived.weeksToOffer;
   const projectedClose = new Date(today);
@@ -391,9 +413,11 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
   return (
     <div className="hero">
       <div className="hero-kpi">
-        <div className="hero-kpi-label">Projected offer</div>
-        <div className="hero-kpi-value hero-kpi-close">{headlineOffer}</div>
-        <div className="hero-kpi-foot" title={`${fmtCountdown(aiOfferDate || projectedOffer, today)} to first offer · ${derived.phase}`}><b>{fmtCountdown(aiOfferDate || projectedOffer, today)}</b> to first offer · <b>{derived.phase}</b></div>
+        <div className="hero-kpi-label">Projected offer <span className="hero-kpi-case">· countdown</span></div>
+        <div className="hero-kpi-value hero-kpi-close hero-kpi-timer" title={`First offer projected ${headlineOffer} · ${derived.phase}`}>
+          <CountdownValue target={aiOfferDate || projectedOffer} now={today} />
+        </div>
+        <div className="hero-kpi-foot" title={`First offer projected ${headlineOffer} · ${derived.phase}`}>to first offer · <b>{headlineOffer}</b> · <b>{derived.phase}</b></div>
         {offerChips && <ModelVote claudeVal={offerChips.claude} openaiVal={offerChips.openai} avgVal={offerChips.avg} />}
       </div>
       <div className="hero-kpi">
