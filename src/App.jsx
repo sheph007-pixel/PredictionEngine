@@ -192,8 +192,6 @@ export default function App() {
         const ws = result.workspace;
         if (ws.ebitda != null) setEbitda(Number(ws.ebitda));
         if (ws.case_mode) setCaseMode(ws.case_mode);
-        if (ws.market) setMarket(ws.market);
-        if (ws.market_meta) setMarketMeta(ws.market_meta);
         // Race guard: if the user ran a rescan moments before refresh, the
         // debounced workspace push (~1s) may not have hit the server yet,
         // so ws.rationales would be the stale snapshot. captureRationales
@@ -201,11 +199,19 @@ export default function App() {
         // when its ts is at-or-newer than the local one we hydrated from
         // localStorage. Without this, model-vote chips for the most recent
         // rescan blink away after a fast refresh.
-        if (ws.rationales) {
-          const localTs = rationales?.ts ? new Date(rationales.ts).getTime() : 0;
-          const serverTs = ws.rationales?.ts ? new Date(ws.rationales.ts).getTime() : 0;
-          if (serverTs >= localTs) setRationales(ws.rationales);
-        }
+        //
+        // The same guard covers `market`: every rescan writes market and
+        // rationales together (setMarket + captureRationales → one debounced
+        // push), so a server snapshot older than the local rationales ts also
+        // carries a stale market band. Accepting it re-imposed long-dead
+        // bands (the $22M / 5.3–6.9× regression) which the write-through
+        // effect then pushed back to Postgres, making the stale band sticky.
+        const localTs = rationales?.ts ? new Date(rationales.ts).getTime() : 0;
+        const serverTs = ws.rationales?.ts ? new Date(ws.rationales.ts).getTime() : 0;
+        const serverFresh = serverTs >= localTs;
+        if (ws.market && serverFresh) setMarket(ws.market);
+        if (ws.market_meta && serverFresh) setMarketMeta(ws.market_meta);
+        if (ws.rationales && serverFresh) setRationales(ws.rationales);
         if (ws.process) setProcess(ws.process);
         if (Array.isArray(ws.global_intel)) setGlobalIntel(ws.global_intel);
         if (Array.isArray(ws.pinned_rules)) setPinnedRules(ws.pinned_rules);
