@@ -64,11 +64,11 @@ function validateRescan(payload) {
   if (payload.p_no_deal != null && !isInt(payload.p_no_deal, 0, 100)) {
     return { ok: false, error: 'p_no_deal out of range' };
   }
-  if (payload.close_estimate != null && !/^\d{4}-\d{1,2}$/.test(String(payload.close_estimate))) {
-    return { ok: false, error: 'close_estimate not in YYYY-MM format' };
+  if (payload.close_estimate != null && !/^\d{4}-\d{1,2}(-\d{1,2})?$/.test(String(payload.close_estimate))) {
+    return { ok: false, error: 'close_estimate not in YYYY-MM or YYYY-MM-DD format' };
   }
-  if (payload.offer_estimate != null && !/^\d{4}-\d{1,2}$/.test(String(payload.offer_estimate))) {
-    return { ok: false, error: 'offer_estimate not in YYYY-MM format' };
+  if (payload.offer_estimate != null && !/^\d{4}-\d{1,2}(-\d{1,2})?$/.test(String(payload.offer_estimate))) {
+    return { ok: false, error: 'offer_estimate not in YYYY-MM or YYYY-MM-DD format' };
   }
   return { ok: true };
 }

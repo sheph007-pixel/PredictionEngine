@@ -273,11 +273,17 @@ function ModelVote({ claudeVal, openaiVal, avgVal, claudeReasoning, openaiReason
   );
 }
 
-// Render YYYY-MM as "Sep 2026"; falls back to raw string if malformed.
+// Render YYYY-MM as "Sep 2026", or a day-anchored YYYY-MM-DD as "Sep 26, 2026"
+// (day-level estimates come from hard dated evidence like an LOI deadline,
+// so the day must be visible). Falls back to raw string if malformed.
 function fmtCloseMonth(s) {
   if (typeof s !== 'string') return null;
-  const m = s.match(/^(\d{4})-(\d{1,2})$/);
+  const m = s.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?$/);
   if (!m) return s;
+  if (m[3]) {
+    const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
   const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, 1);
   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
@@ -330,11 +336,14 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
 
   // Keep "weeks remaining" honest to the headline date. When the AI overrides
   // the close month, recompute weeks from today to mid-month of that estimate.
+  // Day-anchored estimates (YYYY-MM-DD, from hard dated evidence like an LOI
+  // deadline) target the exact day so the countdown points at the real line
+  // in the sand, not the mid-month convention.
   const parseYearMonth = (s) => {
     if (typeof s !== 'string') return null;
-    const m = s.match(/^(\d{4})-(\d{1,2})$/);
+    const m = s.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?$/);
     if (!m) return null;
-    return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, 15);
+    return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, m[3] ? parseInt(m[3], 10) : 15);
   };
   const aiCloseDate = parseYearMonth(rationales?.close_estimate);
   const weeksRemaining = aiCloseDate
@@ -1432,6 +1441,10 @@ const CONVO_TOOLS = [
           enum: ['nda_signed', 'cim_delivered', 'chemistry_scheduled', 'ioi_received', 'loi_received', 'declined'],
           description: 'Which structural milestone to stamp on each buyer. Maps to the chips in the buyer modal.',
         },
+        date: {
+          type: 'string',
+          description: 'Optional event date in strict YYYY-MM-DD. ALWAYS pass this when the user states a date ("CIM received 5/28" → "2026-05-28", "chemistry set for 6/15" → "2026-06-15"), including future dates for scheduled events and corrections to previously-stamped dates. Omit only when the user gives no date (today is stamped).',
+        },
         reason: {
           type: 'string',
           description: 'Optional source attribution (e.g., "Reagan email 5/14"). If provided, appended as a follow-up note on each affected buyer for audit trail.',
@@ -1579,8 +1592,9 @@ When the user gives you intel, apply it via tools, do not just acknowledge it:
 - user corrects a buyer's website URL → correct_buyer_website (buyer_id + corrected URL + reason). Always actually call the tool, don't just say you'll update it.
 - user disputes a buyer-level AI-prior (thesis / last reasoning) → invalidate_buyer_priors (every affected buyer + the correction as reason)
 - user disputes a workspace-level AI-prior (close month, close-date / confidence / clearing-price / no-deal rationale) → invalidate_pipeline_priors (the correction as reason)
-- user states a structural milestone affecting MULTIPLE buyers in one message ("CIM delivered to A, B, C on date" / "chemistry confirmed for X and Y" / "NDAs signed by Z and W") → log_batch_event ONCE with all buyer_ids + the event_key. Do NOT call add_buyer_note N times. Event keys: nda_signed, cim_delivered, chemistry_scheduled, ioi_received, loi_received, declined. Only call when the user explicitly states the event; for soft intel ("X seems excited") still use add_buyer_note. Single-buyer milestones can also use this tool with a one-element buyer_ids array.
-- user states a CORRECTION to a milestone date for ONE buyer ("C&B CIM actually received 5/28" / "Alliant NDA was signed 5/14 not 5/16" / "chemistry was 6/4 not 6/3") → log_batch_event with buyer_ids=[that one buyer] + the event_key + the corrected date. This is the SAME tool whether you're stamping a new event or correcting a previously-stamped one — log_batch_event writes (or overwrites) the date field. **Do NOT use invalidate_buyer_priors for date corrections.** invalidate_buyer_priors only clears thesis + last AI reasoning text; it does NOT touch the cim_delivered / nda_signed / chemistry_date / ioi_received fields shown on the buyer row badge. The dashboard badge "NDA SIGNED · CIM SENT" reads those date fields, not the thesis text, so clearing priors will NOT fix a wrong-looking badge.
+- user states a structural milestone affecting MULTIPLE buyers in one message ("CIM delivered to A, B, C on date" / "chemistry confirmed for X and Y" / "NDAs signed by Z and W") → log_batch_event ONCE with all buyer_ids + the event_key + the stated date as \`date\` (YYYY-MM-DD; omit only if the user gave no date). Do NOT call add_buyer_note N times. Event keys: nda_signed, cim_delivered, chemistry_scheduled, ioi_received, loi_received, declined. Only call when the user explicitly states the event; for soft intel ("X seems excited") still use add_buyer_note. Single-buyer milestones can also use this tool with a one-element buyer_ids array.
+- user states a CORRECTION to a milestone date for ONE buyer ("C&B CIM actually received 5/28" / "Alliant NDA was signed 5/14 not 5/16" / "chemistry was 6/4 not 6/3") → log_batch_event with buyer_ids=[that one buyer] + the event_key + the corrected date in the \`date\` parameter. This is the SAME tool whether you're stamping a new event or correcting a previously-stamped one — log_batch_event writes (or overwrites) the date field.
+- user states a dated PROCESS DEADLINE ("LOIs due June 26" / "Trucordia set an offer deadline of 6/26") → log it with the FULL DATE SPELLED OUT in the note text (add_buyer_note for one buyer, append_global_intel if it applies to the whole field). The rescan engine anchors the projected first-offer countdown on dated deadline notes, so the date string must survive into the note verbatim (write "LOI deadline 2026-06-26", not "LOI deadline set"). **Do NOT use invalidate_buyer_priors for date corrections.** invalidate_buyer_priors only clears thesis + last AI reasoning text; it does NOT touch the cim_delivered / nda_signed / chemistry_date / ioi_received fields shown on the buyer row badge. The dashboard badge "NDA SIGNED · CIM SENT" reads those date fields, not the thesis text, so clearing priors will NOT fix a wrong-looking badge.
 
 # Tool disambiguation cheat sheet (READ when picking a tool):
 - "timeline wrong" + a date mentioned → log_batch_event (the dates are the timeline)
@@ -1660,11 +1674,14 @@ ${buyerCtx || '(none)'}${droppedCtx}${rulesCtx}${intelCtx}`;
       const valid = ids.filter(id => cur.some(b => b.id === id));
       if (valid.length === 0) return `error: no valid buyer ids, valid: ${cur.map(b => b.id).join(', ')}`;
       if (!EVENT_SPECS[args.event_key]) return `error: unknown event_key "${args.event_key}", valid: ${Object.keys(EVENT_SPECS).join(', ')}`;
+      if (args.date != null && !/^\d{4}-\d{2}-\d{2}$/.test(String(args.date))) {
+        return `error: date must be strict YYYY-MM-DD, got "${args.date}"`;
+      }
       const skipped = ids.filter(id => !cur.some(b => b.id === id));
-      onLogBatchEvent(valid, args.event_key, args.reason);
+      onLogBatchEvent(valid, args.event_key, args.reason, args.date || null);
       const names = valid.map(id => cur.find(b => b.id === id)?.name || id).join(', ');
       const skipMsg = skipped.length > 0 ? ` (skipped unknown ids: ${skipped.join(', ')})` : '';
-      return `ok: stamped ${args.event_key} on ${names}${skipMsg}`;
+      return `ok: stamped ${args.event_key}${args.date ? ` (${args.date})` : ''} on ${names}${skipMsg}`;
     }
     return `error: unknown tool "${name}"`;
   };
