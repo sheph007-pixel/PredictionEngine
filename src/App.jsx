@@ -501,17 +501,23 @@ export default function App() {
   // chemistry_date), and advance the stage if the target is later than
   // current (`force` overrides for terminal events like declined → dropped).
   // Returns the new note id so the caller can tag the rescan that follows.
-  const logBuyerEvent = (id, eventKey) => {
+  const logBuyerEvent = (id, eventKey, dateOverride = null) => {
     const spec = EVENT_SPECS[eventKey];
     if (!spec) return null;
-    const today = new Date().toISOString().slice(0, 10);
+    // dateOverride (YYYY-MM-DD) carries a user-stated event date — back-dated
+    // corrections ("CIM received 5/28") or scheduled future events. Without
+    // it, '$today' stamps the day the user happened to log the event.
+    const eventDate = /^\d{4}-\d{2}-\d{2}$/.test(String(dateOverride || ''))
+      ? dateOverride
+      : new Date().toISOString().slice(0, 10);
     let newNoteId = null;
     setBuyers(bs => bs.map(b => {
       if (b.id !== id) return b;
-      let next = appendNote(migrateNoteLog(b), spec.text);
+      const noteText = dateOverride ? `${spec.text} (${eventDate})` : spec.text;
+      let next = appendNote(migrateNoteLog(b), noteText);
       newNoteId = latestNoteId(next.noteLog);
       if (spec.field) {
-        next = { ...next, [spec.field]: spec.value === '$today' ? today : spec.value };
+        next = { ...next, [spec.field]: spec.value === '$today' ? eventDate : spec.value };
       }
       if (spec.stage) {
         const cur = STAGE_INDEX[next.stage] ?? -1;
@@ -527,13 +533,13 @@ export default function App() {
   // optional reason gets appended as a follow-up note for audit attribution;
   // ONE consolidated rescan fires for the affected slice (not N rescans, so
   // the memoization layer + AI both see the batch as a single state change).
-  const logBatchEvent = (buyerIds, eventKey, reason) => {
+  const logBatchEvent = (buyerIds, eventKey, reason, date = null) => {
     if (!Array.isArray(buyerIds) || buyerIds.length === 0) return;
     const spec = EVENT_SPECS[eventKey];
     if (!spec) return;
     const applied = [];
     for (const id of buyerIds) {
-      const nid = logBuyerEvent(id, eventKey);
+      const nid = logBuyerEvent(id, eventKey, date);
       if (nid) applied.push(id);
     }
     if (applied.length === 0) return;

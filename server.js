@@ -607,11 +607,11 @@ function buildRescanSystemPrompt() {
 **Never use the em-dash character "—" (Unicode U+2014) anywhere in your output.** Not in summary, not in thesis, not in any rationale, not in reasoning, not in any string field. Use a period, comma, colon, or parenthesis instead. If you would write "X — Y", write "X. Y" or "X, Y" or "X (Y)". The en-dash "–" (used in numeric ranges like "5.0–7.0×") is allowed. Em-dashes in your output are a hard failure.
 
 # STABILITY RULE (READ FIRST, applies to every per-buyer probability and every dashboard number)
-**If no new evidence has arrived for a buyer since their most recent aiHistory entry, echo the prior probability and prior thesis unchanged.** New evidence means: (a) a new dated note in notes_timeline that wasn't already in the prior aiHistory's input, (b) a new doc in the library that mentions the buyer, (c) a new global_intel entry, (d) a new pinned rule, (e) the user explicitly invalidated priors, or (f) **a milestone-flag transition** — \`cim_delivered\` flipping from null/false to a date, \`ioi_received\` flipping from null/false to a date, or \`chemistry_date\` becoming set. Stage moving forward (e.g. outreach -> nda) is also new evidence. For (f) milestone-flag transitions specifically: do NOT echo a thesis or probability written when the flag was not yet set — re-derive both from the buyer's current milestone state, because a thesis like "very early NDA" written before \`cim_delivered\` was true is stale and contradicts the badge once \`cim_delivered\` flips.
+**If no new evidence has arrived for a buyer since their most recent aiHistory entry, echo the prior probability and prior thesis unchanged.** New evidence means: (a) a new dated note in notes_timeline that wasn't already in the prior aiHistory's input, (b) a new doc in the library that mentions the buyer, (c) a new global_intel entry, (d) a new pinned rule, (e) the user explicitly invalidated priors, (f) **a milestone-flag transition** — \`cim_delivered\` flipping from null/false to a date, \`ioi_received\` flipping from null/false to a date, or \`chemistry_date\` becoming set, or (g) **a hard dated process deadline** (an LOI due date, offer deadline, or bid date) appearing in any note, intel entry, or document. Stage moving forward (e.g. outreach -> nda) is also new evidence. For (f) milestone-flag transitions specifically: do NOT echo a thesis or probability written when the flag was not yet set — re-derive both from the buyer's current milestone state, because a thesis like "very early NDA" written before \`cim_delivered\` was true is stale and contradicts the badge once \`cim_delivered\` flips.
 
 A 1 to 2 percentage point random reshuffle on every rescan, with no actual new input, is a critical failure mode. The user clicks Update expecting the engine to incorporate fresh facts; if the list reorders without fresh facts, they correctly conclude the engine is guessing. Walk every buyer: if you can't point to a specific new dated note, doc, intel entry, or stage change since their last aiHistory entry, return the SAME probability number you returned last time (visible in aiHistory's most recent entry) and reuse the SAME thesis text. Only adjust when you can cite the new evidence in your reasoning field.
 
-Same rule for the four dashboard numbers (close_estimate, offer_estimate, p_no_deal, market bands). If the pipeline state is unchanged from the prior rescan, echo the prior values from the AI-prior context block.
+Same rule for the four dashboard numbers (close_estimate, offer_estimate, p_no_deal, market bands). If the pipeline state is unchanged from the prior rescan, echo the prior values from the AI-prior context block. The inverse is equally binding: when NEW evidence HAS arrived (a new dated note, a stage move, a milestone flip, a dated deadline), you MUST re-derive the dashboard numbers from it — and if a hard dated milestone now anchors the timeline, upgrade the estimate to day precision (YYYY-MM-DD) even when the month itself is unchanged, so the user can see the engine absorbed the input.
 
 # Core architecture (READ FIRST)
 There is ONE asset for sale (Kennion). The market clearing multiple for that asset is set by INDUSTRY DATA, not by individual buyers, every credible buyer pays roughly within the industry band for assets of this profile. Your output has two layers:
@@ -724,22 +724,29 @@ Notice: no jargon, no acronyms, no parenthetical buyer lists, every sentence rea
 
 These rationales must reflect the CURRENT pipeline state in this rescan call. If a per-buyer rescan changed only one buyer, update the rationales only if the change is material to the dashboard number; otherwise echo prior values.
 
-# Close-month estimate (\`close_estimate\`, strict YYYY-MM format)
+# Hard dated deadlines (READ FIRST — they override the baseline arithmetic below)
+If notes_timeline, the pipeline-level intel log, or a document states an explicit dated process deadline ("LOIs due June 26", "offer deadline 6/26", "bids due 2026-06-26"), that date IS the first-offer anchor:
+- Set \`offer_estimate\` to that exact date in **YYYY-MM-DD** format — not just the month. The dashboard counts down to the exact day; a month-only answer throws the countdown to mid-month and reads as "the engine ignored my input".
+- Re-derive \`close_estimate\` from it (Reagan timeline: close lands ~10 weeks after LOIs are received) unless harder evidence sets a different close anchor. Output close_estimate at day precision too when a dated milestone anchors it.
+- A newly logged or changed deadline date is ALWAYS new evidence. Never echo the prior offer/close estimates when a dated deadline has been added or moved since the last rescan, even if the month is unchanged.
+- Name the deadline date in \`offer_date_rationale\` so the user sees the engine anchored on it.
+
+# Close-month estimate (\`close_estimate\`, "YYYY-MM" or "YYYY-MM-DD" when day-anchored)
 Start from the \`weeks_to_close\` baseline computed in the "Current process step" block at the top of the user message. That is your default. Then adjust ONLY when you have specific evidence:
 - Multiple top buyers at LOI or with firm-evidence offers → compress 2–4 weeks.
 - Top 3 buyers all in outreach/NDA with cooling notes or stalls → extend 4–8 weeks.
 - Chemistry meetings scheduled but not yet held → take MAX(arithmetic baseline, chemistry-date + ~8 weeks). The Reagan timeline puts close ~13 weeks after chemistry meetings; only extend beyond the arithmetic baseline if chemistry is genuinely far out (e.g., chemistry_date is weeks away).
-Hard cap: adjustments may not extend the baseline by more than 6 weeks total — anything larger requires you to cite at least three specific cooling signals from notes_timeline in close_date_rationale. Output strictly in "YYYY-MM" format. Example: "2026-09". Do NOT add quotes or extra prose. \`close_date_rationale\` (max 22 words, plain English): name the current task week, the baseline weeks_to_close from the block above, and what (if anything) you adjusted.
+Hard cap: adjustments may not extend the baseline by more than 6 weeks total — anything larger requires you to cite at least three specific cooling signals from notes_timeline in close_date_rationale. Output "YYYY-MM" (example: "2026-09"), or "YYYY-MM-DD" when a hard dated milestone anchors the close. Do NOT add quotes or extra prose. \`close_date_rationale\` (max 22 words, plain English): name the current task week, the baseline weeks_to_close from the block above, and what (if anything) you adjusted.
 
-# First-offer estimate (\`offer_estimate\`, strict YYYY-MM format)
-**offer_estimate predicts when the FIRST written offer lands, NOT the median across all buyers.** The first LOI comes from whichever buyer is fastest — typically your highest-engagement buyer. Slower buyers in the same pipeline do NOT push the first-offer date out as long as at least one top-engagement buyer is moving. Only delay if YOUR TOP BUYER (the highest-share / most-engaged one) is stalling.
+# First-offer estimate (\`offer_estimate\`, "YYYY-MM" or "YYYY-MM-DD" when day-anchored)
+**A dated LOI/offer deadline from the "Hard dated deadlines" rule above wins over everything in this section — set offer_estimate to that exact YYYY-MM-DD date.** Otherwise: **offer_estimate predicts when the FIRST written offer lands, NOT the median across all buyers.** The first LOI comes from whichever buyer is fastest — typically your highest-engagement buyer. Slower buyers in the same pipeline do NOT push the first-offer date out as long as at least one top-engagement buyer is moving. Only delay if YOUR TOP BUYER (the highest-share / most-engaged one) is stalling.
 
 Start from the \`weeks_to_first_offer\` baseline computed in the "Current process step" block at the top of the user message. That is your default. Then adjust ONLY when you have specific evidence:
 - Any top buyer already has firm-evidence pricing in notes/docs → first offer is in hand, set to current month.
 - Chemistry meetings scheduled but not held → take MAX(arithmetic baseline, chemistry-date + 1–3 weeks). Once buyers reach chemistry stage, first offers typically land within 1–3 weeks of the meeting; do NOT extend further unless notes show post-chemistry cooling. If the arithmetic baseline already exceeds chemistry-date + 3 weeks, use the baseline.
 - Top buyers stalling with **documented cooling notes after their last positive event** (a "stall signal" is text in notes_timeline like "didn't respond", "going dark", "passed on next meeting", "capacity pulled", "sponsor moving on", DATED after the most recent positive event). "No LOI yet" is NOT a stall signal — pre-LOI silence is the default state at this stage of the process. → extend 3–6 weeks ONLY when you can cite ≥2 such dated stall signals from the top buyers (name buyer+date in offer_date_rationale). Without citable stall signals, do NOT extend; use the baseline.
 - **Buyers actively scheduling / attending chemistry or second meetings = the OPPOSITE of stalling.** If notes show second meetings requested, attended, or pinned (e.g., "second meeting Monday", "principals returning Tuesday"), do NOT apply any stall extension.
-Hard cap: adjustments may not extend the baseline by more than 4 weeks total. Must be ≤ \`close_estimate\`. Output strictly in "YYYY-MM". \`offer_date_rationale\` (max 22 words, plain English, same discipline as close_date_rationale): name the current task week, the baseline weeks_to_first_offer from the block above, and what (if anything) you adjusted.
+Hard cap: adjustments may not extend the baseline by more than 4 weeks total. Must be ≤ \`close_estimate\`. Output "YYYY-MM", or "YYYY-MM-DD" when anchored on a dated deadline or milestone. \`offer_date_rationale\` (max 22 words, plain English, same discipline as close_date_rationale): name the current task week, the baseline weeks_to_first_offer from the block above, and what (if anything) you adjusted.
 
 # No-deal probability (\`p_no_deal\`, 0–100)
 This is the probability that the asset does NOT sell within the planned process window. It reflects market/process risk, not the inverse of buyer probabilities. Consider:
@@ -895,11 +902,11 @@ const RESCAN_TOOL = {
       },
       close_estimate: {
         type: 'string',
-        description: 'Most likely close month in strict YYYY-MM format (e.g. "2026-09"). Anchor on Reagan process step + buyer momentum: outreach/NDA stages add weeks, active LOI buyers compress, cooling top buyers extend.',
+        description: 'Most likely close date: "YYYY-MM" (e.g. "2026-09"), or "YYYY-MM-DD" when a hard dated milestone anchors it. Anchor on Reagan process step + buyer momentum: outreach/NDA stages add weeks, active LOI buyers compress, cooling top buyers extend.',
       },
       offer_estimate: {
         type: 'string',
-        description: 'Most likely month for the FIRST WRITTEN OFFER (LOI / term sheet / written verbal) in strict YYYY-MM format (e.g. "2026-07"). Must be ≤ close_estimate. Anchor on Reagan process step (LOI step at week 12) + buyer momentum.',
+        description: 'Most likely date for the FIRST WRITTEN OFFER (LOI / term sheet / written verbal): "YYYY-MM" (e.g. "2026-07"), or "YYYY-MM-DD" when notes/docs state a hard dated LOI/offer deadline (use that exact date). Must be ≤ close_estimate. Anchor on Reagan process step (LOI step at week 12) + buyer momentum.',
       },
       offer_date_rationale: {
         type: 'string',
@@ -1174,12 +1181,17 @@ ${offerLine}
 Today's date: ${todayISO}. Adding the baselines to today gives offer ~${offerYM} and close ~${closeYM}. These are the un-adjusted defaults — apply the buyer-momentum rules below to compress or extend.`;
 }
 
-// Formats a "YYYY-MM" close_estimate as "September 2026". Used by the
-// server-synthesized verdict sentence so it reads naturally to a human.
+// Formats a "YYYY-MM" close_estimate as "September 2026" (or a day-anchored
+// "YYYY-MM-DD" as "September 26, 2026"). Used by the server-synthesized
+// verdict sentence so it reads naturally to a human.
 function fmtCloseMonthLong(ym) {
   if (typeof ym !== 'string') return null;
-  const m = ym.match(/^(\d{4})-(\d{1,2})$/);
+  const m = ym.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?$/);
   if (!m) return ym;
+  if (m[3]) {
+    const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  }
   const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, 1);
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
@@ -1346,7 +1358,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 20;
+const PROMPT_VERSION = 21;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
@@ -1771,8 +1783,8 @@ const OPENAI_PREDICTION_SCHEMA = {
     },
     p_no_deal: { type: 'integer', minimum: 0, maximum: 100 },
     p_no_deal_rationale: { type: 'string' },
-    close_estimate: { type: 'string', description: 'Most likely close month in YYYY-MM format.' },
-    offer_estimate: { type: 'string', description: 'Most likely month for the first written offer (LOI / term sheet / written verbal) in YYYY-MM format. Must be <= close_estimate.' },
+    close_estimate: { type: 'string', description: 'Most likely close date: YYYY-MM, or YYYY-MM-DD when a hard dated milestone anchors it.' },
+    offer_estimate: { type: 'string', description: 'Most likely date for the first written offer (LOI / term sheet / written verbal): YYYY-MM, or YYYY-MM-DD when notes state a hard dated LOI/offer deadline (use that exact date). Must be <= close_estimate.' },
   },
 };
 
@@ -1811,19 +1823,22 @@ If you are tempted to echo "8.5–10.0×" verbatim, you are anchoring on a hint 
 - closed: 90+%
 - dropped: omit
 
-# Close-month estimate (close_estimate, strict YYYY-MM)
+# Hard dated deadlines (override the baselines below)
+If a buyer's notes_timeline states an explicit dated process deadline ("LOIs due June 26", "offer deadline 6/26"), set offer_estimate to that exact date in YYYY-MM-DD format and re-derive close_estimate from it (close lands ~10 weeks after LOIs on the Reagan timeline). A dated deadline in the notes beats the arithmetic baseline.
+
+# Close-month estimate (close_estimate, YYYY-MM or YYYY-MM-DD when day-anchored)
 Use the weeks_to_close baseline from the "Current process step" block in the user message. Adjust ONLY for specific evidence:
 - Multiple top buyers at LOI / firm offers → compress 2–4 weeks.
 - Top 3 in outreach/NDA with cooling notes → extend 4–6 weeks.
 - Chemistry meetings scheduled but not held → MAX(baseline, chemistry_date + ~8 weeks). Only extend beyond baseline if chemistry is genuinely far out.
-Hard cap: extensions ≤ +6 weeks. Output strict "YYYY-MM".
+Hard cap: extensions ≤ +6 weeks. Output "YYYY-MM" (or "YYYY-MM-DD" when day-anchored).
 
-# First-offer estimate (offer_estimate, strict YYYY-MM)
+# First-offer estimate (offer_estimate, YYYY-MM or YYYY-MM-DD when day-anchored)
 Use the weeks_to_first_offer baseline from the "Current process step" block. Adjust ONLY for specific evidence:
 - Any top buyer has firm-evidence pricing → set to current month.
 - Chemistry meetings scheduled but not held → MAX(baseline, chemistry_date + 1–3 weeks). First offers typically land 1–3 weeks after chemistry. Do NOT extend further unless notes show post-chemistry cooling.
 - Top buyers stalling with documented cooling notes after their last positive event → extend 3–6 weeks (cite ≥2 stall signals). "No LOI yet" is NOT a stall. Buyers actively scheduling second meetings ≠ stalling. Without citable post-positive cooling notes, do NOT extend.
-MUST be ≤ close_estimate. Output strict "YYYY-MM".
+MUST be ≤ close_estimate. Output "YYYY-MM" (or "YYYY-MM-DD" when anchored on a dated deadline).
 
 # No-deal probability
 For Kennion's profile (captive-niche, sub-mid-market) a healthy floor is 10–20% even with strong buyers. Reflect buyer-pool depth, sponsor capacity, note trajectory, captive illiquidity.
@@ -1925,8 +1940,8 @@ function blendPredictions(claude, openai, ctx = {}) {
     ? avgInt(claude.p_no_deal, openai.p_no_deal)
     : (claude.p_no_deal ?? openai.p_no_deal);
 
-  const blendedClose = blendCloseMonth(claude.close_estimate, openai.close_estimate);
-  const blendedOffer = blendCloseMonth(claude.offer_estimate, openai.offer_estimate);
+  const blendedClose = blendEstimateDate(claude.close_estimate, openai.close_estimate);
+  const blendedOffer = blendEstimateDate(claude.offer_estimate, openai.offer_estimate);
 
   // Claude wrote its dashboard rationales referencing its OWN raw buyer
   // probabilities (e.g. "IMA's 22% odds") because at write time it can't see
@@ -2018,6 +2033,36 @@ function extractClaudeNumbers(c) {
     close_estimate: c.close_estimate || null,
     offer_estimate: c.offer_estimate || null,
   };
+}
+
+// Blend two close/offer estimates that may be month-level ("YYYY-MM") or
+// day-level ("YYYY-MM-DD"). Day-level estimates come from hard dated evidence
+// (an LOI deadline logged in the notes), so they must not be averaged away:
+// when exactly one side carries a day, that side wins outright. When both
+// carry days, average the days. When neither does, fall back to month
+// averaging via blendCloseMonth.
+function blendEstimateDate(a, b) {
+  const parse = (s) => {
+    if (typeof s !== 'string') return null;
+    const m = s.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?$/);
+    if (!m) return null;
+    const year = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10);
+    const day = m[3] ? parseInt(m[3], 10) : null;
+    if (month < 1 || month > 12) return null;
+    if (day != null && (day < 1 || day > 31)) return null;
+    return { year, month, day };
+  };
+  const fmt = (p) => `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+  const ax = parse(a);
+  const bx = parse(b);
+  if (ax?.day != null && bx?.day == null) return fmt(ax);
+  if (bx?.day != null && ax?.day == null) return fmt(bx);
+  if (ax?.day != null && bx?.day != null) {
+    const mid = new Date((Date.UTC(ax.year, ax.month - 1, ax.day) + Date.UTC(bx.year, bx.month - 1, bx.day)) / 2);
+    return mid.toISOString().slice(0, 10);
+  }
+  return blendCloseMonth(a, b);
 }
 
 // Average two YYYY-MM strings into a single YYYY-MM. Tolerant: returns null on
@@ -2125,11 +2170,11 @@ function validateRescanShape(p, onlyBuyerId) {
     if (typeof p.p_no_deal !== 'number' || p.p_no_deal < 0 || p.p_no_deal > 100) {
       return { ok: false, error: 'p_no_deal missing or out of range' };
     }
-    if (typeof p.close_estimate !== 'string' || !/^\d{4}-\d{1,2}$/.test(p.close_estimate)) {
-      return { ok: false, error: 'close_estimate missing or not YYYY-MM' };
+    if (typeof p.close_estimate !== 'string' || !/^\d{4}-\d{1,2}(-\d{1,2})?$/.test(p.close_estimate)) {
+      return { ok: false, error: 'close_estimate missing or not YYYY-MM / YYYY-MM-DD' };
     }
-    if (p.offer_estimate != null && !/^\d{4}-\d{1,2}$/.test(String(p.offer_estimate))) {
-      return { ok: false, error: 'offer_estimate not in YYYY-MM format' };
+    if (p.offer_estimate != null && !/^\d{4}-\d{1,2}(-\d{1,2})?$/.test(String(p.offer_estimate))) {
+      return { ok: false, error: 'offer_estimate not in YYYY-MM / YYYY-MM-DD format' };
     }
   }
   return { ok: true };
