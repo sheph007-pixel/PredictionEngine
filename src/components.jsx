@@ -393,7 +393,12 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
     avg: `${dealClosesPct}%`,
   } : null;
 
-  const m = (market && market[caseMode]) || marketMultiplesSeed(ebitda)[caseMode] || marketMultiplesSeed(ebitda).mid;
+  const seedBands = marketMultiplesSeed(ebitda);
+  const m = (market && market[caseMode]) || seedBands[caseMode] || seedBands.mid;
+  // AI-written bands carry only low/high/note, so the case label falls back
+  // to the seed's ("Realistic" etc.). Without the fallback the card header
+  // renders a dangling "·" with nothing after it.
+  const caseLabel = m.label || seedBands[caseMode]?.label || null;
 
   const fmtBand = (band) => band ? `${band.low?.toFixed(1)}–${band.high?.toFixed(1)}×` : null;
   const priceChips = models?.claude?.market || models?.openai?.market ? {
@@ -429,7 +434,7 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
         {confChips && <ModelVote claudeVal={confChips.claude} openaiVal={confChips.openai} avgVal={confChips.avg} />}
       </div>
       <div className="hero-kpi">
-        <div className="hero-kpi-label">Market clearing price <span className="hero-kpi-case">· {m.label}</span></div>
+        <div className="hero-kpi-label">Market clearing price{caseLabel && <span className="hero-kpi-case"> · {caseLabel}</span>}</div>
         <div className="hero-kpi-value hero-kpi-pipeline">{fmtMoney(clearMid)}</div>
         <div className="hero-kpi-foot">{fmtMoney(clearLow)}–{fmtMoney(clearHigh)} · ${ebitda}M EBITDA × <b>{m.low.toFixed(1)}–{m.high.toFixed(1)}×</b></div>
         {priceChips && <ModelVote claudeVal={priceChips.claude} openaiVal={priceChips.openai} avgVal={priceChips.avg} />}
@@ -743,8 +748,14 @@ export function ValuationBar({ ebitda, onEbitda, caseMode, onCase, market, marke
   const [refreshing, setRefreshing] = useState(false);
   useEffect(() => setDraft(String(ebitda)), [ebitda]);
 
-  const mult = market || marketMultiplesSeed(ebitda);
+  // AI-written market bands carry only low/high/note — merge the seed's
+  // label back in so the case buttons never render blank.
+  const seedBands = marketMultiplesSeed(ebitda);
   const cases = ["conservative", "mid", "aggressive"];
+  const mult = Object.fromEntries(cases.map(c => {
+    const band = (market && market[c]) || seedBands[c];
+    return [c, { ...band, label: band.label || seedBands[c].label }];
+  }));
 
   const commit = () => {
     const n = parseFloat(draft);
