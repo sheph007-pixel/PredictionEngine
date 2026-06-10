@@ -765,12 +765,6 @@ export default function App() {
             onRescanAll={rescanAll}
           />
         )}
-        {rationales?.verdict && (
-          <div className="verdict-banner" role="status" aria-live="polite">
-            <div className="verdict-label">AI verdict · as of today</div>
-            <div className="verdict-text">{rationales.verdict}</div>
-          </div>
-        )}
         <div className="pipeline-head">
           <div className="pipeline-sub">{buyers.length} firms · ranked by win probability · type intel above to update predictions</div>
         </div>
