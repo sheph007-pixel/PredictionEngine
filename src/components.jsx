@@ -379,11 +379,6 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
   const weeksToOfferDisplay = aiOfferDate
     ? Math.max(0, Math.round((aiOfferDate - today) / (7 * 86400000)))
     : weeksToOffer;
-  const offerChips = models?.claude?.offer_estimate || models?.openai?.offer_estimate ? {
-    claude: models?.claude?.offer_estimate ? fmtCloseMonth(models.claude.offer_estimate) : null,
-    openai: models?.openai?.offer_estimate ? fmtCloseMonth(models.openai.offer_estimate) : null,
-    avg: aiOfferMonth || fmtMonthYear(projectedOffer),
-  } : null;
 
   // Per-card chip values, Claude vs GPT vs avg.
   const closeChips = models?.claude?.close_estimate || models?.openai?.close_estimate ? {
@@ -417,8 +412,9 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
         <div className="hero-kpi-value hero-kpi-close hero-kpi-timer" title={`First offer projected ${headlineOffer} · ${derived.phase}`}>
           <CountdownValue target={aiOfferDate || projectedOffer} now={today} />
         </div>
+        {/* No model-vote chips here: with a day-anchored countdown both
+            models' chips just repeat the same date as the foot line. */}
         <div className="hero-kpi-foot" title={`First offer projected ${headlineOffer} · ${derived.phase}`}>to first offer · <b>{headlineOffer}</b> · <b>{derived.phase}</b></div>
-        {offerChips && <ModelVote claudeVal={offerChips.claude} openaiVal={offerChips.openai} avgVal={offerChips.avg} />}
       </div>
       <div className="hero-kpi">
         <div className="hero-kpi-label">Projected close</div>
