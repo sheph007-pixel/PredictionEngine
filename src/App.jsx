@@ -765,9 +765,6 @@ export default function App() {
             onRescanAll={rescanAll}
           />
         )}
-        <div className="pipeline-head">
-          <div className="pipeline-sub">{buyers.length} firms · ranked by win probability · type intel above to update predictions</div>
-        </div>
         <div className="rows">
           {orderedLive.map((b, i) => (
             <BuyerRow
