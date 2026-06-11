@@ -310,6 +310,21 @@ body { font-size: 14px; }
 
 /* ---------- pipeline ---------- */
 .pipeline { background: var(--bg-card); border: 1px solid var(--rule); border-radius: 12px; box-shadow: var(--shadow-card); }
+
+/* ---------- advisor chat card ---------- */
+/* The chat is the primary input surface, so it gets its own card between
+   the process tracker and the ranked list — bolder input, green focus
+   ring, labeled header — instead of blending into the pipeline card. */
+.advisor-card { background: var(--bg-card); border: 1px solid var(--rule); border-radius: 14px; margin-bottom: 14px; box-shadow: var(--shadow-card); }
+.advisor-card-head { display: flex; align-items: center; gap: 8px; padding: 14px 20px 0; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.advisor-card-head b { color: var(--ink); font-weight: 700; }
+.advisor-card-hint { text-transform: none; letter-spacing: 0.01em; font-size: 12px; }
+.advisor-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.advisor-card .convo { border-bottom: none; background: transparent; padding: 12px 20px 16px; }
+.advisor-card .convo-input { min-height: 48px; font-size: 14px; border-radius: 10px; border: 1.5px solid var(--rule-2); }
+.advisor-card .convo-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.advisor-card .convo-send { border-radius: 10px; padding: 0 24px; font-size: 12.5px; }
+
 .convo { padding: 14px 18px 12px; border-bottom: 1px solid var(--rule); background: var(--bg-card); }
 .convo-form { display: flex; gap: 10px; align-items: stretch; }
 .convo-input { flex: 1; min-height: 40px; max-height: 200px; resize: vertical; padding: 10px 12px; border: 1px solid var(--rule-2); border-radius: 12px; background: var(--bg); color: var(--ink); font: 13.5px/1.45 var(--sans); outline: none; transition: border-color 0.12s; }
@@ -767,6 +782,7 @@ body.dark .ai { background: #0a0907; }
   .sysbar,
   .row-add-btn,
   .row-input,
+  .advisor-card,
   .convo, .conversation, .convo-fab,
   .modal-backdrop,
   .live, .live-dot,

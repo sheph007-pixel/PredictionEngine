@@ -19,14 +19,18 @@ const app = express();
 app.use(express.json({ limit: '8mb' }));
 
 const client = new Anthropic();
-// Upgraded haiku-4-5 -> sonnet-4-6 -> opus-4-8 for the top-tier
-// reasoning Anthropic offers. Opus is best at compound qualitative
-// judgment (PE + sponsor history + multi-principal engagement vs single
-// "CEO-led" signal), which is the engine's primary job. ~25x cost per
-// rescan token vs Haiku, ~5x vs Sonnet. For a 13-buyer pipeline with
-// periodic rescans, the absolute spend is small and accuracy is what
-// matters in an M&A advisor context.
-const MODEL = 'claude-opus-4-8';
+// Upgraded haiku-4-5 -> sonnet-4-6 -> opus-4-8 -> fable-5, Anthropic's most
+// capable generally available model. Fable 5 is strongest at the compound
+// qualitative judgment this engine lives on (PE + sponsor history +
+// multi-principal engagement vs single "CEO-led" signal). Cost notes:
+// $10/$50 per MTok (2x Opus 4.8) and a new tokenizer that yields ~30% more
+// tokens for the same content — acceptable for a 13-buyer pipeline with
+// periodic rescans where accuracy is what matters in an M&A advisor context.
+// API differences handled below: no sampling params (temperature 400s),
+// thinking is always on (no thinking param sent), and safety classifiers
+// can return stop_reason "refusal" (surfaced as a clear error, not a crash).
+// Requires the org to have 30-day data retention (not available under ZDR).
+const MODEL = 'claude-fable-5';
 const FILES_BETA = 'files-api-2025-04-14';
 
 // OpenAI is used ONLY for live web search before each rescan, feeding fresh
@@ -945,7 +949,7 @@ app.post('/api/ai/complete', async (req, res) => {
   try {
     const message = await client.messages.create({
       model: MODEL,
-      max_tokens: 512,
+      max_tokens: 768,
       messages: [{ role: 'user', content: prompt }],
     });
     res.json({ text: message.content[0].text });
@@ -979,7 +983,7 @@ app.post('/api/ai/chat', async (req, res) => {
   try {
     const message = await client.beta.messages.create({
       model: MODEL,
-      max_tokens: 2048,
+      max_tokens: 3072,
       system: system
         ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
         : undefined,
@@ -987,6 +991,15 @@ app.post('/api/ai/chat', async (req, res) => {
       messages: injected,
       betas: [FILES_BETA],
     });
+    // Fable 5 can decline with stop_reason "refusal" and empty content —
+    // give the advisor UI a readable line instead of a silent blank turn.
+    if (message.stop_reason === 'refusal' && (!message.content || message.content.length === 0)) {
+      return res.json({
+        content: [{ type: 'text', text: "I can't help with that request. Rephrase it and I'll take another look." }],
+        stop_reason: 'refusal',
+        usage: message.usage,
+      });
+    }
     res.json({
       content: message.content,
       stop_reason: message.stop_reason,
@@ -1358,7 +1371,7 @@ const RESCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 // this constant, so a deploy with a new PROMPT_VERSION guarantees stale
 // responses don't get served. Sync the number with the most recent prompt
 // change to make this human-auditable.
-const PROMPT_VERSION = 21;
+const PROMPT_VERSION = 22;
 let lastRescanHash = null;
 let lastRescanResponse = null;
 let lastRescanAt = 0;
@@ -1601,13 +1614,15 @@ ${focusInstruction}`;
     const [message, openaiPred] = await Promise.all([
       client.beta.messages.create({
         model: MODEL,
-        max_tokens: 8192,
-        // Opus 4+ deprecated the `temperature` parameter (Anthropic returns
-        // an error if it's set). For other model families (haiku, sonnet)
-        // we keep temperature: 0 because the default 1.0 re-rolls
+        // Headroom bumped for Fable 5's tokenizer (~30% more tokens for the
+        // same output than Opus-tier; old value was 8192).
+        max_tokens: 12288,
+        // Fable 5 / Opus 4.7+ removed the `temperature` parameter (Anthropic
+        // returns a 400 if it's set). For older model families (haiku,
+        // sonnet) we keep temperature: 0 because the default 1.0 re-rolls
         // probabilities by 5-10% per rescan with identical inputs and
         // reorders the buyer list, destroying user trust.
-        ...(MODEL.startsWith('claude-opus') ? {} : { temperature: 0 }),
+        ...(MODEL.startsWith('claude-opus') || MODEL.startsWith('claude-fable') || MODEL.startsWith('claude-mythos') ? {} : { temperature: 0 }),
         system: [
           { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
         ],
@@ -1625,6 +1640,24 @@ ${focusInstruction}`;
         currentStepBlock,
       }),
     ]);
+
+    // Fable 5 safety classifiers can decline a request: HTTP 200 with
+    // stop_reason "refusal" and empty/partial content. Surface it as a
+    // clear retryable error instead of falling through to "no tool_use".
+    if (message.stop_reason === 'refusal') {
+      const category = message.stop_details?.category || 'unspecified';
+      console.error(`Rescan: model refusal (category=${category})`);
+      logRescan({
+        scope: only_buyer_id ? 'buyer' : 'pipeline',
+        only_buyer_id,
+        input: auditInput,
+        output: null,
+        live_intel: liveIntel,
+        duration_ms: Date.now() - t0,
+        error: `model refusal (category=${category})`,
+      });
+      return res.status(502).json({ error: 'The model declined this request. Try Update again.', type: 'refusal' });
+    }
 
     const toolUse = message.content.find(b => b.type === 'tool_use' && b.name === 'apply_rescan');
     if (!toolUse) {
@@ -2538,7 +2571,7 @@ Filename: ${filename || '(none)'}.`;
   try {
     const msg = await client.beta.messages.create({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 1536,
       system: sys,
       messages: [{
         role: 'user',

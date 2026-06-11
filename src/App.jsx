@@ -741,12 +741,18 @@ export default function App() {
 
       <ProcessTracker process={process} onUpdate={setProcess} buyers={buyers} ebitda={ebitda} caseMode={caseMode} />
 
-      <div className="pipeline">
-        {/* Conversation lives inline on desktop; on mobile we render it
-            inside a slide-up modal triggered by the floating chat button
-            so the dashboard stays a clean read-only surface. Same model
-            (Opus 4.8), same tools, same messages (localStorage). */}
-        {!isNarrow && (
+      {/* Advisor chat is its own card, visually separate from the ranked
+          list below. Desktop only — on mobile it renders inside a slide-up
+          modal triggered by the floating chat button so the dashboard stays
+          a clean read-only surface. Same model (Fable 5), same tools, same
+          messages (localStorage). */}
+      {!isNarrow && (
+        <div className="advisor-card">
+          <div className="advisor-card-head">
+            <span className="advisor-dot" />
+            <b>Deal advisor</b>
+            <span className="advisor-card-hint">log intel · correct anything · ask questions — predictions update automatically</span>
+          </div>
           <Conversation
             buyers={buyers}
             pinnedRules={pinnedRules}
@@ -764,7 +770,10 @@ export default function App() {
             onLogBatchEvent={logBatchEvent}
             onRescanAll={rescanAll}
           />
-        )}
+        </div>
+      )}
+
+      <div className="pipeline">
         <div className="rows">
           {orderedLive.map((b, i) => (
             <BuyerRow
