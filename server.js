@@ -1611,35 +1611,59 @@ ${focusInstruction}`;
     // Fire Claude (full rescan) and OpenAI (numerical second opinion) in parallel.
     // OpenAI gets the same buyer state + EBITDA + live intel context. Server
     // averages their numerical predictions on the way out.
-    const [message, openaiPred] = await Promise.all([
-      client.beta.messages.create({
-        model: MODEL,
-        // Headroom bumped for Fable 5's tokenizer (~30% more tokens for the
-        // same output than Opus-tier; old value was 8192).
-        max_tokens: 12288,
-        // Fable 5 / Opus 4.7+ removed the `temperature` parameter (Anthropic
-        // returns a 400 if it's set). For older model families (haiku,
-        // sonnet) we keep temperature: 0 because the default 1.0 re-rolls
-        // probabilities by 5-10% per rescan with identical inputs and
-        // reorders the buyer list, destroying user trust.
-        ...(MODEL.startsWith('claude-opus') || MODEL.startsWith('claude-fable') || MODEL.startsWith('claude-mythos') ? {} : { temperature: 0 }),
-        system: [
-          { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
+    // Fable 5 rejects forced tool_choice ("tool_choice forces tool use is
+    // not compatible with this model" — thinking is always on). On fable/
+    // mythos we use tool_choice auto and rely on the system prompt's
+    // "Call apply_rescan exactly once" rule, with a one-shot retry nudge
+    // below if the model ever answers in prose instead. Older models keep
+    // the hard force, which is strictly more reliable where supported.
+    const forceToolChoice = !(MODEL.startsWith('claude-fable') || MODEL.startsWith('claude-mythos'));
+    const createRescanMessage = (nudge = null) => client.beta.messages.create({
+      model: MODEL,
+      // Headroom bumped for Fable 5's tokenizer (~30% more tokens for the
+      // same output than Opus-tier; old value was 8192).
+      max_tokens: 12288,
+      // Fable 5 / Opus 4.7+ removed the `temperature` parameter (Anthropic
+      // returns a 400 if it's set). For older model families (haiku,
+      // sonnet) we keep temperature: 0 because the default 1.0 re-rolls
+      // probabilities by 5-10% per rescan with identical inputs and
+      // reorders the buyer list, destroying user trust.
+      ...(MODEL.startsWith('claude-opus') || MODEL.startsWith('claude-fable') || MODEL.startsWith('claude-mythos') ? {} : { temperature: 0 }),
+      system: [
+        { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
+      ],
+      tools: [RESCAN_TOOL],
+      tool_choice: forceToolChoice ? { type: 'tool', name: 'apply_rescan' } : { type: 'auto' },
+      messages: [{
+        role: 'user',
+        content: [
+          ...docBlocks,
+          { type: 'text', text: userText },
+          ...(nudge ? [{ type: 'text', text: nudge }] : []),
         ],
-        tools: [RESCAN_TOOL],
-        tool_choice: { type: 'tool', name: 'apply_rescan' },
-        messages: [{
-          role: 'user',
-          content: [...docBlocks, { type: 'text', text: userText }],
-        }],
-        betas: [FILES_BETA],
-      }),
+      }],
+      betas: [FILES_BETA],
+    });
+
+    let [message, openaiPred] = await Promise.all([
+      createRescanMessage(),
       getOpenAIPredictions({
         ebitda, groundedBuyers: openaiBuyers, liveIntel, sizeBucket, only_buyer_id,
         phaseSummaryText: phaseSummary.text,
         currentStepBlock,
       }),
     ]);
+
+    // Retry once if the model replied in prose instead of calling the tool
+    // (possible under tool_choice auto). Refusals skip the retry — they're
+    // handled explicitly below.
+    if (message.stop_reason !== 'refusal'
+        && !message.content.some(b => b.type === 'tool_use' && b.name === 'apply_rescan')) {
+      console.warn('Rescan: no tool_use on first attempt, retrying with explicit nudge');
+      message = await createRescanMessage(
+        'REMINDER: Respond ONLY by calling the apply_rescan tool exactly once with the full payload. Do not answer in prose.'
+      );
+    }
 
     // Fable 5 safety classifiers can decline a request: HTTP 200 with
     // stop_reason "refusal" and empty/partial content. Surface it as a
