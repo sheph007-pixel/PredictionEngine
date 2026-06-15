@@ -49,11 +49,13 @@ jobs:
           echo "Newest Opus: $NEWEST"
           echo "newest=$NEWEST" >> "$GITHUB_OUTPUT"
 
-      - name: Read current MODEL from server.js
+      - name: Read current Opus entry from the model chain
         id: current
         run: |
-          CURRENT=$(grep -oP "const MODEL = '\K[^']+" server.js)
-          echo "Current MODEL: $CURRENT"
+          # The engine runs a fallback chain (ANTHROPIC_MODEL_CHAIN); the Opus
+          # entry is the fallback tier below the head model. Track that entry.
+          CURRENT=$(grep -oP "claude-opus-[0-9]+(-[0-9]+)*" server.js | head -1)
+          echo "Current Opus in chain: $CURRENT"
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
 
       - name: Open PR if a newer Opus is available
@@ -77,8 +79,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
 
-          # Bump MODEL.
-          sed -i "s|const MODEL = '$CURRENT'|const MODEL = '$NEWEST'|" server.js
+          # Bump the Opus entry in the fallback chain (ANTHROPIC_MODEL_CHAIN).
+          sed -i "s|$CURRENT|$NEWEST|g" server.js
 
           # Bump PROMPT_VERSION so the rescan cache invalidates and the
           # first request after deploy actually hits the new model rather
@@ -88,18 +90,18 @@ jobs:
           sed -i "s|const PROMPT_VERSION = $CUR_VER|const PROMPT_VERSION = $NEXT_VER|" server.js
 
           git add server.js
-          git commit -m "Auto-upgrade MODEL: $CURRENT → $NEWEST"
+          git commit -m "Auto-upgrade Opus in model chain: $CURRENT → $NEWEST"
           git push -u origin "$BRANCH"
 
           gh pr create \
-            --title "Auto-upgrade MODEL to $NEWEST" \
-            --body "Anthropic shipped a newer Opus model. This PR bumps \`MODEL\` from \`$CURRENT\` → \`$NEWEST\` and \`PROMPT_VERSION\` $CUR_VER → $NEXT_VER (cache invalidation).
+            --title "Auto-upgrade Opus in model chain to $NEWEST" \
+            --body "Anthropic shipped a newer Opus model. This PR bumps the Opus entry in \`ANTHROPIC_MODEL_CHAIN\` from \`$CURRENT\` → \`$NEWEST\` and \`PROMPT_VERSION\` $CUR_VER → $NEXT_VER (cache invalidation). The runtime fallback chain still prefers the head model and falls back to this Opus tier when the head is unavailable.
 
           Opened automatically by .github/workflows/check-anthropic-models.yml.
 
           ## Test plan
           - [ ] Smoke test: trigger a rescan, confirm no schema errors
           - [ ] Spot-check output quality against the prior model
-          - [ ] Footer shows \`... · $NEWEST · ...\` after deploy
+          - [ ] \`/api/health\` \`model_chain\` includes \`$NEWEST\` after deploy
 
           If the new model misbehaves, close this PR. The next cron run will reopen it after another model release (or you can run the workflow manually from the Actions tab)."
