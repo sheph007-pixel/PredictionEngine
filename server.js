@@ -30,14 +30,138 @@ const client = new Anthropic();
 // thinking is always on (no thinking param sent), and safety classifiers
 // can return stop_reason "refusal" (surfaced as a clear error, not a crash).
 // Requires the org to have 30-day data retention (not available under ZDR).
-const MODEL = 'claude-fable-5';
 const FILES_BETA = 'files-api-2025-04-14';
 
-// OpenAI is used ONLY for live web search before each rescan, feeding fresh
-// market intel into Claude's context. Optional, if OPENAI_API_KEY is missing
-// or the call fails, rescan still runs without live intel (graceful fallback).
+// ─────────────────────────── Model selection ────────────────────────────────
+// "Always use the best/newest model; if it isn't available, fall back."
+//
+// Every Claude call goes through createAnthropicMessage() and every OpenAI call
+// through createOpenAIResponse(). Each walks a preference chain (best → fallback)
+// and, when the preferred model is unavailable for THIS org (e.g. Fable 5 under
+// zero-data-retention, a model the key can't access, or a model ID that 404s),
+// transparently retries the same request on the next model in the chain. The
+// first model that succeeds is memoized as the active model so we don't pay the
+// failed-call latency on every subsequent request — but the chain is re-walked
+// from the top whenever the active model itself starts failing, so the moment
+// Fable 5 (or a newer model added to the front of the chain) becomes available
+// again the engine picks it back up.
+//
+// Override the chains via env (comma-separated, best first) without a redeploy:
+//   ANTHROPIC_MODEL_CHAIN=claude-fable-5,claude-opus-4-8,claude-sonnet-4-6
+//   OPENAI_MODEL_CHAIN=gpt-4.1,gpt-4o
+const parseChain = (env, fallback) => {
+  const parsed = (env || '').split(',').map(s => s.trim()).filter(Boolean);
+  return parsed.length ? parsed : fallback;
+};
+
+const ANTHROPIC_MODEL_CHAIN = parseChain(
+  process.env.ANTHROPIC_MODEL_CHAIN,
+  ['claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-4-6'],
+);
+// Best model the engine is currently running on. Starts at the top of the chain
+// and is updated by createAnthropicMessage() as availability changes.
+let activeAnthropicModel = ANTHROPIC_MODEL_CHAIN[0];
+// Back-compat alias: a few spots (e.g. /api/health) reference the preferred ID.
+const MODEL = ANTHROPIC_MODEL_CHAIN[0];
+
+// Per-model API quirks. Fable/Mythos and Opus 4.7+ reject the `temperature`
+// sampling param (400 if sent); Fable/Mythos also reject a forced tool_choice
+// (thinking is always on). Older families (Opus ≤4.6, Sonnet, Haiku) accept
+// both, so we pin temperature: 0 there for stable repeat-rescan numbers.
+function anthropicModelQuirks(model) {
+  const isFableFamily = model.startsWith('claude-fable') || model.startsWith('claude-mythos');
+  const rejectsTemperature = isFableFamily
+    || model.startsWith('claude-opus-4-8')
+    || model.startsWith('claude-opus-4-7');
+  return { rejectsTemperature, rejectsForcedToolChoice: isFableFamily };
+}
+
+// Is this error "the model is unavailable for this org", as opposed to a real
+// request error we should surface? 404 (unknown/retired ID), 403 (no access),
+// and the 400s Anthropic returns for model-gating (e.g. Fable 5 under ZDR).
+function isModelUnavailableError(err) {
+  const status = err?.status;
+  if (status === 404 || status === 403) return true;
+  if (status === 400) {
+    const msg = `${err?.message || ''} ${err?.error?.error?.message || ''}`.toLowerCase();
+    return /\bmodel\b|retention|\bzdr\b|not available|does not exist|do not have access|not supported|unsupported/.test(msg);
+  }
+  return false;
+}
+
+// Run an Anthropic request against the model chain, falling back on availability
+// errors. buildParams(model) receives the model ID so call sites can apply the
+// per-model quirks above. beta:true routes through client.beta.messages.
+async function createAnthropicMessage(buildParams, { beta = true } = {}) {
+  const start = Math.max(0, ANTHROPIC_MODEL_CHAIN.indexOf(activeAnthropicModel));
+  const order = [
+    ...ANTHROPIC_MODEL_CHAIN.slice(start),
+    ...ANTHROPIC_MODEL_CHAIN.slice(0, start),
+  ];
+  let lastErr;
+  for (const model of order) {
+    try {
+      const api = beta ? client.beta.messages : client.messages;
+      const result = await api.create(buildParams(model));
+      if (model !== activeAnthropicModel) {
+        console.warn(`Anthropic: switched active model ${activeAnthropicModel} -> ${model}`);
+        activeAnthropicModel = model;
+      }
+      return result;
+    } catch (err) {
+      lastErr = err;
+      if (isModelUnavailableError(err) && order.length > 1) {
+        console.warn(`Anthropic: model "${model}" unavailable (${err.status} ${err.message}); trying next in chain`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
+// OpenAI is used for live web search before each rescan and a numerical second
+// opinion. Optional: if OPENAI_API_KEY is missing or every model in the chain
+// fails, the rescan still runs on Claude alone (graceful fallback).
 const openai = process.env.OPENAI_API_KEY ? new OpenAI() : null;
-const LIVE_INTEL_MODEL = 'gpt-4o';
+const OPENAI_MODEL_CHAIN = parseChain(
+  process.env.OPENAI_MODEL_CHAIN,
+  ['gpt-4.1', 'gpt-4o'],
+);
+let activeOpenAIModel = OPENAI_MODEL_CHAIN[0];
+
+// Run an OpenAI Responses request against the model chain, falling back on
+// availability errors (404 unknown model / 403 no access / 400 model gating).
+// Returns null when OpenAI isn't configured. Other errors propagate to the
+// caller's try/catch (which, for both OpenAI paths, degrades gracefully).
+async function createOpenAIResponse(buildParams) {
+  if (!openai) return null;
+  const start = Math.max(0, OPENAI_MODEL_CHAIN.indexOf(activeOpenAIModel));
+  const order = [
+    ...OPENAI_MODEL_CHAIN.slice(start),
+    ...OPENAI_MODEL_CHAIN.slice(0, start),
+  ];
+  let lastErr;
+  for (const model of order) {
+    try {
+      const result = await openai.responses.create(buildParams(model));
+      if (model !== activeOpenAIModel) {
+        console.warn(`OpenAI: switched active model ${activeOpenAIModel} -> ${model}`);
+        activeOpenAIModel = model;
+      }
+      return result;
+    } catch (err) {
+      lastErr = err;
+      const status = err?.status;
+      if ((status === 404 || status === 403 || status === 400) && order.length > 1) {
+        console.warn(`OpenAI: model "${model}" unavailable (${status} ${err.message}); trying next in chain`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
 
 // Postgres for cross-device state sync + permanent audit log of every AI call.
 // Optional, without DATABASE_URL the app falls back to localStorage-only mode.
@@ -938,7 +1062,10 @@ app.get('/api/health', (_req, res) => res.json({
   branch: process.env.RAILWAY_GIT_BRANCH || null,
   deployment_id: process.env.RAILWAY_DEPLOYMENT_ID || null,
   prompt_version: PROMPT_VERSION,
-  model: MODEL,
+  model: activeAnthropicModel,
+  preferred_model: MODEL,
+  model_chain: ANTHROPIC_MODEL_CHAIN,
+  openai_model: activeOpenAIModel,
   started_at: SERVER_START_TIME,
 }));
 
@@ -947,11 +1074,11 @@ app.post('/api/ai/complete', async (req, res) => {
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
   try {
-    const message = await client.messages.create({
-      model: MODEL,
+    const message = await createAnthropicMessage((model) => ({
+      model,
       max_tokens: 768,
       messages: [{ role: 'user', content: prompt }],
-    });
+    }), { beta: false });
     res.json({ text: message.content[0].text });
   } catch (err) {
     console.error('Anthropic error:', err.message);
@@ -981,8 +1108,8 @@ app.post('/api/ai/chat', async (req, res) => {
   }
 
   try {
-    const message = await client.beta.messages.create({
-      model: MODEL,
+    const message = await createAnthropicMessage((model) => ({
+      model,
       max_tokens: 3072,
       system: system
         ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
@@ -990,7 +1117,7 @@ app.post('/api/ai/chat', async (req, res) => {
       tools: tools || undefined,
       messages: injected,
       betas: [FILES_BETA],
-    });
+    }));
     // Fable 5 can decline with stop_reason "refusal" and empty content —
     // give the advisor UI a readable line instead of a silent blank turn.
     if (message.stop_reason === 'refusal' && (!message.content || message.content.length === 0)) {
@@ -1042,13 +1169,13 @@ async function runWebSearch(query, label) {
     return cached;
   }
   try {
-    const response = await openai.responses.create({
-      model: LIVE_INTEL_MODEL,
+    const response = await createOpenAIResponse((model) => ({
+      model,
       tools: [{ type: 'web_search' }],
       input: query,
       max_output_tokens: 900,
-    });
-    const text = (response.output_text || '').trim() || null;
+    }));
+    const text = (response?.output_text || '').trim() || null;
     if (text) writeIntelCache(query, text);
     return text;
   } catch (err) {
@@ -1611,38 +1738,40 @@ ${focusInstruction}`;
     // Fire Claude (full rescan) and OpenAI (numerical second opinion) in parallel.
     // OpenAI gets the same buyer state + EBITDA + live intel context. Server
     // averages their numerical predictions on the way out.
-    // Fable 5 rejects forced tool_choice ("tool_choice forces tool use is
-    // not compatible with this model" — thinking is always on). On fable/
-    // mythos we use tool_choice auto and rely on the system prompt's
-    // "Call apply_rescan exactly once" rule, with a one-shot retry nudge
-    // below if the model ever answers in prose instead. Older models keep
-    // the hard force, which is strictly more reliable where supported.
-    const forceToolChoice = !(MODEL.startsWith('claude-fable') || MODEL.startsWith('claude-mythos'));
-    const createRescanMessage = (nudge = null) => client.beta.messages.create({
-      model: MODEL,
-      // Headroom bumped for Fable 5's tokenizer (~30% more tokens for the
-      // same output than Opus-tier; old value was 8192).
-      max_tokens: 12288,
-      // Fable 5 / Opus 4.7+ removed the `temperature` parameter (Anthropic
-      // returns a 400 if it's set). For older model families (haiku,
-      // sonnet) we keep temperature: 0 because the default 1.0 re-rolls
-      // probabilities by 5-10% per rescan with identical inputs and
-      // reorders the buyer list, destroying user trust.
-      ...(MODEL.startsWith('claude-opus') || MODEL.startsWith('claude-fable') || MODEL.startsWith('claude-mythos') ? {} : { temperature: 0 }),
-      system: [
-        { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
-      ],
-      tools: [RESCAN_TOOL],
-      tool_choice: forceToolChoice ? { type: 'tool', name: 'apply_rescan' } : { type: 'auto' },
-      messages: [{
-        role: 'user',
-        content: [
-          ...docBlocks,
-          { type: 'text', text: userText },
-          ...(nudge ? [{ type: 'text', text: nudge }] : []),
+    // Model quirks are resolved per-model inside createAnthropicMessage's
+    // callback so they stay correct when the chain falls back to a different
+    // family (e.g. Fable 5 -> Opus 4.8 -> Sonnet 4.6):
+    //   • Fable/Mythos reject a forced tool_choice (thinking is always on), so
+    //     there we use tool_choice auto and rely on the system prompt's "Call
+    //     apply_rescan exactly once" rule plus the one-shot retry nudge below.
+    //     Opus/Sonnet keep the hard force, which is strictly more reliable.
+    //   • Fable/Mythos and Opus 4.7+ reject `temperature`; older families
+    //     (Sonnet, Haiku) keep temperature: 0 because the default 1.0 re-rolls
+    //     probabilities 5-10% per rescan on identical inputs and reorders the
+    //     buyer list, destroying user trust.
+    const createRescanMessage = (nudge = null) => createAnthropicMessage((model) => {
+      const { rejectsTemperature, rejectsForcedToolChoice } = anthropicModelQuirks(model);
+      return {
+        model,
+        // Headroom sized for Fable 5's tokenizer (~30% more tokens for the same
+        // output than Opus-tier; pre-Fable value was 8192).
+        max_tokens: 12288,
+        ...(rejectsTemperature ? {} : { temperature: 0 }),
+        system: [
+          { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
         ],
-      }],
-      betas: [FILES_BETA],
+        tools: [RESCAN_TOOL],
+        tool_choice: rejectsForcedToolChoice ? { type: 'auto' } : { type: 'tool', name: 'apply_rescan' },
+        messages: [{
+          role: 'user',
+          content: [
+            ...docBlocks,
+            { type: 'text', text: userText },
+            ...(nudge ? [{ type: 'text', text: nudge }] : []),
+          ],
+        }],
+        betas: [FILES_BETA],
+      };
     });
 
     let [message, openaiPred] = await Promise.all([
@@ -1928,8 +2057,8 @@ ${only_buyer_id ? `SCOPE: Re-score ONLY buyer "${only_buyer_id}". Return only th
 Return JSON matching the provided schema.`;
 
   try {
-    const response = await openai.responses.create({
-      model: 'gpt-4o',
+    const response = await createOpenAIResponse((model) => ({
+      model,
       // Pin temperature to 0 for the same reason Claude is pinned: stable
       // numerical second opinion across identical inputs. Otherwise the
       // GPT side of the blend re-rolls and shifts the averaged probability
@@ -1948,8 +2077,8 @@ Return JSON matching the provided schema.`;
         },
       },
       max_output_tokens: 1500,
-    });
-    const text = response.output_text || '';
+    }));
+    const text = response?.output_text || '';
     if (!text.trim()) return null;
     const parsed = JSON.parse(text);
     return parsed;
@@ -2593,8 +2722,8 @@ Buyer ids available: ${(buyer_names || []).map(b => `"${b.id}" (${b.name})`).joi
 Filename: ${filename || '(none)'}.`;
 
   try {
-    const msg = await client.beta.messages.create({
-      model: MODEL,
+    const msg = await createAnthropicMessage((model) => ({
+      model,
       max_tokens: 1536,
       system: sys,
       messages: [{
@@ -2605,7 +2734,7 @@ Filename: ${filename || '(none)'}.`;
         ],
       }],
       betas: [FILES_BETA],
-    });
+    }));
     const txt = msg.content.find(b => b.type === 'text')?.text || '{}';
     const cleaned = txt.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     let parsed;

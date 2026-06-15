@@ -744,8 +744,9 @@ export default function App() {
       {/* Advisor chat is its own card, visually separate from the ranked
           list below. Desktop only — on mobile it renders inside a slide-up
           modal triggered by the floating chat button so the dashboard stays
-          a clean read-only surface. Same model (Fable 5), same tools, same
-          messages (localStorage). */}
+          a clean read-only surface. Same model as the engine (best available
+          via the server's fallback chain), same tools, same messages
+          (localStorage). */}
       {!isNarrow && (
         <div className="advisor-card">
           <div className="advisor-card-head">
