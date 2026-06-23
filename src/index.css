@@ -313,41 +313,6 @@ body { font-size: 14px; }
 .pipeline-head { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); padding: 11px 20px 9px; border-bottom: 1px solid var(--rule); }
 .pipeline-head b { color: var(--ink-2); font-weight: 600; }
 
-/* ---------- single-buyer offer war-room ---------- */
-.warroom { background: var(--bg-card); border: 1px solid var(--rule); border-radius: 12px; box-shadow: var(--shadow-card); padding: 16px 20px 18px; margin-bottom: 14px; }
-.warroom-head { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
-.warroom-head b { font-family: var(--serif); font-size: 15px; color: var(--ink); }
-.warroom-sub { font-size: 12px; color: var(--ink-3); }
-.warroom-gauge-wrap { margin: 4px 6px 18px; }
-.warroom-track { position: relative; height: 10px; background: var(--rule); border-radius: 6px; }
-.warroom-band { position: absolute; top: 0; bottom: 0; background: var(--accent-soft); border-left: 2px solid var(--accent); border-right: 2px solid var(--accent); border-radius: 2px; }
-.warroom-tick { position: absolute; top: -4px; bottom: -4px; width: 2px; transform: translateX(-1px); border-radius: 1px; }
-.warroom-tick-mid { background: var(--accent); }
-.warroom-tick-floor { background: #c2453d; }
-.warroom-marker { position: absolute; top: -7px; width: 14px; height: 24px; border-radius: 4px; transform: translateX(-7px); border: 2px solid #fff; box-shadow: var(--shadow-card); }
-.warroom-marker-good { background: var(--accent); }
-.warroom-marker-warn { background: #d98a16; }
-.warroom-marker-bad { background: #c2453d; }
-.warroom-marker-neutral { background: var(--ink-3); }
-.warroom-scale { display: flex; justify-content: space-between; margin-top: 11px; font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
-.warroom-scale-mid { color: var(--ink-2); }
-.warroom-grid { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 16px; align-items: end; }
-.warroom-field { display: flex; flex-direction: column; gap: 6px; font-size: 10px; color: var(--ink-3); font-family: var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
-.warroom-field input { font-family: var(--serif); font-size: 18px; color: var(--ink); border: 1px solid var(--rule-2); border-radius: 8px; padding: 7px 10px; background: var(--bg); width: 100%; box-sizing: border-box; }
-.warroom-field input:focus { outline: none; border-color: var(--accent); }
-.warroom-readout-num { font-family: var(--serif); font-size: 22px; color: var(--ink); line-height: 1.1; }
-.warroom-readout-num span { font-size: 14px; color: var(--ink-3); }
-.warroom-readout-await { color: var(--ink-3); }
-.warroom-verdict { font-size: 13px; margin-top: 4px; font-weight: 600; }
-.warroom-verdict-good { color: var(--accent); }
-.warroom-verdict-warn { color: #b9790f; }
-.warroom-verdict-bad { color: #c2453d; }
-.warroom-readout-sub { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
-@media (max-width: 760px) {
-  .warroom-grid { grid-template-columns: 1fr 1fr; }
-  .warroom-readout { grid-column: 1 / -1; }
-}
-
 /* ---------- advisor chat card ---------- */
 /* The chat is the primary input surface, so it gets its own card between
    the process tracker and the ranked list — bolder input, green focus
