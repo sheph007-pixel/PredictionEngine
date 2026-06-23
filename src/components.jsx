@@ -334,6 +334,10 @@ function CountdownValue({ target, now }) {
 
 export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales }) {
   const derived = derivePhase(buyers);
+  // When the field narrows to a single live buyer there is no competitive
+  // auction left, so the "market clearing price" framing no longer applies —
+  // the EBITDA × multiple band reads as that one buyer's expected offer.
+  const soleBuyer = (buyers || []).filter(b => b.stage !== 'dropped').length === 1;
   // 1s tick drives the live first-offer countdown (the fun part). The hero
   // is a small subtree, so a per-second re-render is cheap; the other three
   // cards only change values when their underlying numbers move.
@@ -434,7 +438,7 @@ export function HeroKPIs({ buyers, process, ebitda, caseMode, market, rationales
         {confChips && <ModelVote claudeVal={confChips.claude} openaiVal={confChips.openai} avgVal={confChips.avg} />}
       </div>
       <div className="hero-kpi">
-        <div className="hero-kpi-label">Market clearing price{caseLabel && <span className="hero-kpi-case"> · {caseLabel}</span>}</div>
+        <div className="hero-kpi-label">{soleBuyer ? 'Expected offer' : 'Market clearing price'}{caseLabel && <span className="hero-kpi-case"> · {caseLabel}</span>}</div>
         <div className="hero-kpi-value hero-kpi-pipeline">{fmtMoney(clearMid)}</div>
         <div className="hero-kpi-foot">{fmtMoney(clearLow)}–{fmtMoney(clearHigh)} · ${ebitda}M EBITDA × <b>{m.low.toFixed(1)}–{m.high.toFixed(1)}×</b></div>
         {priceChips && <ModelVote claudeVal={priceChips.claude} openaiVal={priceChips.openai} avgVal={priceChips.avg} />}

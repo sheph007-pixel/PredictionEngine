@@ -310,6 +310,8 @@ body { font-size: 14px; }
 
 /* ---------- pipeline ---------- */
 .pipeline { background: var(--bg-card); border: 1px solid var(--rule); border-radius: 12px; box-shadow: var(--shadow-card); }
+.pipeline-head { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); padding: 11px 20px 9px; border-bottom: 1px solid var(--rule); }
+.pipeline-head b { color: var(--ink-2); font-weight: 600; }
 
 /* ---------- advisor chat card ---------- */
 /* The chat is the primary input surface, so it gets its own card between

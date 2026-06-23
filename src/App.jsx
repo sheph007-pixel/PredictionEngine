@@ -3,7 +3,7 @@ import { STAGES, STAGE_INDEX, PROCESS_DEFAULT, BUYERS } from './data.js';
 import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
   Conversation, winnerProbabilities, AIHistoryButton, AIHistoryModal,
-  BrainButton, BrainModal, PrintButton, STAGE_PROB_RANGE,
+  BrainButton, BrainModal, PrintButton, STAGE_PROB_RANGE, derivePhase,
 } from './components.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
@@ -775,12 +775,19 @@ export default function App() {
       )}
 
       <div className="pipeline">
+        <div className="pipeline-head">
+          {orderedLive.length === 1 ? (
+            <>Sole remaining buyer · <b>{derivePhase(buyers).phase}</b> · offer review</>
+          ) : (
+            <>Ranked by likelihood of closing · <b>{orderedLive.length}</b> live</>
+          )}
+        </div>
         <div className="rows">
           {orderedLive.map((b, i) => (
             <BuyerRow
               key={b.id}
               buyer={b}
-              displayRank={i + 1}
+              displayRank={orderedLive.length === 1 ? '●' : i + 1}
               selected={b.id === openId}
               winShare={winnerData.winnerByBuyer[b.id]}
               onSelect={() => openBuyer(b.id)}
