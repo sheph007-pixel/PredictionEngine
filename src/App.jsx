@@ -4,6 +4,7 @@ import {
   HeroKPIs, ProcessTracker, SystemBar, BuyerRow, BuyerModal,
   Conversation, winnerProbabilities, AIHistoryButton, AIHistoryModal,
   BrainButton, BrainModal, PrintButton, STAGE_PROB_RANGE, derivePhase,
+  OfferWarRoom,
 } from './components.jsx';
 import { LibraryButton, LibraryModal, useLibrary } from './Library.jsx';
 import { rescanPipeline, rescanBuyer, rescanBuyers, applyRescanToBuyers, fmtMetaFromRescan } from './lib/ai-engine.js';
@@ -80,6 +81,9 @@ function usePersistedState(key, initial) {
 
 export default function App() {
   const [buyers, setBuyersRaw] = usePersistedState('buyers', BUYERS);
+  // Received-offer state for the single-buyer war-room (amount + walk-away
+  // floor). Persisted client-side under the localStorage workspace key.
+  const [offer, setOffer] = usePersistedState('offer', null);
   // Wrap setBuyers so any path that hydrates buyers (server fetch, persisted
   // state, AI rescan, manual edits) goes through the noteLog migration shim.
   // The shim is idempotent — buyers already with noteLog pass through.
@@ -772,6 +776,17 @@ export default function App() {
             onRescanAll={rescanAll}
           />
         </div>
+      )}
+
+      {orderedLive.length === 1 && (
+        <OfferWarRoom
+          buyers={buyers}
+          ebitda={ebitda}
+          caseMode={caseMode}
+          market={market}
+          offer={offer}
+          onSetOffer={setOffer}
+        />
       )}
 
       <div className="pipeline">
